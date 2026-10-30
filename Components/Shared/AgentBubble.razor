@@ -1,0 +1,82 @@
+@using Dana.Services.Ai
+@inject AgentService Agents
+@inject SettingsService Settings
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IDisposable
+
+@if (_agents.Count > 0 && !Nav.Uri.Contains("/oficina", StringComparison.OrdinalIgnoreCase))
+{
+    <div class="agent-bubble @(_open ? "open" : "")">
+        @if (_open)
+        {
+            <div class="agent-bubble-panel">
+                <div class="agent-bubble-pick">
+                    @foreach (var a in _agents)
+                    {
+                        var ag = a;
+                        <button type="button" class="agent-pick @(a.Id == _current ? "sel" : "")" title="@a.Name · @a.Role" @onclick="() => SelectAsync(ag.Id!)">
+                            <span class="agent-avatar sm" style="background:@a.Color">@a.Name[..1]</span>@if (a.IsBoss) { <span class="crown">👑</span> }
+                        </button>
+                    }
+                </div>
+                <AgentChat AgentId="@_current" Compact="true" OnClose="Toggle" />
+            </div>
+        }
+        <button type="button" class="agent-bubble-btn" title="@(_open ? "Cerrar" : "Hablar con un agente")" @onclick="Toggle">
+            @if (_open) { <span>✕</span> }
+            else
+            {
+                <span class="agent-avatar" style="background:@(_agents.FirstOrDefault(a => a.Id == _current)?.Color ?? "#0073ea")">@(_agents.FirstOrDefault(a => a.Id == _current)?.Name[..1] ?? "🤖")</span>
+                @if (_busy) { <span class="agent-bubble-dot"></span> }
+            }
+        </button>
+    </div>
+}
+
+@code {
+    private List<AiAgent> _agents = new();
+    private string? _current;
+    private bool _open, _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await Agents.EnsureDefaultsAsync();
+            _agents = (await Agents.GetAllAsync()).Where(a => a.IsActive).ToList();
+            _current = (_agents.FirstOrDefault(a => a.IsBoss) ?? _agents.FirstOrDefault())?.Id;
+        }
+        catch { }
+        Agents.BusyChanged += OnBusy;
+        Nav.LocationChanged += OnNav;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (!first) return;
+        try
+        {
+            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", "dana.agent");
+            if (saved is not null && _agents.Any(a => a.Id == saved)) { _current = saved; StateHasChanged(); }
+        }
+        catch { }
+    }
+
+    private void OnBusy(string id, bool busy) => _ = InvokeAsync(() => { _busy = Agents.BusyAgents.Count > 0; StateHasChanged(); });
+    private void OnNav(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => _ = InvokeAsync(StateHasChanged);
+
+    private async Task SelectAsync(string id)
+    {
+        _current = id;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", "dana.agent", id); } catch { }
+    }
+
+    private async Task Toggle()
+    {
+        _open = !_open;
+        if (_open) { try { _agents = (await Agents.GetAllAsync()).Where(a => a.IsActive).ToList(); } catch { } }
+    }
+
+    public void Dispose() { Agents.BusyChanged -= OnBusy; Nav.LocationChanged -= OnNav; }
+}

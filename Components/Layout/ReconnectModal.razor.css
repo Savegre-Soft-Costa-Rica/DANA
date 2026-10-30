@@ -1,0 +1,66 @@
+.components-reconnect-first-attempt-visible,
+.components-reconnect-repeated-attempt-visible,
+.components-reconnect-failed-visible,
+.components-pause-visible,
+.components-resume-failed-visible,
+.components-rejoining-animation {
+    display: none;
+}
+
+#components-reconnect-modal.components-reconnect-show .components-reconnect-first-attempt-visible,
+#components-reconnect-modal.components-reconnect-show .components-rejoining-animation,
+#components-reconnect-modal.components-reconnect-paused .components-pause-visible,
+#components-reconnect-modal.components-reconnect-resume-failed .components-resume-failed-visible,
+#components-reconnect-modal.components-reconnect-retrying,
+#components-reconnect-modal.components-reconnect-retrying .components-reconnect-repeated-attempt-visible,
+#components-reconnect-modal.components-reconnect-retrying .components-rejoining-animation,
+#components-reconnect-modal.components-reconnect-failed,
+#components-reconnect-modal.components-reconnect-failed .components-reconnect-failed-visible {
+    display: block;
+}
+
+
+#components-reconnect-modal {
+    background: #fff;
+    width: 22rem;
+    max-width: 92vw;
+    margin: 22vh auto;
+    padding: 1.75rem 1.5rem 1.25rem;
+    border: 0;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.25);
+    text-align: center;
+    color: #323338;
+    font-family: "Figtree", "Roboto", -apple-system, "Segoe UI", sans-serif;
+    font-size: .95rem;
+}
+#components-reconnect-modal::backdrop { background: rgba(15, 23, 42, .45); backdrop-filter: blur(2px); }
+#components-reconnect-modal p { margin: .4rem 0 .8rem; }
+#components-reconnect-modal small { color: #676879; font-size: .8rem; }
+.reconnect-title { font-weight: 800; font-size: 1.1rem; background: linear-gradient(135deg, #0073ea, #a25ddc); -webkit-background-clip: text; background-clip: text; color: transparent; margin: .5rem 0 .25rem; }
+.reconnect-btn { background: #0073ea; color: #fff; border: 0; border-radius: 4px; padding: 7px 16px; font: inherit; font-weight: 500; cursor: pointer; }
+.reconnect-btn:hover { background: #0060b9; }
+.reconnect-link { display: block; margin: .75rem auto 0; background: transparent; border: 0; color: #676879; font: inherit; font-size: .8rem; cursor: pointer; text-decoration: underline; }
+.reconnect-link:hover { color: #0073ea; }
+
+.components-rejoining-animation {
+    display: none;
+    position: relative;
+    width: 56px;
+    height: 56px;
+    margin: 0 auto;
+}
+.components-rejoining-animation div {
+    position: absolute;
+    inset: 0;
+    border: 3px solid #0073ea;
+    border-radius: 50%;
+    opacity: 0;
+    animation: components-rejoining-animation 1.4s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+}
+.components-rejoining-animation div:nth-child(2) { animation-delay: -0.7s; }
+@keyframes components-rejoining-animation {
+    0% { transform: scale(.3); opacity: 0; }
+    30% { opacity: .9; }
+    100% { transform: scale(1); opacity: 0; }
+}

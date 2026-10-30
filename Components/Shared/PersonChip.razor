@@ -1,0 +1,13 @@
+@if (string.IsNullOrWhiteSpace(Name))
+{
+    <span class="person-chip empty"><span class="avatar avatar-letter avatar-sm">+</span>@if (ShowName) { <span class="muted">Sin asignar</span> }</span>
+}
+else
+{
+    <span class="person-chip" title="@Name"><span class="avatar avatar-letter avatar-sm" style="background:@Avatar.ColorFor(Name)">@Avatar.Initials(Name)</span>@if (ShowName) { <span>@Name</span> }</span>
+}
+
+@code {
+    [Parameter] public string? Name { get; set; }
+    [Parameter] public bool ShowName { get; set; } = true;
+}

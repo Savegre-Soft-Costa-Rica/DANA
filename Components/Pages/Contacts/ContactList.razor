@@ -1,0 +1,84 @@
+@page "/contacts"
+@inherits BoardPage<Contact>
+@inject IRepository<Contact> Contacts
+@inject IRepository<Company> Companies
+@inject ActivityService Activities
+@inject AutomationService Automations
+
+<PageTitle>Dana · Contactos</PageTitle>
+
+<PageHeader Title="Contactos" Subtitle="Personas con las que se hace negocio, agrupadas por tipo." />
+
+<BoardToolbar View="View" ViewChanged="v => View = v" Search="@Search" SearchChanged="s => Search = s" Person="@Person" PersonChanged="p => Person = p"
+              People="People" BoardKey="contacts" NewLabel="contacto" OnNew="New"
+              Filters="Filters" FiltersChanged="f => Filters = f" FilterColumns="FilterColumns"
+              HiddenColumns="HiddenColumns" OnShowColumn="ShowColumnAsync"
+              ShowArchived="ShowArchived" ShowArchivedChanged="a => ShowArchived = a" ArchivedCount="ArchivedCount"
+              Views="Config.Views" ActiveViewId="@ActiveViewId" OnSelectView="SelectView" OnSaveView="SaveViewAsync" OnDeleteView="DeleteViewAsync" />
+
+@if (Items is null)
+{
+    <p class="muted">Cargando…</p>
+}
+else
+{
+    <Board TItem="Contact" Items="Filtered.ToList()" Columns="Columns" Groups="Groups" GroupKey="c => c.Type ?? string.Empty" View="View" Search="@Search"
+           HideEmptyGroups="@(View == BoardView.Table)" AllowClearStatus="true" ShowArchived="ShowArchived"
+           Config="Config" OnConfigChanged="ConfigChangedAsync"
+           OnChanged="OnChangedAsync" OnMove="OnMoveAsync" OnAdd="OnAddAsync" OnOpen="Open" OnDelete="OnDeleteAsync" OnArchive="OnArchiveAsync" OnDuplicate="OnDuplicateAsync" />
+}
+
+@code {
+    protected override string BoardKey => "contacts";
+
+    protected override async Task BuildBaseColumnsAsync()
+    {
+        var types = OptionsFor("type", BoardColumn<Contact>.Labels(Catalogs.ContactTypes));
+        Groups = types.Select(t => new BoardGroup { Key = t.Value, Title = t.Label, Color = t.Color })
+            .Append(new BoardGroup { Key = "", Title = "Sin tipo", Color = "#c4c4c4" }).ToList();
+        var companies = (await Companies.GetAllAsync()).Where(c => !c.IsArchived).OrderBy(c => c.Title).Select(c => new StatusOption(c.Id!, c.Title, "#fdab3d")).ToList();
+        BaseColumns =
+        [
+            BoardColumn<Contact>.Name("Contacto", c => c.FullName, (c, v) => { var p = v.Split(' ', 2); c.Name = p[0]; c.LastName = p.ElementAtOrDefault(1); }),
+            BoardColumn<Contact>.Status("type", "Tipo", c => c.Type, (c, v) => c.Type = v, types, 130),
+            BoardColumn<Contact>.Select("company", "Compañía", c => c.CompanyId, (c, v) => c.CompanyId = v, companies, 180, labelsEditable: false),
+            BoardColumn<Contact>.Text("position", "Cargo", c => c.Position, (c, v) => c.Position = v, 150),
+            BoardColumn<Contact>.Phone("phone", "Teléfono", c => c.Phone, (c, v) => c.Phone = v),
+            BoardColumn<Contact>.Email("email", "Correo", c => c.Email, (c, v) => c.Email = v),
+            BoardColumn<Contact>.Person("assigned", "Responsable", c => c.AssignedTo, (c, v) => c.AssignedTo = v, People, 150),
+            BoardColumn<Contact>.Select("source", "Fuente", c => c.Source, (c, v) => c.Source = v, BoardColumn<Contact>.Labels(Catalogs.Sources), 140),
+            BoardColumn<Contact>.Date("created", "Creado", c => c.CreatedAt, null, 110),
+        ];
+    }
+
+    protected override Task<List<Contact>> LoadItemsAsync() => Contacts.GetAllAsync();
+    protected override async Task SaveItemAsync(Contact item, BoardColumn<Contact>? column) { item.UpdatedBy = await Me.NameAsync(); await Contacts.UpdateAsync(item); }
+
+    protected override async Task DeleteItemAsync(Contact item) => await Contacts.DeleteAsync(item.Id!, await Me.NameAsync());
+
+    protected override async Task MoveItemAsync(BoardMove<Contact> m)
+    {
+        m.Item.Type = string.IsNullOrEmpty(m.Group.Key) ? null : m.Group.Key;
+        m.Item.UpdatedBy = await Me.NameAsync();
+        await Contacts.UpdateAsync(m.Item);
+    }
+
+    protected override async Task<Contact> CreateItemAsync(BoardAdd a)
+    {
+        var p = a.Title.Split(' ', 2);
+        var c = new Contact { CreatedBy = await Me.NameAsync(), Name = p[0], LastName = p.ElementAtOrDefault(1), Type = string.IsNullOrEmpty(a.Group.Key) ? null : a.Group.Key, AssignedTo = string.IsNullOrEmpty(Person) ? null : Person };
+        await Contacts.InsertAsync(c);
+        await Automations.TriggerAsync(new AutomationEvent("contacts", TriggerTypes.Created, c, await Me.NameAsync()));
+        await Activities.LogAsync("contact", c.Id!, c.FullName, ActivityKinds.Created, "Creó el contacto", await Me.NameAsync());
+        return c;
+    }
+
+    protected override async Task<Contact> InsertCopyAsync(Contact copy)
+    {
+        copy.LastName = string.IsNullOrEmpty(copy.LastName) ? "(copia)" : copy.LastName + " (copia)";
+        await Contacts.InsertAsync(copy);
+        return copy;
+    }
+
+    protected override void OpenItem(Contact? item) => Drawer.Open<ContactEdit>(item?.Id, item is null ? "Nuevo contacto" : "Contacto", ReloadAsync);
+}

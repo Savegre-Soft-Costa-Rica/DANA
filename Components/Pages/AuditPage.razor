@@ -1,0 +1,77 @@
+@page "/auditoria"
+@attribute [Authorize(Policy = "Admin")]
+@inject IRepository<AuditEntry> Audit
+@inject UserService Users
+@using MongoDB.Driver
+
+<PageTitle>Dana · Auditoría</PageTitle>
+
+<PageHeader Title="Registro de auditoría" Subtitle="Quién creó, cambió, eliminó o restauró cada elemento, campo por campo.">
+    <Actions>
+        <select class="form-select" style="width:auto" value="@_user" @onchange="async e => { _user = e.Value?.ToString() ?? string.Empty; await LoadAsync(); }">
+            <option value="">Todos los usuarios</option>
+            @foreach (var u in _people) { <option value="@u">@u</option> }
+        </select>
+        <select class="form-select" style="width:auto" value="@_collection" @onchange="async e => { _collection = e.Value?.ToString() ?? string.Empty; await LoadAsync(); }">
+            <option value="">Todo</option><option value="leads">Prospectos</option><option value="deals">Negociaciones</option><option value="contacts">Contactos</option><option value="companies">Compañías</option>
+            <option value="pipelines">Embudos</option><option value="users">Usuarios</option><option value="automations">Automatizaciones</option><option value="settings">Configuración</option>
+        </select>
+    </Actions>
+</PageHeader>
+
+@if (_items is null) { <p class="muted">Cargando…</p> }
+else if (_items.Count == 0) { <div class="empty-state">Sin registros.</div> }
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover crm-table align-middle">
+            <thead><tr><th>Cuándo</th><th>Usuario</th><th>Acción</th><th>Elemento</th><th>Cambios</th></tr></thead>
+            <tbody>
+                @foreach (var a in _items)
+                {
+                    <tr>
+                        <td class="small text-nowrap" title="@a.CreatedAt.ToLocalTime().ToString("f")">@a.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                        <td><PersonChip Name="@a.User" /></td>
+                        <td><span class="badge-pill" style="background:@ActionColor(a.Action)">@ActionLabel(a.Action)</span></td>
+                        <td>@if (EntityLink(a) is { } link) { <a href="@link">@a.Title</a> } else { @a.Title } <small class="muted">· @a.Collection</small></td>
+                        <td class="small">
+                            @if (a.Changes.Count == 0) { <span class="muted">—</span> }
+                            @foreach (var c in a.Changes.Take(6)) { <div><code>@c.Field</code>: <span class="muted">@(c.Old ?? "∅")</span> → <strong>@(c.New ?? "∅")</strong></div> }
+                            @if (a.Changes.Count > 6) { <div class="muted">… y @(a.Changes.Count - 6) más</div> }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (_items.Count >= 200) { <div class="muted small">Se muestran los últimos 200 registros.</div> }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "entity")] public string? EntityFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "id")] public string? IdFilter { get; set; }
+
+    private List<AuditEntry>? _items;
+    private List<string> _people = new();
+    private string _user = "", _collection = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _people = (await Users.GetAllAsync()).Select(u => u.Name).OrderBy(n => n).ToList();
+        if (!string.IsNullOrEmpty(EntityFilter)) _collection = EntityFilter;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var f = Builders<AuditEntry>.Filter.Empty;
+        if (!string.IsNullOrEmpty(_user)) f &= Builders<AuditEntry>.Filter.Eq(a => a.User, _user);
+        if (!string.IsNullOrEmpty(_collection)) f &= Builders<AuditEntry>.Filter.Eq(a => a.Collection, _collection);
+        if (!string.IsNullOrEmpty(IdFilter)) f &= Builders<AuditEntry>.Filter.Eq(a => a.EntityId, IdFilter);
+        _items = await Audit.Collection.Find(f).SortByDescending(a => a.CreatedAt).Limit(200).ToListAsync();
+    }
+
+    private static string ActionLabel(string a) => a switch { "create" => "creó", "update" => "modificó", "delete" => "eliminó", "restore" => "restauró", "purge" => "borró definitivamente", _ => a };
+    private static string ActionColor(string a) => a switch { "create" => "#00c875", "update" => "#0073ea", "delete" => "#e2445c", "restore" => "#fdab3d", _ => "#676879" };
+    private static string? EntityLink(AuditEntry a) => a.Collection switch { "leads" => $"leads/{a.EntityId}", "deals" => $"deals/{a.EntityId}", "contacts" => $"contacts/{a.EntityId}", "companies" => $"companies/{a.EntityId}", "pipelines" => $"pipelines/{a.EntityId}", _ => null };
+}

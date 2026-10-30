@@ -1,0 +1,87 @@
+@page "/cronograma"
+@inject DealService Deals
+@inject PipelineService Pipelines
+@inject DrawerService Drawer
+@using System.Globalization
+
+<PageTitle>Dana · Cronograma</PageTitle>
+
+<PageHeader Title="Cronograma" Subtitle="Cada barra va desde la creación de la negociación hasta su cierre previsto (o real).">
+    <Actions>
+        <select class="form-select" style="width:auto" @bind="_groupBy"><option value="stage">Agrupar por etapa</option><option value="assignee">Agrupar por responsable</option><option value="none">Sin agrupar</option></select>
+        <button class="tool @(_onlyOpen ? "on" : "")" @onclick="() => _onlyOpen = !_onlyOpen">◔ Solo abiertas</button>
+        <button class="btn-secondary" @onclick="() => _weeks = Math.Max(4, _weeks - 4)">−</button>
+        <button class="btn-secondary" @onclick="() => _weeks = Math.Min(52, _weeks + 4)">+</button>
+    </Actions>
+</PageHeader>
+
+@if (_deals is null) { <p class="muted">Cargando…</p> }
+else
+{
+    var start = DateTime.Now.Date.AddDays(-7 - ((int)DateTime.Now.DayOfWeek + 6) % 7);
+    var days = _weeks * 7;
+    var end = start.AddDays(days);
+    double Pos(DateTime d) => Math.Clamp((d - start).TotalDays / days * 100, 0, 100);
+    var items = _deals.Where(d => !_onlyOpen || _pipelines.GetValueOrDefault(d.PipelineId)?.GetStage(d.StageId)?.Kind == StageKind.Process).ToList();
+    var groups = _groupBy == "stage" ? items.GroupBy(d => _pipelines.GetValueOrDefault(d.PipelineId)?.GetStage(d.StageId)?.Name ?? "—")
+              : _groupBy == "assignee" ? items.GroupBy(d => d.AssignedTo ?? "Sin asignar")
+              : items.GroupBy(_ => "Negociaciones");
+    <div class="gantt">
+        <div class="gantt-head">
+            <div class="gantt-label"></div>
+            <div class="gantt-scale">
+                @for (var wk = 0; wk < _weeks; wk++)
+                {
+                    var d = start.AddDays(wk * 7);
+                    <div class="gantt-week" style="left:@(100.0 * wk / _weeks)%; width:@(100.0 / _weeks)%">@d.ToString("dd MMM", new CultureInfo("es-ES"))</div>
+                }
+                <div class="gantt-today" style="left:@Pos(DateTime.Now.Date)%"></div>
+            </div>
+        </div>
+        @foreach (var g in groups)
+        {
+            <div class="gantt-group">@g.Key <span class="muted small">(@g.Count())</span></div>
+            @foreach (var d in g.OrderBy(x => x.ExpectedCloseDate ?? x.ClosedAt ?? DateTime.MaxValue))
+            {
+                var stage = _pipelines.GetValueOrDefault(d.PipelineId)?.GetStage(d.StageId);
+                var from = d.CreatedAt.ToLocalTime().Date;
+                var to = (d.ClosedAt?.ToLocalTime().Date ?? d.ExpectedCloseDate ?? DateTime.Now.Date.AddDays(7));
+                if (to < from) to = from.AddDays(1);
+                var visible = to >= start && from <= end;
+                var late = d.ClosedAt is null && d.ExpectedCloseDate is not null && d.ExpectedCloseDate < DateTime.Now.Date;
+                <div class="gantt-row">
+                    <div class="gantt-label"><button class="link-btn" @onclick="() => OpenDeal(d)">@d.Title</button><small class="muted">$@d.Amount.ToString("N0")</small></div>
+                    <div class="gantt-track">
+                        @if (visible)
+                        {
+                            <div class="gantt-bar @(late ? "late" : "")" style="left:@Pos(from)%; width:@Math.Max(0.8, Pos(to) - Pos(from))%; background:@(stage?.Color ?? "#0073ea")" title="@d.Title · @from.ToString("dd/MM") → @to.ToString("dd/MM") · @stage?.Name">
+                                <span>@stage?.Name</span>
+                            </div>
+                        }
+                        else { <span class="muted small" style="padding-left:6px">fuera del rango (@from.ToString("dd/MM/yy") → @to.ToString("dd/MM/yy"))</span> }
+                        <div class="gantt-today" style="left:@Pos(DateTime.Now.Date)%"></div>
+                    </div>
+                </div>
+            }
+        }
+        @if (items.Count == 0) { <div class="empty-state">No hay negociaciones que mostrar.</div> }
+    </div>
+}
+
+@code {
+    private List<Deal>? _deals;
+    private Dictionary<string, Pipeline> _pipelines = new();
+    private string _groupBy = "stage";
+    private bool _onlyOpen = true;
+    private int _weeks = 12;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _pipelines = (await Pipelines.GetAllAsync()).ToDictionary(p => p.Id!);
+        await ReloadAsync();
+    }
+
+    private void OpenDeal(Deal d) => Drawer.Open<Dana.Components.Pages.Deals.DealEdit>(d.Id, "Negociación", ReloadAsync);
+
+    private async Task ReloadAsync() { _deals = (await Deals.GetAllAsync()).Where(d => !d.IsArchived).ToList(); StateHasChanged(); }
+}

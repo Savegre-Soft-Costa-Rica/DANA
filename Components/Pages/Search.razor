@@ -1,0 +1,85 @@
+@page "/buscar"
+@inject LeadService Leads
+@inject DealService Deals
+@inject IRepository<Contact> Contacts
+@inject IRepository<Company> Companies
+
+<PageTitle>Dana · Buscar</PageTitle>
+
+<PageHeader Title="Resultados de búsqueda" Subtitle="@($"\"{Q}\"")" />
+
+@if (_loading)
+{
+    <p class="muted">Buscando…</p>
+}
+else if (_total == 0)
+{
+    <div class="empty-state">No se encontró nada para <strong>@Q</strong>.</div>
+}
+else
+{
+    <div class="widgets">
+        @if (_leads.Count > 0)
+        {
+            <div class="widget w-6">
+                <div class="widget-title"><span class="nav-dot" style="background:#a25ddc"></span> Prospectos (@_leads.Count)</div>
+                <ul class="list-rows">@foreach (var l in _leads) { <li><a href="leads/@l.Id">@l.Title</a><span class="muted">@l.CompanyName</span></li> }</ul>
+            </div>
+        }
+        @if (_deals.Count > 0)
+        {
+            <div class="widget w-6">
+                <div class="widget-title"><span class="nav-dot" style="background:#0073ea"></span> Negociaciones (@_deals.Count)</div>
+                <ul class="list-rows">@foreach (var d in _deals) { <li><a href="deals/@d.Id">@d.Title</a><Money Amount="d.Amount" Currency="@d.Currency" /></li> }</ul>
+            </div>
+        }
+        @if (_contacts.Count > 0)
+        {
+            <div class="widget w-6">
+                <div class="widget-title"><span class="nav-dot" style="background:#00c875"></span> Contactos (@_contacts.Count)</div>
+                <ul class="list-rows">@foreach (var c in _contacts) { <li><a href="contacts/@c.Id">@c.FullName</a><span class="muted">@c.Email</span></li> }</ul>
+            </div>
+        }
+        @if (_companies.Count > 0)
+        {
+            <div class="widget w-6">
+                <div class="widget-title"><span class="nav-dot" style="background:#fdab3d"></span> Compañías (@_companies.Count)</div>
+                <ul class="list-rows">@foreach (var c in _companies) { <li><a href="companies/@c.Id">@c.Title</a><span class="muted">@c.Industry</span></li> }</ul>
+            </div>
+        }
+        @if (_documents.Count > 0)
+        {
+            <div class="widget w-6">
+                <div class="widget-title"><span class="nav-dot" style="background:#323338"></span> Documentos (@_documents.Count)</div>
+                <ul class="list-rows">@foreach (var d in _documents) { <li><a href="documentos/@d.Id">@DocumentKinds.Get(d.Kind).Emoji @d.Title</a><span class="muted">@d.EntityTitle · @DocumentStatuses.Get(d.Status).Label</span></li> }</ul>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
+
+    private bool _loading = true;
+    private List<Lead> _leads = new();
+    private List<Deal> _deals = new();
+    private List<Contact> _contacts = new();
+    private List<Company> _companies = new();
+    private List<CrmDocument> _documents = new();
+    [Inject] private DocumentService Documents { get; set; } = default!;
+    private int _total => _leads.Count + _deals.Count + _contacts.Count + _companies.Count + _documents.Count;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        var q = (Q ?? "").Trim();
+        if (q.Length == 0) { _loading = false; return; }
+        bool M(params string?[] f) => f.Any(x => x is not null && x.Contains(q, StringComparison.OrdinalIgnoreCase));
+        _leads = (await Leads.GetAllAsync()).Where(l => !l.IsArchived && M(l.Title, l.FullName, l.CompanyName, l.Email, l.Phone)).ToList();
+        _deals = (await Deals.GetAllAsync()).Where(d => !d.IsArchived && M(d.Title, d.Comments)).ToList();
+        _contacts = (await Contacts.GetAllAsync()).Where(c => !c.IsArchived && M(c.FullName, c.Email, c.Phone, c.Position)).ToList();
+        _companies = (await Companies.GetAllAsync()).Where(c => !c.IsArchived && M(c.Title, c.Email, c.Phone, c.Industry, c.TaxId)).ToList();
+        _documents = (await Documents.GetAllAsync()).Where(d => M(d.Title, d.EntityTitle, d.Content)).Take(20).ToList();
+        _loading = false;
+    }
+}

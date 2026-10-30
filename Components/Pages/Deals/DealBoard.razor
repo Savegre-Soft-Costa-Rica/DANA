@@ -1,0 +1,152 @@
+@page "/deals"
+@page "/deals/board/{PipelineId}"
+@page "/deals/list"
+@inherits BoardPage<Deal>
+@inject PipelineService Pipelines
+@inject DealService Deals
+@inject IRepository<Contact> Contacts
+@inject IRepository<Company> Companies
+
+<PageTitle>Dana · Negociaciones</PageTitle>
+
+<PageHeader Title="Negociaciones" Subtitle="@(_pipeline is null ? "" : $"Embudo: {_pipeline.Name}. Cambie la etapa desde la columna o arrastrando en el Kanban.")">
+    <Actions>
+        @if (_pipelines.Count > 0)
+        {
+            <select class="form-select" style="width:auto" value="@_pipeline?.Id" @onchange="OnPipelineChanged">
+                @foreach (var p in _pipelines) { <option value="@p.Id">@p.Name @(p.IsDefault ? "★" : "")</option> }
+            </select>
+        }
+        @if (_pipeline is not null) { <a class="btn-secondary" href="pipelines/@_pipeline.Id">Editar etapas</a> }
+    </Actions>
+</PageHeader>
+
+<BoardToolbar View="View" ViewChanged="v => View = v" Search="@Search" SearchChanged="s => Search = s" Person="@Person" PersonChanged="p => Person = p"
+              People="People" BoardKey="deals" NewLabel="negociación" OnNew="New"
+              Filters="Filters" FiltersChanged="f => Filters = f" FilterColumns="FilterColumns"
+              HiddenColumns="HiddenColumns" OnShowColumn="ShowColumnAsync"
+              ShowArchived="ShowArchived" ShowArchivedChanged="a => ShowArchived = a" ArchivedCount="ArchivedCount"
+              Views="Config.Views" ActiveViewId="@ActiveViewId" OnSelectView="SelectView" OnSaveView="SaveViewAsync" OnDeleteView="DeleteViewAsync">
+    <Extra>
+        <button class="tool @(_onlyOpen ? "on" : "")" @onclick="() => _onlyOpen = !_onlyOpen">◔ Solo abiertas</button>
+    </Extra>
+</BoardToolbar>
+
+@if (_pipeline is null || Items is null)
+{
+    <p class="muted">Cargando…</p>
+}
+else
+{
+    <Board TItem="Deal" Items="Visible" Columns="Columns" Groups="Groups" GroupKey="d => d.StageId" View="View" Search="@Search"
+           KanbanSumColumn="SumColumn" KanbanCardFields="5" ShowArchived="ShowArchived"
+           Config="Config" OnConfigChanged="ConfigChangedAsync"
+           OnChanged="OnChangedAsync" OnMove="OnMoveAsync" OnAdd="OnAddAsync" OnOpen="Open" OnDelete="OnDeleteAsync" OnArchive="OnArchiveAsync" OnDuplicate="OnDuplicateAsync" />
+}
+
+@code {
+    [Parameter] public string? PipelineId { get; set; }
+
+    protected override string BoardKey => "deals";
+    private List<Pipeline> _pipelines = new();
+    private Pipeline? _pipeline;
+    private bool _onlyOpen;
+    private BoardColumn<Deal>? SumColumn => Columns.FirstOrDefault(c => c.Key == "amount");
+    private List<Deal> Visible => Filtered.Where(d => !_onlyOpen || _pipeline?.GetStage(d.StageId)?.Kind == StageKind.Process).ToList();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Cambio de embudo desde la URL: reconstruir columnas/grupos y recargar
+        var previous = _pipeline?.Id;
+        _pipelines = await Pipelines.GetAllAsync();
+        _pipeline = _pipelines.FirstOrDefault(p => p.Id == PipelineId) ?? _pipelines.FirstOrDefault(p => p.IsDefault) ?? _pipelines.FirstOrDefault();
+        if (_pipeline is null) { _pipeline = await Pipelines.GetDefaultAsync(); _pipelines = await Pipelines.GetAllAsync(); }
+        if (previous is not null && previous != _pipeline.Id)
+        {
+            await BuildAsync();
+            Items = await LoadItemsAsync();
+        }
+    }
+
+    protected override async Task BuildBaseColumnsAsync()
+    {
+        if (_pipeline is null)
+        {
+            _pipelines = await Pipelines.GetAllAsync();
+            _pipeline = _pipelines.FirstOrDefault(p => p.Id == PipelineId) ?? _pipelines.FirstOrDefault(p => p.IsDefault) ?? await Pipelines.GetDefaultAsync();
+        }
+        var contacts = (await Contacts.GetAllAsync()).Where(c => !c.IsArchived).OrderBy(c => c.FullName).Select(c => new StatusOption(c.Id!, c.FullName, Avatar.ColorFor(c.FullName))).ToList();
+        var companies = (await Companies.GetAllAsync()).Where(c => !c.IsArchived).OrderBy(c => c.Title).Select(c => new StatusOption(c.Id!, c.Title, "#fdab3d")).ToList();
+        var stages = _pipeline.OrderedStages.Select(s => new StatusOption(s.Id, s.Name, s.Color)).ToList();
+        Groups = _pipeline.OrderedStages.Select(s => new BoardGroup { Key = s.Id, Title = s.Name, Color = s.Color }).ToList();
+        BaseColumns =
+        [
+            BoardColumn<Deal>.Name("Negociación", d => d.Title, (d, v) => d.Title = v),
+            BoardColumn<Deal>.Status("stage", "Etapa", d => d.StageId, (d, v) => d.StageId = v ?? d.StageId, stages, 160, labelsEditable: false),
+            BoardColumn<Deal>.Person("assigned", "Responsable", d => d.AssignedTo, (d, v) => d.AssignedTo = v, People, 150),
+            BoardColumn<Deal>.Money("amount", "Importe", d => d.Amount, (d, v) => d.Amount = v ?? 0),
+            BoardColumn<Deal>.Select("currency", "Moneda", d => d.Currency, (d, v) => d.Currency = v ?? "USD", BoardColumn<Deal>.Labels(Catalogs.Currencies), 90, labelsEditable: false),
+            BoardColumn<Deal>.Select("contact", "Contacto", d => d.ContactId, (d, v) => d.ContactId = v, contacts, 170, labelsEditable: false),
+            BoardColumn<Deal>.Select("company", "Compañía", d => d.CompanyId, (d, v) => d.CompanyId = v, companies, 170, labelsEditable: false),
+            BoardColumn<Deal>.Number("prob", "Prob. %", d => d.Probability, (d, v) => d.Probability = (int)Math.Clamp(v ?? 0, 0, 100), "N0", 90),
+            BoardColumn<Deal>.Date("close", "Cierre previsto", d => d.ExpectedCloseDate, (d, v) => d.ExpectedCloseDate = v, 140),
+            BoardColumn<Deal>.Select("type", "Tipo", d => d.Type, (d, v) => d.Type = v, BoardColumn<Deal>.Labels(Catalogs.DealTypes), 130),
+            BoardColumn<Deal>.Select("source", "Fuente", d => d.Source, (d, v) => d.Source = v, BoardColumn<Deal>.Labels(Catalogs.Sources), 130),
+            BoardColumn<Deal>.Date("created", "Creada", d => d.CreatedAt, null, 110),
+        ];
+    }
+
+    protected override Task<List<Deal>> LoadItemsAsync() => Deals.GetByPipelineAsync(_pipeline!.Id!);
+
+    protected override async Task SaveItemAsync(Deal item, BoardColumn<Deal>? column)
+    {
+        var author = await Me.NameAsync();
+        if (column?.Key == "stage")
+        {
+            var updated = await Deals.MoveToStageAsync(item.Id!, item.StageId, author);
+            Replace(updated);
+        }
+        else await Deals.SaveAsync(item, author);
+    }
+
+    protected override async Task DeleteItemAsync(Deal item) => await Deals.DeleteAsync(item.Id!, await Me.NameAsync());
+
+    protected override async Task MoveItemAsync(BoardMove<Deal> m)
+    {
+        var updated = await Deals.MoveToStageAsync(m.Item.Id!, m.Group.Key, await Me.NameAsync());
+        Replace(updated);
+    }
+
+    private void Replace(Deal? updated)
+    {
+        if (updated is null || Items is null) return;
+        var idx = Items.FindIndex(d => d.Id == updated.Id);
+        if (idx >= 0) Items[idx] = updated;
+    }
+
+    protected override async Task<Deal> CreateItemAsync(BoardAdd a)
+    {
+        var author = await Me.NameAsync();
+        var deal = new Deal
+        {
+            Title = a.Title, PipelineId = _pipeline!.Id!, StageId = string.IsNullOrEmpty(a.Group.Key) ? _pipeline.FirstStage!.Id : a.Group.Key,
+            AssignedTo = string.IsNullOrEmpty(Person) ? author : Person
+        };
+        await Deals.SaveAsync(deal, author);
+        return deal;
+    }
+
+    protected override async Task<Deal> InsertCopyAsync(Deal copy)
+    {
+        copy.Title += " (copia)";
+        copy.History = new();
+        copy.ClosedAt = null;
+        copy.LeadId = null;
+        await Deals.SaveAsync(copy, await Me.NameAsync());
+        return copy;
+    }
+
+    protected override void OpenItem(Deal? item) => Drawer.Open<DealEdit>(item?.Id, item is null ? "Nueva negociación" : "Negociación", ReloadAsync);
+
+    private void OnPipelineChanged(ChangeEventArgs e) => Nav.NavigateTo($"deals/board/{e.Value}");
+}

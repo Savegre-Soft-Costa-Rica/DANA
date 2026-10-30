@@ -1,0 +1,81 @@
+@page "/leads"
+@inherits BoardPage<Lead>
+@inject LeadService Leads
+
+<PageTitle>Dana · Prospectos</PageTitle>
+
+<PageHeader Title="Prospectos" Subtitle="Clientes potenciales por calificar. Conviértalos en contacto, compañía y negociación." />
+
+<BoardToolbar View="View" ViewChanged="v => View = v" Search="@Search" SearchChanged="s => Search = s" Person="@Person" PersonChanged="p => Person = p"
+              People="People" BoardKey="leads" NewLabel="prospecto" OnNew="New"
+              Filters="Filters" FiltersChanged="f => Filters = f" FilterColumns="FilterColumns"
+              HiddenColumns="HiddenColumns" OnShowColumn="ShowColumnAsync"
+              ShowArchived="ShowArchived" ShowArchivedChanged="a => ShowArchived = a" ArchivedCount="ArchivedCount"
+              Views="Config.Views" ActiveViewId="@ActiveViewId" OnSelectView="SelectView" OnSaveView="SaveViewAsync" OnDeleteView="DeleteViewAsync" />
+
+@if (Items is null)
+{
+    <p class="muted">Cargando…</p>
+}
+else
+{
+    <Board TItem="Lead" Items="Filtered.ToList()" Columns="Columns" Groups="Groups" GroupKey="l => l.Status" View="View" Search="@Search"
+           HideEmptyGroups="@(View == BoardView.Table)" KanbanSumColumn="SumColumn" ShowArchived="ShowArchived"
+           Config="Config" OnConfigChanged="ConfigChangedAsync"
+           OnChanged="OnChangedAsync" OnMove="OnMoveAsync" OnAdd="OnAddAsync" OnOpen="Open" OnDelete="OnDeleteAsync" OnArchive="OnArchiveAsync" OnDuplicate="OnDuplicateAsync" />
+}
+
+@code {
+    protected override string BoardKey => "leads";
+    private BoardColumn<Lead>? SumColumn => Columns.FirstOrDefault(c => c.Key == "opportunity");
+
+    protected override Task BuildBaseColumnsAsync()
+    {
+        var statuses = OptionsFor("status", LeadStatuses.All.Select(s => new StatusOption(s.Id, s.Name, s.Color)));
+        Groups = statuses.Select(s => new BoardGroup { Key = s.Value, Title = s.Label, Color = s.Color }).ToList();
+        BaseColumns =
+        [
+            BoardColumn<Lead>.Name("Prospecto", l => l.Title, (l, v) => l.Title = v),
+            new BoardColumn<Lead> { Key = "status", Title = "Estado", Type = ColumnType.Status, Width = 140, Options = statuses, LabelsEditable = true,
+                LockedValues = LeadStatuses.All.Select(s => s.Id).ToHashSet(),
+                GetValue = l => l.Status, SetValue = (l, v) => l.Status = string.IsNullOrEmpty(v?.ToString()) ? LeadStatuses.New : v!.ToString()! },
+            BoardColumn<Lead>.Person("assigned", "Responsable", l => l.AssignedTo, (l, v) => l.AssignedTo = v, People, 150),
+            BoardColumn<Lead>.Text("name", "Nombre", l => l.FullName, (l, v) => { var p = (v ?? "").Split(' ', 2); l.Name = p.ElementAtOrDefault(0); l.LastName = p.ElementAtOrDefault(1); }, 160),
+            BoardColumn<Lead>.Text("company", "Compañía", l => l.CompanyName, (l, v) => l.CompanyName = v, 170),
+            BoardColumn<Lead>.Phone("phone", "Teléfono", l => l.Phone, (l, v) => l.Phone = v),
+            BoardColumn<Lead>.Email("email", "Correo", l => l.Email, (l, v) => l.Email = v),
+            BoardColumn<Lead>.Select("source", "Fuente", l => l.Source, (l, v) => l.Source = v, BoardColumn<Lead>.Labels(Catalogs.Sources), 140),
+            BoardColumn<Lead>.Money("opportunity", "Oportunidad", l => l.Opportunity, (l, v) => l.Opportunity = v ?? 0),
+            BoardColumn<Lead>.Date("created", "Creado", l => l.CreatedAt, null, 120),
+        ];
+        return Task.CompletedTask;
+    }
+
+    protected override Task<List<Lead>> LoadItemsAsync() => Leads.GetAllAsync();
+    protected override async Task SaveItemAsync(Lead item, BoardColumn<Lead>? column) => await Leads.SaveAsync(item, await Me.NameAsync());
+    protected override async Task DeleteItemAsync(Lead item) => await Leads.DeleteAsync(item.Id!, await Me.NameAsync());
+
+    protected override async Task MoveItemAsync(BoardMove<Lead> m)
+    {
+        m.Item.Status = m.Group.Key;
+        await Leads.SaveAsync(m.Item, await Me.NameAsync());
+    }
+
+    protected override async Task<Lead> CreateItemAsync(BoardAdd a)
+    {
+        var lead = new Lead { Title = a.Title, Status = string.IsNullOrEmpty(a.Group.Key) ? LeadStatuses.New : a.Group.Key, AssignedTo = string.IsNullOrEmpty(Person) ? null : Person };
+        await Leads.SaveAsync(lead, await Me.NameAsync());
+        return lead;
+    }
+
+    protected override async Task<Lead> InsertCopyAsync(Lead copy)
+    {
+        copy.Title += " (copia)";
+        copy.Status = copy.Status == LeadStatuses.Converted ? LeadStatuses.New : copy.Status;
+        copy.ConvertedContactId = copy.ConvertedCompanyId = copy.ConvertedDealId = null;
+        await Leads.SaveAsync(copy, await Me.NameAsync());
+        return copy;
+    }
+
+    protected override void OpenItem(Lead? item) => Drawer.Open<LeadEdit>(item?.Id, item is null ? "Nuevo prospecto" : "Prospecto", ReloadAsync);
+}

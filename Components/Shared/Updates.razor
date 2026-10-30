@@ -1,0 +1,222 @@
+@inject ActivityService Activities
+@inject NotificationService Notifications
+@inject AttachmentService Attachments
+@inject UserService Users
+@inject CurrentUser Me
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<div class="updates">
+    <div class="composer">
+        <div class="mention-wrap">
+            <textarea placeholder="Escriba una actualización… use @@ para mencionar a alguien (Ctrl+Enter para publicar)" rows="2"
+                      value="@_text" @oninput="OnInput" @onkeydown="OnKey"></textarea>
+            @if (_mentionOpen)
+            {
+                <div class="mention-list">
+                    @foreach (var u in _people.Where(p => p.Contains(_mentionQuery, StringComparison.OrdinalIgnoreCase)).Take(6))
+                    {
+                        <button class="list-opt" @onclick="() => PickMention(u)"><span class="avatar avatar-letter avatar-sm" style="background:@Avatar.ColorFor(u)">@Avatar.Initials(u)</span>@u</button>
+                    }
+                </div>
+            }
+        </div>
+        @if (_pendingFiles.Count > 0)
+        {
+            <div class="pending-files">
+                @foreach (var f in _pendingFiles) { <span class="chip">📎 @f.Name <span class="muted">(@(f.Size / 1024) KB)</span></span> }
+            </div>
+        }
+        <div class="composer-actions">
+            <label class="btn-ghost btn-sm file-btn">📎 Adjuntar<InputFile OnChange="OnFiles" multiple /></label>
+            <button class="btn-primary btn-sm" @onclick="PostAsync" disabled="@(_busy || (string.IsNullOrWhiteSpace(_text) && _pendingFiles.Count == 0))">@(_busy ? "Publicando…" : "Actualizar")</button>
+        </div>
+        @if (_error is not null) { <div class="text-danger small">@_error</div> }
+    </div>
+
+    @if (_items is null)
+    {
+        <div class="muted small">Cargando…</div>
+    }
+    else if (_items.Count == 0)
+    {
+        <div class="updates-empty">
+            <div class="updates-empty-ico">💬</div>
+            <div>Aún no hay actualizaciones</div>
+            <div class="muted small">Sea el primero en escribir una.</div>
+        </div>
+    }
+    else
+    {
+        @foreach (var a in _items)
+        {
+            var files = _attachments.Where(f => f.ActivityId == a.Id).ToList();
+            <div class="update @(a.Kind == ActivityKinds.Note ? "" : "system")">
+                <span class="avatar avatar-letter" style="background:@Avatar.ColorFor(a.Author)">@Avatar.Initials(a.Author)</span>
+                <div class="update-body">
+                    <div class="update-meta">
+                        <strong>@a.Author</strong>
+                        <span class="muted" title="@a.CreatedAt.ToLocalTime().ToString("f")">@TimeAgo(a.CreatedAt)</span>
+                        @if (a.Kind != ActivityKinds.Note) { <span class="badge-soft">@KindLabel(a.Kind)</span> }
+                        @if (a.Kind == ActivityKinds.Note)
+                        {
+                            <button class="icon-btn tiny ms-auto" title="Eliminar" @onclick="() => DeleteAsync(a)">✕</button>
+                        }
+                    </div>
+                    <div class="update-text">@((MarkupString)Highlight(a.Text))</div>
+                    @if (files.Count > 0)
+                    {
+                        <div class="files">
+                            @foreach (var f in files)
+                            {
+                                <a class="file-chip" href="files/@f.Id" target="_blank" title="@f.SizeText">
+                                    @if (f.IsImage) { <img src="files/@f.Id" alt="@f.FileName" /> } else { <span>📄</span> }
+                                    <span class="file-name">@f.FileName</span>
+                                </a>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+
+    @{ var orphan = _attachments.Where(f => f.ActivityId is null).ToList(); }
+    @if (orphan.Count > 0)
+    {
+        <div class="card-header" style="border:0;padding:8px 0 0">Archivos</div>
+        <div class="files">
+            @foreach (var f in orphan)
+            {
+                <a class="file-chip" href="files/@f.Id" target="_blank" title="@f.SizeText">
+                    @if (f.IsImage) { <img src="files/@f.Id" alt="@f.FileName" /> } else { <span>📄</span> }
+                    <span class="file-name">@f.FileName</span>
+                </a>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string EntityType { get; set; } = "";
+    [Parameter] public string? EntityId { get; set; }
+    [Parameter] public string EntityTitle { get; set; } = "";
+
+    private List<Activity>? _items;
+    private List<Attachment> _attachments = new();
+    private List<string> _people = new();
+    private readonly List<IBrowserFile> _pendingFiles = new();
+    private string _text = "";
+    private string? _loadedFor;
+    private bool _mentionOpen, _busy;
+    private string _mentionQuery = "";
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() =>
+        _people = (await Users.GetAllAsync()).Where(u => u.IsActive).Select(u => u.Name).OrderBy(n => n).ToList();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (EntityId is null) { _items = new(); return; }
+        if (_loadedFor == EntityId) return;
+        _loadedFor = EntityId;
+        _items = await Activities.GetForAsync(EntityType, EntityId);
+        _attachments = await Attachments.GetForAsync(EntityType, EntityId);
+    }
+
+    private string Link => EntityType switch { "lead" => $"leads/{EntityId}", "contact" => $"contacts/{EntityId}", "company" => $"companies/{EntityId}", _ => $"deals/{EntityId}" };
+
+    private void OnInput(ChangeEventArgs e)
+    {
+        _text = e.Value?.ToString() ?? "";
+        var at = _text.LastIndexOf('@');
+        if (at >= 0 && (at == 0 || char.IsWhiteSpace(_text[at - 1])))
+        {
+            var q = _text[(at + 1)..];
+            if (!q.Contains('\n') && q.Length <= 30) { _mentionOpen = true; _mentionQuery = q; return; }
+        }
+        _mentionOpen = false;
+    }
+
+    private void PickMention(string name)
+    {
+        var at = _text.LastIndexOf('@');
+        _text = _text[..at] + "@" + name + " ";
+        _mentionOpen = false;
+    }
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") _mentionOpen = false;
+        else if (e.Key == "Enter" && e.CtrlKey) await PostAsync();
+    }
+
+    private void OnFiles(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        foreach (var f in e.GetMultipleFiles(10))
+        {
+            if (f.Size > AttachmentService.MaxSize) { _error = $"{f.Name} supera los 15 MB."; continue; }
+            _pendingFiles.Add(f);
+        }
+    }
+
+    private async Task PostAsync()
+    {
+        if (EntityId is null || (string.IsNullOrWhiteSpace(_text) && _pendingFiles.Count == 0)) return;
+        _busy = true; _error = null;
+        try
+        {
+            var me = await Me.NameAsync();
+            var text = string.IsNullOrWhiteSpace(_text) ? $"📎 Adjuntó {_pendingFiles.Count} archivo(s)" : _text.Trim();
+            var a = await Activities.LogAsync(EntityType, EntityId, EntityTitle, ActivityKinds.Note, text, me);
+            foreach (var f in _pendingFiles)
+            {
+                await using var stream = f.OpenReadStream(AttachmentService.MaxSize);
+                var att = await Attachments.SaveAsync(stream, f.Name, f.ContentType, f.Size, EntityType, EntityId, a.Id, me);
+                _attachments.Insert(0, att);
+            }
+            await Notifications.NotifyMentionsAsync(text, me, EntityTitle, Link);
+            _items!.Insert(0, a);
+            _text = ""; _pendingFiles.Clear();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(Activity a)
+    {
+        if (!await Dialogs.ConfirmAsync("¿Eliminar esta actualización?")) return;
+        foreach (var f in _attachments.Where(f => f.ActivityId == a.Id).ToList()) { await Attachments.DeleteAsync(f); _attachments.Remove(f); }
+        await Activities.DeleteAsync(a.Id!);
+        _items!.Remove(a);
+    }
+
+    private string Highlight(string text)
+    {
+        var html = System.Net.WebUtility.HtmlEncode(text);
+        foreach (var p in _people.OrderByDescending(p => p.Length))
+            html = html.Replace("@" + System.Net.WebUtility.HtmlEncode(p), $"<span class=\"mention\">@{System.Net.WebUtility.HtmlEncode(p)}</span>", StringComparison.OrdinalIgnoreCase);
+        return html;
+    }
+
+    public static string KindLabel(string kind) => kind switch
+    {
+        ActivityKinds.Created => "creación",
+        ActivityKinds.Stage => "etapa",
+        ActivityKinds.Converted => "conversión",
+        ActivityKinds.Task => "actividad",
+        ActivityKinds.Email => "correo",
+        _ => "sistema"
+    };
+
+    public static string TimeAgo(DateTime utc)
+    {
+        var span = DateTime.UtcNow - utc;
+        if (span.TotalMinutes < 1) return "ahora";
+        if (span.TotalHours < 1) return $"hace {(int)span.TotalMinutes} min";
+        if (span.TotalDays < 1) return $"hace {(int)span.TotalHours} h";
+        if (span.TotalDays < 7) return $"hace {(int)span.TotalDays} d";
+        return utc.ToLocalTime().ToString("dd MMM yyyy");
+    }
+}

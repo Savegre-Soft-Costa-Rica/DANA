@@ -1,0 +1,71 @@
+@page "/configuracion/empresa"
+@attribute [Authorize(Policy = "Admin")]
+@inject SettingsService Settings
+@inject CurrentUser Me
+
+<PageTitle>Dana · Empresa y moneda</PageTitle>
+
+<PageHeader Title="Empresa y moneda" Subtitle="Datos que aparecen en las cotizaciones, moneda base y tipos de cambio para informes." />
+
+@if (_s is null) { <p class="muted">Cargando…</p> }
+else
+{
+    <EditForm Model="_s" OnValidSubmit="SaveAsync" FormName="settings">
+        <div class="widgets">
+            <div class="widget w-6">
+                <div class="widget-title">Datos de la empresa</div>
+                <div class="row g-2">
+                    <div class="col-12"><label class="form-label">Nombre</label><InputText class="form-control" @bind-Value="_s.CompanyName" /></div>
+                    <div class="col-6"><label class="form-label">Identificación fiscal</label><InputText class="form-control" @bind-Value="_s.TaxId" /></div>
+                    <div class="col-6"><label class="form-label">Teléfono</label><InputText class="form-control" @bind-Value="_s.Phone" /></div>
+                    <div class="col-6"><label class="form-label">Correo</label><InputText class="form-control" @bind-Value="_s.Email" /></div>
+                    <div class="col-6"><label class="form-label">Sitio web</label><InputText class="form-control" @bind-Value="_s.Web" /></div>
+                    <div class="col-12"><label class="form-label">Dirección</label><InputText class="form-control" @bind-Value="_s.Address" /></div>
+                </div>
+            </div>
+            <div class="widget w-6">
+                <div class="widget-title">Moneda base y tipos de cambio</div>
+                <label class="form-label">Moneda base (informes y totales)</label>
+                <InputSelect class="form-select mb-2" @bind-Value="_s.BaseCurrency">@foreach (var c in Catalogs.Currencies) { <option value="@c">@c</option> }</InputSelect>
+                <div class="small muted mb-2">Unidades de cada moneda por <strong>1 @_s.BaseCurrency</strong>. Ejemplo: si 1 USD = 520 CRC, escriba 520 en CRC.</div>
+                @foreach (var c in Catalogs.Currencies)
+                {
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <span style="width:50px"><strong>@c</strong></span>
+                        <input type="number" step="any" class="form-control form-control-sm" style="max-width:160px" value="@_s.Rates.GetValueOrDefault(c, 1m)" @onchange="e => _s.Rates[c] = decimal.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 1m" disabled="@(c == _s.BaseCurrency)" />
+                        @if (c == _s.BaseCurrency) { <span class="muted small">moneda base</span> }
+                    </div>
+                }
+            </div>
+            <div class="widget w-6">
+                <div class="widget-title">Cotizaciones</div>
+                <div class="row g-2">
+                    <div class="col-4"><label class="form-label">Prefijo</label><InputText class="form-control" @bind-Value="_s.QuotePrefix" /></div>
+                    <div class="col-4"><label class="form-label">Siguiente número</label><InputNumber class="form-control" @bind-Value="_s.NextQuoteNumber" /></div>
+                    <div class="col-4"><label class="form-label">Validez (días)</label><InputNumber class="form-control" @bind-Value="_s.QuoteValidDays" /></div>
+                    <div class="col-4"><label class="form-label">Impuesto por defecto %</label><InputNumber class="form-control" @bind-Value="_s.DefaultTaxRate" /></div>
+                    <div class="col-12"><label class="form-label">Términos y condiciones (pie de la cotización)</label><InputTextArea class="form-control" rows="3" @bind-Value="_s.QuoteTerms" /></div>
+                </div>
+            </div>
+        </div>
+        <div class="d-flex justify-content-end gap-2 mt-3 align-items-center">
+            <span class="muted small">@(_saved ? "✓ Guardado" : "")</span>
+            <button type="submit" class="btn-primary">Guardar</button>
+        </div>
+    </EditForm>
+}
+
+@code {
+    private AppSettings? _s;
+    private bool _saved;
+
+    protected override async Task OnInitializedAsync() => _s = await Settings.GetAsync();
+
+    private async Task SaveAsync()
+    {
+        _s!.Rates[_s.BaseCurrency] = 1m;
+        _s.UpdatedBy = await Me.NameAsync();
+        await Settings.SaveAsync(_s);
+        _saved = true;
+    }
+}

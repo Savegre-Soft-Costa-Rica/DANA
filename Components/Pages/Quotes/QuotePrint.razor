@@ -1,0 +1,71 @@
+@page "/cotizaciones/{Id}/imprimir"
+@layout EmptyLayout
+@inject QuoteService Quotes
+@inject SettingsService Settings
+@inject IRepository<Company> Companies
+@inject IRepository<Contact> Contacts
+
+<PageTitle>@(_q?.Number ?? "Cotización")</PageTitle>
+
+@if (_q is null) { <p>Cotización no encontrada.</p> }
+else
+{
+    <div class="print-page">
+        <div class="no-print print-bar"><button class="btn-primary" onclick="window.print()">🖨 Imprimir / Guardar como PDF</button> <a class="btn-secondary" href="cotizaciones/@_q.Id">Volver</a></div>
+        <header class="print-head">
+            <div>
+                <div class="print-company">@_s.CompanyName</div>
+                <div class="print-muted">@_s.Address<br />@_s.TaxId @(string.IsNullOrEmpty(_s.Phone) ? "" : "· " + _s.Phone) @(string.IsNullOrEmpty(_s.Email) ? "" : "· " + _s.Email)<br />@_s.Web</div>
+            </div>
+            <div class="print-title">
+                <h1>COTIZACIÓN</h1>
+                <div><strong>@_q.Number</strong></div>
+                <div>Fecha: @_q.Date.ToString("dd/MM/yyyy")</div>
+                @if (_q.ValidUntil is not null) { <div>Válida hasta: @_q.ValidUntil.Value.ToString("dd/MM/yyyy")</div> }
+            </div>
+        </header>
+        <section class="print-client">
+            <div class="print-muted">Cliente</div>
+            <div><strong>@(_company?.Title ?? _contact?.FullName ?? "—")</strong></div>
+            @if (_company is not null && _contact is not null) { <div>Atención: @_contact.FullName @(_contact.Position is null ? "" : $"({_contact.Position})")</div> }
+            <div class="print-muted">@(_contact?.Email ?? _company?.Email) @(_contact?.Phone ?? _company?.Phone)</div>
+            @if (_company?.TaxId is not null) { <div class="print-muted">Id. fiscal: @_company.TaxId</div> }
+        </section>
+        <h2 class="print-subject">@_q.Title</h2>
+        <table class="print-table">
+            <thead><tr><th>#</th><th>Descripción</th><th class="num">Cant.</th><th>Unidad</th><th class="num">Precio</th><th class="num">Desc.</th><th class="num">Imp.</th><th class="num">Total</th></tr></thead>
+            <tbody>
+                @for (var i = 0; i < _q.Lines.Count; i++)
+                {
+                    var l = _q.Lines[i];
+                    <tr><td>@(i + 1)</td><td>@l.Description</td><td class="num">@l.Quantity.ToString("0.##")</td><td>@l.Unit</td><td class="num">@l.UnitPrice.ToString("N2")</td><td class="num">@(l.DiscountPercent == 0 ? "—" : l.DiscountPercent.ToString("0.##") + " %")</td><td class="num">@l.TaxRate.ToString("0.##") %</td><td class="num">@l.Total.ToString("N2")</td></tr>
+                }
+            </tbody>
+            <tfoot>
+                <tr><td colspan="7" class="num">Subtotal</td><td class="num">@_q.Subtotal.ToString("N2")</td></tr>
+                <tr><td colspan="7" class="num">Impuestos</td><td class="num">@_q.Tax.ToString("N2")</td></tr>
+                <tr class="total"><td colspan="7" class="num">TOTAL @_q.Currency</td><td class="num">@_q.Total.ToString("N2")</td></tr>
+            </tfoot>
+        </table>
+        @if (!string.IsNullOrWhiteSpace(_q.Notes)) { <section><div class="print-muted">Notas</div><p>@_q.Notes</p></section> }
+        @if (!string.IsNullOrWhiteSpace(_q.Terms)) { <section class="print-terms"><div class="print-muted">Términos y condiciones</div><p>@_q.Terms</p></section> }
+        <footer class="print-foot">Preparado por @(_q.PreparedBy ?? "") · @_s.CompanyName</footer>
+    </div>
+}
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+    private Quote? _q;
+    private AppSettings _s = new();
+    private Company? _company;
+    private Contact? _contact;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _q = await Quotes.GetAsync(Id);
+        if (_q is null) return;
+        _s = await Settings.GetAsync();
+        _company = _q.CompanyId is null ? null : await Companies.GetByIdAsync(_q.CompanyId);
+        _contact = _q.ContactId is null ? null : await Contacts.GetByIdAsync(_q.ContactId);
+    }
+}

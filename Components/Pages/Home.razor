@@ -1,0 +1,275 @@
+@page "/"
+@inject DashboardService Dashboard
+@inject DemoDataService Demo
+@inject CurrentUser Me
+@inject TaskService Tasks
+@inject IJSRuntime JS
+
+<PageTitle>Dana · Inicio</PageTitle>
+
+<PageHeader Title="@($"Hola, {_firstName} 👋")" Subtitle="Resumen de su CRM">
+    <Actions>
+        @if (_isEmpty)
+        {
+            <button class="btn-primary" @onclick="SeedAsync" disabled="@_seeding">@(_seeding ? "Cargando…" : "✨ Cargar datos de ejemplo")</button>
+        }
+    </Actions>
+</PageHeader>
+
+@if (_showOnboarding)
+{
+    <div class="onboarding">
+        <span class="big">👋</span>
+        <div class="flex-grow-1">
+            <strong>¿Primera vez en Dana?</strong> El tutorial explica en 10 minutos cómo trabajar con prospectos, contactos, compañías y negociaciones, con una checklist que se marca sola.
+        </div>
+        <a class="btn-primary" href="tutorial">Ver tutorial</a>
+        <button class="icon-btn" title="Ocultar" @onclick="DismissOnboardingAsync">✕</button>
+    </div>
+}
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger">
+        <strong>No se pudo conectar a MongoDB.</strong> Verifique que esté en ejecución (<code>docker compose up -d</code>) y la cadena de conexión en <code>appsettings.json</code>.
+        <div class="small mt-1 font-monospace">@_error</div>
+    </div>
+}
+else if (_data is null)
+{
+    <p class="muted">Cargando…</p>
+}
+else
+{
+    <div class="widgets">
+        <a href="leads" class="widget number-widget w-3" style="background:var(--purple)">
+            <div class="label">Prospectos activos</div>
+            <div class="value">@_data.ActiveLeads</div>
+            <div class="foot">@_data.Leads en total</div>
+        </a>
+        <a href="deals" class="widget number-widget w-3" style="background:var(--primary)">
+            <div class="label">Negociaciones abiertas</div>
+            <div class="value">@_data.Pipelines.Sum(p => p.OpenCount)</div>
+            <div class="foot">@_data.OpenAmount.ToString("N0") @_data.BaseCurrency en juego</div>
+        </a>
+        <a href="deals" class="widget number-widget w-3" style="background:var(--success)">
+            <div class="label">Ganadas</div>
+            <div class="value">@_data.Pipelines.Sum(p => p.WonCount)</div>
+            <div class="foot">@_data.WonAmount.ToString("N0") @_data.BaseCurrency cerrados</div>
+        </a>
+        <a href="contacts" class="widget number-widget w-3" style="background:var(--warning)">
+            <div class="label">Contactos · Compañías</div>
+            <div class="value">@_data.Contacts <span style="opacity:.6">/</span> @_data.Companies</div>
+            <div class="foot">base de clientes</div>
+        </a>
+
+        @foreach (var p in _data.Pipelines)
+        {
+            <div class="widget w-8">
+                <div class="widget-title">
+                    <span>Embudo · @p.Pipeline.Name</span>
+                    <a class="btn-secondary btn-sm" href="deals/board/@p.Pipeline.Id">Abrir tablero</a>
+                </div>
+                @foreach (var s in p.Stages)
+                {
+                    var max = Math.Max(1, p.Stages.Max(x => x.Count));
+                    var pct = Math.Max(3, 100 * s.Count / max);
+                    <div class="funnel-row">
+                        <div class="funnel-name"><span class="stage-dot" style="background:@s.Stage.Color"></span>@s.Stage.Name</div>
+                        <div class="funnel-bar"><div style="width:@pct%; background:@s.Stage.Color"></div></div>
+                        <div class="funnel-count">@s.Count · $@s.Amount.ToString("N0")</div>
+                    </div>
+                }
+                <div class="legend mt-2">
+                    <span>Abiertas <b>@p.OpenCount</b> ($@p.OpenAmount.ToString("N0"))</span>
+                    <span>Ganadas <b>@p.WonCount</b> ($@p.WonAmount.ToString("N0"))</span>
+                    <span>Perdidas <b>@p.LostCount</b></span>
+                    @{ var closed = p.WonCount + p.LostCount; }
+                    @if (closed > 0) { <span>Tasa de éxito <b>@Math.Round(100.0 * p.WonCount / closed)%</b></span> }
+                </div>
+            </div>
+        }
+
+        <div class="widget w-4">
+            <div class="widget-title">Prospectos por estado</div>
+            @{ var totalLeads = Math.Max(1, _data.Leads); }
+            <div class="battery">
+                @foreach (var st in LeadStatuses.All)
+                {
+                    var n = _data.LeadsByStatus.GetValueOrDefault(st.Id);
+                    if (n == 0) continue;
+                    <span style="width:@(100.0 * n / totalLeads)%; background:@st.Color" title="@st.Name: @n">@n</span>
+                }
+            </div>
+            <div class="legend">
+                @foreach (var st in LeadStatuses.All)
+                {
+                    <span><i style="background:@st.Color"></i>@st.Name <b>@_data.LeadsByStatus.GetValueOrDefault(st.Id)</b></span>
+                }
+            </div>
+        </div>
+
+        <div class="widget w-4">
+            <div class="widget-title"><span>Mis actividades</span><a class="btn-secondary btn-sm" href="mi-trabajo">Mi trabajo</a></div>
+            @if (_tasks.Count == 0) { <div class="muted">Sin actividades pendientes. 🎉</div> }
+            <ul class="task-list">
+                @foreach (var t in _tasks.Take(6))
+                {
+                    var k = TaskKinds.Get(t.Kind);
+                    <li class="@(t.IsOverdue ? "overdue" : "")">
+                        <span class="task-kind" style="background:@k.Color">@k.Icon</span>
+                        <div class="task-main">
+                            <div class="task-title">@t.Title @if (t.EntityId is not null) { <a class="task-entity ms-1" href="@TaskLink(t)">@t.EntityTitle</a> }</div>
+                            <div class="task-meta">@(t.DueAt is null ? "sin fecha" : t.DueAt.Value.ToLocalTime().ToString("ddd dd MMM, HH:mm")) @(t.IsOverdue ? "· vencida" : "")</div>
+                        </div>
+                    </li>
+                }
+            </ul>
+        </div>
+
+        <div class="widget w-4">
+            <div class="widget-title">Próximos cierres</div>
+            @if (_data.UpcomingDeals.Count == 0) { <div class="muted">Sin fechas de cierre programadas.</div> }
+            <ul class="list-rows">
+                @foreach (var d in _data.UpcomingDeals)
+                {
+                    var late = d.ExpectedCloseDate < DateTime.UtcNow.Date;
+                    <li>
+                        <span><a href="deals/@d.Id">@d.Title</a><br /><small class="@(late ? "text-danger" : "muted")">@d.ExpectedCloseDate!.Value.ToString("dd MMM yyyy") @(late ? "· vencida" : "")</small></span>
+                        <Money Amount="d.Amount" Currency="@d.Currency" />
+                    </li>
+                }
+            </ul>
+        </div>
+
+        <div class="widget w-4">
+            <div class="widget-title"><span>🤖 Agentes y documentos</span><a class="btn-secondary btn-sm" href="agentes">Agentes</a></div>
+            @if (_pendingActions > 0) { <div class="home-alert">⏳ Tienes <strong>@_pendingActions</strong> acción(es) de agentes esperando tu confirmación. <a href="agentes">Revisar</a></div> }
+            @if (_pendingSign.Count > 0)
+            {
+                <div class="small fw-semibold mt-1">✍ Firmas pendientes</div>
+                <ul class="list-rows">@foreach (var d in _pendingSign) { <li><a href="documentos/@d.Id">@d.Title</a><span class="muted small">@d.Signers.Count(x => !x.IsSigned) pendiente(s)</span></li> }</ul>
+            }
+            @if (_routineNews.Count > 0)
+            {
+                <div class="small fw-semibold mt-1">⏰ Últimos informes</div>
+                <ul class="list-rows">@foreach (var (agent, r) in _routineNews) { <li><a href="agentes?chat=@agent.Id">@agent.Name · @r.Name</a><span class="muted small">@r.LastRunAt!.Value.ToLocalTime().ToString("dd/MM HH:mm")</span></li> }</ul>
+            }
+            @if (_recentDocs.Count > 0)
+            {
+                <div class="small fw-semibold mt-1">📜 Documentos recientes</div>
+                <ul class="list-rows">@foreach (var d in _recentDocs) { <li><a href="documentos/@d.Id">@DocumentKinds.Get(d.Kind).Emoji @d.Title</a><Badge Text="@DocumentStatuses.Get(d.Status).Label" Color="@DocumentStatuses.Get(d.Status).Color" /></li> }</ul>
+            }
+            @if (_pendingActions == 0 && _pendingSign.Count == 0 && _routineNews.Count == 0 && _recentDocs.Count == 0) { <div class="muted">Sin novedades. Pide a un agente un informe o crea un documento.</div> }
+        </div>
+
+        <div class="widget w-8">
+            <div class="widget-title">Actividad reciente</div>
+            @if (_data.RecentActivity.Count == 0) { <div class="muted">Aún no hay actividad.</div> }
+            <ul class="feed">
+                @foreach (var a in _data.RecentActivity)
+                {
+                    <li>
+                        <span class="avatar avatar-letter avatar-sm" style="background:@Avatar.ColorFor(a.Author)">@Avatar.Initials(a.Author)</span>
+                        <div>
+                            <strong>@a.Author</strong> @(a.Kind == ActivityKinds.Note ? "escribió en" : "·") <a href="@EntityLink(a)">@a.EntityTitle</a>
+                            @if (a.Kind != ActivityKinds.Note) { <span class="muted">— @a.Text</span> }
+                            else { <div class="muted">"@(a.Text.Length > 120 ? a.Text[..120] + "…" : a.Text)"</div> }
+                            <div class="when">@Updates.TimeAgo(a.CreatedAt)</div>
+                        </div>
+                    </li>
+                }
+            </ul>
+        </div>
+    </div>
+}
+
+@code {
+    private DashboardData? _data;
+    private bool _isEmpty;
+    private bool _seeding;
+    private string? _error;
+    private string _firstName = "";
+    private List<TaskItem> _tasks = new();
+    private bool _showOnboarding;
+    [Inject] private DocumentService Documents { get; set; } = default!;
+    [Inject] private Dana.Services.Ai.AgentService AgentSvc { get; set; } = default!;
+    private List<CrmDocument> _pendingSign = new(), _recentDocs = new();
+    private List<(AiAgent Agent, AgentRoutine Routine)> _routineNews = new();
+    private int _pendingActions;
+
+    private async Task LoadAgentNewsAsync(string me)
+    {
+        try
+        {
+            var docs = await Documents.GetAllAsync();
+            _pendingSign = docs.Where(d => d.Signers.Any(x => !x.IsSigned)).Take(4).ToList();
+            _recentDocs = docs.Take(4).ToList();
+            var agents = await AgentSvc.GetAllAsync();
+            _routineNews = agents.SelectMany(a => a.Routines.Where(r => r.LastRunAt is not null && r.LastError is null).Select(r => (a, r))).OrderByDescending(x => x.r.LastRunAt).Take(3).ToList();
+            foreach (var a in agents)
+            {
+                var conv = (await AgentSvc.ListConversationsAsync(a.Id!, me)).FirstOrDefault();
+                if (conv is not null) _pendingActions += conv.Messages.Count(m => m.Role == "action" && m.Action?.Status == "pending");
+            }
+        }
+        catch { }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var me = await Me.NameAsync();
+        await LoadAgentNewsAsync(me);
+        _firstName = me.Split(' ')[0];
+        _tasks = await Tasks.GetForUserAsync(me, false);
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var dismissed = await JS.InvokeAsync<string?>("localStorage.getItem", "dana.onboarding");
+            if (dismissed != "done") { _showOnboarding = true; StateHasChanged(); }
+        }
+        catch { }
+    }
+
+    private async Task DismissOnboardingAsync()
+    {
+        _showOnboarding = false;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", "dana.onboarding", "done"); } catch { }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _data = await Dashboard.GetAsync();
+            _isEmpty = await Demo.IsEmptyAsync();
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task SeedAsync()
+    {
+        _seeding = true;
+        try { await Demo.SeedAsync(); await LoadAsync(); }
+        finally { _seeding = false; }
+    }
+
+    private static string TaskLink(TaskItem t) => t.EntityType switch
+    {
+        "lead" => $"leads/{t.EntityId}", "contact" => $"contacts/{t.EntityId}", "company" => $"companies/{t.EntityId}", _ => $"deals/{t.EntityId}"
+    };
+
+    private static string EntityLink(Activity a) => a.EntityType switch
+    {
+        "lead" => $"leads/{a.EntityId}",
+        "contact" => $"contacts/{a.EntityId}",
+        "company" => $"companies/{a.EntityId}",
+        _ => $"deals/{a.EntityId}"
+    };
+}

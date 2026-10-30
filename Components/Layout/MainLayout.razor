@@ -1,0 +1,90 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject DrawerService Drawer
+@inject IJSRuntime JS
+@inject ILogger<MainLayout> Logger
+@inject IHostEnvironment Env
+
+<div class="app @(_collapsed ? "sidebar-collapsed" : "")">
+    <aside class="sidebar @(_navOpen ? "open" : "") @(_collapsed ? "collapsed" : "")">
+        <NavMenu Collapsed="_collapsed" OnToggle="ToggleSidebarAsync" />
+    </aside>
+
+    <div class="main">
+        <TopBar OnToggleNav="() => _navOpen = !_navOpen" />
+        <div class="content">
+            <ErrorBoundary @ref="_boundary">
+                <ChildContent>@Body</ChildContent>
+                <ErrorContent Context="ex">
+                    <div class="error-box">
+                        <div class="error-ico">⚠</div>
+                        <h4>Algo salió mal en esta pantalla</h4>
+                        <p class="muted">El resto de la aplicación sigue funcionando. Puede reintentar o volver al inicio.</p>
+                        @if (Env.IsDevelopment()) { <pre class="code small">@ex.ToString()</pre> }
+                        <div class="d-flex gap-2 justify-content-center">
+                            <button class="btn-primary" @onclick="() => _boundary?.Recover()">Reintentar</button>
+                            <a class="btn-secondary" href="/">Ir al inicio</a>
+                        </div>
+                    </div>
+                </ErrorContent>
+            </ErrorBoundary>
+        </div>
+    </div>
+</div>
+
+@if (Drawer.IsOpen)
+{
+    <div class="drawer-backdrop" @onclick="Drawer.CloseAsync"></div>
+    <div class="drawer">
+        <div class="drawer-head">
+            <span class="drawer-title">@Drawer.Title</span>
+            <button class="icon-btn" title="Cerrar" @onclick="Drawer.CloseAsync">✕</button>
+        </div>
+        <div class="drawer-body">
+            <ErrorBoundary>
+                <ChildContent><DynamicComponent Type="Drawer.ComponentType!" Parameters="Drawer.Parameters" /></ChildContent>
+                <ErrorContent Context="ex">
+                    <div class="error-box"><div class="error-ico">⚠</div><h4>No se pudo mostrar este elemento</h4>@if (Env.IsDevelopment()) { <pre class="code small">@ex.Message</pre> }<button class="btn-secondary" @onclick="Drawer.CloseAsync">Cerrar</button></div>
+                </ErrorContent>
+            </ErrorBoundary>
+        </div>
+    </div>
+}
+
+<DialogHost />
+<AgentBubble />
+
+<div id="blazor-error-ui" data-nosnippet>
+    Ocurrió un error inesperado.
+    <a href="." class="reload">Recargar</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    private bool _navOpen;
+    private bool _collapsed;
+    private ErrorBoundary? _boundary;
+
+    protected override void OnInitialized() => Drawer.StateChanged += OnDrawerChanged;
+
+    protected override void OnParametersSet() => _boundary?.Recover(); // al navegar a otra página, limpiar el error anterior
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", "dana.sidebar");
+            if (saved == "collapsed") { _collapsed = true; StateHasChanged(); }
+        }
+        catch { }
+    }
+
+    private async Task ToggleSidebarAsync()
+    {
+        _collapsed = !_collapsed;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", "dana.sidebar", _collapsed ? "collapsed" : "open"); } catch { }
+    }
+    private void OnDrawerChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Drawer.StateChanged -= OnDrawerChanged;
+}

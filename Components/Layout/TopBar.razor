@@ -1,0 +1,152 @@
+@implements IDisposable
+@inject NavigationManager Nav
+@inject NotificationService Notifications
+@inject CurrentUser Me
+@inject IJSRuntime JS
+
+<header class="topbar">
+    <button class="icon-btn nav-toggle" @onclick="OnToggleNav" title="Menú">☰</button>
+    <div class="topbar-search">
+        <span class="search-ico">⌕</span>
+        <input placeholder="Buscar en todo el CRM…" @bind="_q" @onkeydown="OnKey" />
+    </div>
+    <div class="topbar-spacer"></div>
+    <AuthorizeView>
+        <Authorized>
+            @{
+                var picture = context.User.FindFirst("picture")?.Value;
+                var name = context.User.Identity?.Name ?? "";
+                var isAdmin = context.User.IsInRole(Roles.Admin);
+            }
+            <a class="icon-btn" href="tutorial" title="Tutorial y ayuda">?</a>
+            <div class="user-menu">
+                <button class="icon-btn bell" title="Notificaciones" @onclick="ToggleBellAsync">
+                    🔔
+                    @if (_unread > 0) { <span class="bell-badge">@(_unread > 99 ? "99+" : _unread.ToString())</span> }
+                </button>
+                @if (_bellOpen)
+                {
+                    <div class="menu-backdrop" @onclick="() => _bellOpen = false"></div>
+                    <div class="dropdown-panel notif-panel">
+                        <div class="notif-head"><strong>Notificaciones</strong>
+                            @if (_unread > 0) { <button class="btn-ghost btn-sm" style="width:auto" @onclick="MarkAllAsync">Marcar todas leídas</button> }
+                        </div>
+                        @if (_notifs.Count == 0) { <div class="muted small p-2">Sin notificaciones.</div> }
+                        @foreach (var n in _notifs)
+                        {
+                            <div class="notif @(n.IsRead ? "" : "unread")" @onclick="() => OpenAsync(n)">
+                                <span class="avatar avatar-letter avatar-sm" style="background:@Avatar.ColorFor(n.Actor)">@Avatar.Initials(n.Actor)</span>
+                                <div><div><strong>@n.Actor</strong> @n.Text</div><div class="when">@Updates.TimeAgo(n.CreatedAt)</div></div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="user-menu">
+                <button class="user-btn" @onclick="() => _menuOpen = !_menuOpen">
+                    @if (!string.IsNullOrEmpty(picture)) { <img src="@picture" alt="" class="avatar" referrerpolicy="no-referrer" /> }
+                    else { <span class="avatar avatar-letter" style="background:@Avatar.ColorFor(name)">@Avatar.Initials(name)</span> }
+                    <span class="user-name d-none d-md-inline">@name</span>
+                </button>
+                @if (_menuOpen)
+                {
+                    <div class="menu-backdrop" @onclick="() => _menuOpen = false"></div>
+                    <div class="dropdown-panel">
+                        <button type="button" @onclick="ToggleThemeAsync">@(_dark ? "☀ Modo claro" : "🌙 Modo oscuro")</button>
+                        <a href="cuenta/perfil">Mi cuenta</a>
+                        <a href="mi-trabajo">Mi trabajo</a>
+                        @if (isAdmin) { <a href="usuarios">Usuarios</a> }
+                        <form method="post" action="cuenta/logout">
+                            <AntiforgeryToken />
+                            <button type="submit">Cerrar sesión</button>
+                        </form>
+                    </div>
+                }
+            </div>
+        </Authorized>
+    </AuthorizeView>
+</header>
+
+@code {
+    [Parameter] public EventCallback OnToggleNav { get; set; }
+    private bool _menuOpen, _bellOpen;
+    private string _q = "";
+    private long _unread;
+    private List<Notification> _notifs = new();
+    private string _me = "";
+    private PeriodicTimer? _timer;
+    private bool _dark;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _me = await Me.NameAsync();
+        await RefreshCountAsync();
+        _ = PollAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try { _dark = await JS.InvokeAsync<string?>("localStorage.getItem", "dana.theme") == "dark"; StateHasChanged(); } catch { }
+    }
+
+    private async Task ToggleThemeAsync()
+    {
+        _dark = !_dark;
+        _menuOpen = false;
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", "dana.theme", _dark ? "dark" : "light");
+            await JS.InvokeVoidAsync("eval", _dark ? "document.documentElement.dataset.theme='dark'" : "delete document.documentElement.dataset.theme");
+        }
+        catch { }
+    }
+
+    private async Task PollAsync()
+    {
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        try
+        {
+            while (await _timer.WaitForNextTickAsync())
+            {
+                await RefreshCountAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (ObjectDisposedException) { }
+    }
+
+    private async Task RefreshCountAsync()
+    {
+        try { _unread = await Notifications.CountUnreadAsync(_me); } catch { }
+    }
+
+    private async Task ToggleBellAsync()
+    {
+        _bellOpen = !_bellOpen;
+        if (_bellOpen) _notifs = await Notifications.GetForAsync(_me);
+    }
+
+    private async Task MarkAllAsync()
+    {
+        await Notifications.MarkAllReadAsync(_me);
+        _notifs = await Notifications.GetForAsync(_me);
+        _unread = 0;
+    }
+
+    private async Task OpenAsync(Notification n)
+    {
+        if (!n.IsRead) { await Notifications.MarkReadAsync(n.Id!); n.IsRead = true; _unread = Math.Max(0, _unread - 1); }
+        _bellOpen = false;
+        if (!string.IsNullOrEmpty(n.Link)) Nav.NavigateTo(n.Link);
+    }
+
+    private void OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_q))
+            Nav.NavigateTo($"buscar?q={Uri.EscapeDataString(_q)}");
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

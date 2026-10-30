@@ -1,0 +1,87 @@
+@page "/companies"
+@inherits BoardPage<Company>
+@inject IRepository<Company> Companies
+@inject IRepository<Contact> Contacts
+@inject ActivityService Activities
+@inject AutomationService Automations
+
+<PageTitle>Dana · Compañías</PageTitle>
+
+<PageHeader Title="Compañías" Subtitle="Organizaciones clientes, proveedores y socios." />
+
+<BoardToolbar View="View" ViewChanged="v => View = v" Search="@Search" SearchChanged="s => Search = s" Person="@Person" PersonChanged="p => Person = p"
+              People="People" BoardKey="companies" NewLabel="compañía" OnNew="New"
+              Filters="Filters" FiltersChanged="f => Filters = f" FilterColumns="FilterColumns"
+              HiddenColumns="HiddenColumns" OnShowColumn="ShowColumnAsync"
+              ShowArchived="ShowArchived" ShowArchivedChanged="a => ShowArchived = a" ArchivedCount="ArchivedCount"
+              Views="Config.Views" ActiveViewId="@ActiveViewId" OnSelectView="SelectView" OnSaveView="SaveViewAsync" OnDeleteView="DeleteViewAsync" />
+
+@if (Items is null)
+{
+    <p class="muted">Cargando…</p>
+}
+else
+{
+    <Board TItem="Company" Items="Filtered.ToList()" Columns="Columns" Groups="Groups" GroupKey="c => c.Type ?? string.Empty" View="View" Search="@Search"
+           HideEmptyGroups="@(View == BoardView.Table)" AllowClearStatus="true" KanbanSumColumn="SumColumn" ShowArchived="ShowArchived"
+           Config="Config" OnConfigChanged="ConfigChangedAsync"
+           OnChanged="OnChangedAsync" OnMove="OnMoveAsync" OnAdd="OnAddAsync" OnOpen="Open" OnDelete="OnDeleteAsync" OnArchive="OnArchiveAsync" OnDuplicate="OnDuplicateAsync" />
+}
+
+@code {
+    protected override string BoardKey => "companies";
+    private Dictionary<string, int> _contactCounts = new();
+    private BoardColumn<Company>? SumColumn => Columns.FirstOrDefault(c => c.Key == "revenue");
+
+    protected override async Task BuildBaseColumnsAsync()
+    {
+        _contactCounts = (await Contacts.GetAllAsync()).Where(c => c.CompanyId is not null).GroupBy(c => c.CompanyId!).ToDictionary(g => g.Key, g => g.Count());
+        var types = OptionsFor("type", BoardColumn<Company>.Labels(Catalogs.CompanyTypes));
+        Groups = types.Select(t => new BoardGroup { Key = t.Value, Title = t.Label, Color = t.Color })
+            .Append(new BoardGroup { Key = "", Title = "Sin tipo", Color = "#c4c4c4" }).ToList();
+        BaseColumns =
+        [
+            BoardColumn<Company>.Name("Compañía", c => c.Title, (c, v) => c.Title = v),
+            BoardColumn<Company>.Status("type", "Tipo", c => c.Type, (c, v) => c.Type = v, types, 130),
+            BoardColumn<Company>.Select("industry", "Industria", c => c.Industry, (c, v) => c.Industry = v, BoardColumn<Company>.Labels(Catalogs.Industries), 150),
+            BoardColumn<Company>.Person("assigned", "Responsable", c => c.AssignedTo, (c, v) => c.AssignedTo = v, People, 150),
+            BoardColumn<Company>.Phone("phone", "Teléfono", c => c.Phone, (c, v) => c.Phone = v),
+            BoardColumn<Company>.Email("email", "Correo", c => c.Email, (c, v) => c.Email = v),
+            BoardColumn<Company>.Link("web", "Sitio web", c => c.Web, (c, v) => c.Web = v),
+            BoardColumn<Company>.Number("contacts", "Contactos", c => _contactCounts.GetValueOrDefault(c.Id ?? ""), null, "N0", 90),
+            BoardColumn<Company>.Number("employees", "Empleados", c => c.Employees, (c, v) => c.Employees = v is null ? null : (int)v, "N0", 100),
+            BoardColumn<Company>.Money("revenue", "Ingresos anuales", c => c.AnnualRevenue, (c, v) => c.AnnualRevenue = v, 150),
+            BoardColumn<Company>.Text("taxid", "Id. fiscal", c => c.TaxId, (c, v) => c.TaxId = v, 120),
+        ];
+    }
+
+    protected override Task<List<Company>> LoadItemsAsync() => Companies.GetAllAsync();
+    protected override async Task SaveItemAsync(Company item, BoardColumn<Company>? column) { item.UpdatedBy = await Me.NameAsync(); await Companies.UpdateAsync(item); }
+
+    protected override async Task DeleteItemAsync(Company item) => await Companies.DeleteAsync(item.Id!, await Me.NameAsync());
+
+    protected override async Task MoveItemAsync(BoardMove<Company> m)
+    {
+        m.Item.Type = string.IsNullOrEmpty(m.Group.Key) ? null : m.Group.Key;
+        m.Item.UpdatedBy = await Me.NameAsync();
+        await Companies.UpdateAsync(m.Item);
+    }
+
+    protected override async Task<Company> CreateItemAsync(BoardAdd a)
+    {
+        var c = new Company { CreatedBy = await Me.NameAsync(), Title = a.Title, Type = string.IsNullOrEmpty(a.Group.Key) ? null : a.Group.Key, AssignedTo = string.IsNullOrEmpty(Person) ? null : Person };
+        await Companies.InsertAsync(c);
+        await Automations.TriggerAsync(new AutomationEvent("companies", TriggerTypes.Created, c, await Me.NameAsync()));
+        await Activities.LogAsync("company", c.Id!, c.Title, ActivityKinds.Created, "Creó la compañía", await Me.NameAsync());
+        return c;
+    }
+
+    protected override async Task<Company> InsertCopyAsync(Company copy)
+    {
+        copy.Title += " (copia)";
+        await Companies.InsertAsync(copy);
+        return copy;
+    }
+
+    protected override void OpenItem(Company? item) => Drawer.Open<CompanyEdit>(item?.Id, item is null ? "Nueva compañía" : "Compañía", ReloadAsync);
+}

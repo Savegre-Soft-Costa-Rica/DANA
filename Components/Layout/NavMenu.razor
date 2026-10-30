@@ -1,0 +1,181 @@
+@inject NavService Navs
+@inject CurrentUser Me
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<div class="brand">
+    <a href="" class="brand-link"><span class="brand-logo">D</span><span class="brand-name">Dana</span></a>
+    <button class="icon-btn sidebar-toggle" title="@(Collapsed ? "Expandir menú" : "Contraer menú")" @onclick="OnToggle">@(Collapsed ? "»" : "«")</button>
+</div>
+
+<div class="workspace" title="CRM · Espacio de trabajo">
+    <span class="ws-ico">C</span>
+    <div class="ws-text"><div class="ws-name">CRM</div><div class="ws-sub">Espacio de trabajo</div></div>
+</div>
+
+<nav class="nav-list">
+    @foreach (var section in _sections)
+    {
+        var items = _items.Where(i => i.Section == section && !i.Hidden).ToList();
+        if (items.Count == 0) continue;
+        @if (section != "Principal") { <div class="nav-section">@section</div> }
+        @foreach (var it in items)
+        {
+            <NavLink class="nav-item" href="@it.Href" Match="@(it.MatchAll ? NavLinkMatch.All : NavLinkMatch.Prefix)" title="@it.Label" target="@(it.NewTab ? "_blank" : null)">
+                @Icon(it.Icon)
+                <span>@it.Label</span>
+            </NavLink>
+        }
+    }
+</nav>
+
+<div class="nav-foot">
+    <button class="nav-item nav-customize" title="Personalizar menú" @onclick="OpenCustomizer">
+        <svg viewBox="0 0 20 20" class="nav-svg"><path d="M12.5 3.5l4 4L7 17H3v-4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <span>Personalizar menú</span>
+    </button>
+</div>
+
+@if (_editing)
+{
+    <div class="sheet-backdrop" @onclick="() => _editing = false"></div>
+    <div class="sheet" style="width:min(640px,94vw)">
+        <div class="sheet-head"><strong>Personalizar menú</strong><button class="icon-btn" @onclick="() => _editing = false">✕</button></div>
+        <div class="sheet-body">
+            <div class="small muted mb-2">Oculte, renombre, reordene o mueva de sección cada elemento. Los cambios son solo para su usuario.</div>
+            @foreach (var section in _draftSections)
+            {
+                var items = _draft.Where(i => i.Section == section).OrderBy(i => i.Sort).ToList();
+                var si = _draftSections.IndexOf(section);
+                <div class="menu-sec">
+                    <div class="menu-sec-head">
+                        <strong>@section</strong>
+                        <span class="d-flex gap-1">
+                            <button class="icon-btn tiny" title="Subir sección" disabled="@(si == 0)" @onclick="() => MoveSection(section, -1)">↑</button>
+                            <button class="icon-btn tiny" title="Bajar sección" disabled="@(si == _draftSections.Count - 1)" @onclick="() => MoveSection(section, +1)">↓</button>
+                        </span>
+                    </div>
+                    @if (items.Count == 0) { <div class="muted small ps-2">— vacía —</div> }
+                    @foreach (var it in items)
+                    {
+                        var idx = items.IndexOf(it);
+                        <div class="menu-row @(it.Hidden ? "hidden" : "")">
+                            <input type="checkbox" class="cell-check" checked="@(!it.Hidden)" title="Mostrar" @onchange="e => Replace(it, it with { Hidden = e.Value is not true })" />
+                            <span class="menu-ico">@Icon(it.Icon)</span>
+                            <input class="form-control form-control-sm" value="@it.Label" @onchange="e => Replace(it, it with { Label = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? it.Label : e.Value!.ToString()! })" />
+                            <select class="form-select form-select-sm" value="@it.Section" @onchange="e => Replace(it, it with { Section = e.Value?.ToString() ?? it.Section, Sort = MaxSort(e.Value?.ToString()) + 10 })">
+                                @foreach (var s in _draftSections) { <option value="@s">@s</option> }
+                            </select>
+                            <button class="icon-btn tiny" disabled="@(idx == 0)" @onclick="() => MoveItem(it, items, -1)">↑</button>
+                            <button class="icon-btn tiny" disabled="@(idx == items.Count - 1)" @onclick="() => MoveItem(it, items, +1)">↓</button>
+                            @if (it.IsCustom) { <button class="icon-btn tiny" title="Quitar enlace" @onclick="() => _draft.Remove(it)">🗑</button> } else { <span style="width:22px"></span> }
+                        </div>
+                    }
+                </div>
+            }
+            <div class="menu-sec">
+                <div class="menu-sec-head"><strong>Agregar enlace propio</strong></div>
+                <div class="menu-row add">
+                    <input class="form-control form-control-sm" style="max-width:60px" placeholder="🔗" @bind="_newIcon" title="Icono (emoji)" />
+                    <input class="form-control form-control-sm" placeholder="Nombre" @bind="_newLabel" />
+                    <input class="form-control form-control-sm" placeholder="https://… o ruta interna (p. ej. informes)" @bind="_newUrl" />
+                    <select class="form-select form-select-sm" @bind="_newSection">@foreach (var s in _draftSections) { <option value="@s">@s</option> }</select>
+                    <button class="btn-secondary btn-sm" @onclick="AddLink" disabled="@(string.IsNullOrWhiteSpace(_newLabel) || string.IsNullOrWhiteSpace(_newUrl))">Agregar</button>
+                </div>
+            </div>
+        </div>
+        <div class="sheet-foot">
+            <button class="btn-ghost" @onclick="ResetAsync">Restablecer predeterminado</button>
+            <span class="flex-grow-1"></span>
+            <button class="btn-secondary" @onclick="() => _editing = false">Cancelar</button>
+            <button class="btn-primary" @onclick="SaveAsync">Guardar</button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Collapsed { get; set; }
+    [Parameter] public EventCallback OnToggle { get; set; }
+
+    private List<NavItem> _items = new();
+    private List<string> _sections = new();
+    private List<NavItem> _draft = new();
+    private List<string> _draftSections = new();
+    private bool _editing, _isAdmin;
+    private string _me = "";
+    private string _newIcon = "🔗", _newLabel = "", _newUrl = "", _newSection = "Principal";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _me = await Me.NameAsync();
+        _isAdmin = await Me.IsAdminAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var cfg = await Navs.GetAsync(_me);
+        _items = NavService.Resolve(cfg, _isAdmin);
+        _sections = NavService.SectionOrder(cfg);
+    }
+
+    private static MarkupString Icon(string icon)
+    {
+        if (icon.StartsWith("dot:")) return new($"<span class=\"nav-dot\" style=\"background:{icon[4..]}\"></span>");
+        if (icon.StartsWith("custom:")) return new($"<span class=\"nav-emoji\">{System.Net.WebUtility.HtmlEncode(icon[7..])}</span>");
+        return new($"<svg viewBox=\"0 0 20 20\" class=\"nav-svg\">{NavService.Icons.GetValueOrDefault(icon, "")}</svg>");
+    }
+
+    private void OpenCustomizer()
+    {
+        _draft = _items.ToList();
+        _draftSections = _sections.ToList();
+        _editing = true;
+    }
+
+    private void Replace(NavItem old, NavItem updated) { var i = _draft.IndexOf(old); if (i >= 0) _draft[i] = updated; }
+    private int MaxSort(string? section) => _draft.Where(i => i.Section == section).Select(i => i.Sort).DefaultIfEmpty(0).Max();
+
+    private void MoveItem(NavItem it, List<NavItem> siblings, int dir)
+    {
+        var i = siblings.IndexOf(it); var j = i + dir;
+        if (j < 0 || j >= siblings.Count) return;
+        var other = siblings[j];
+        Replace(it, it with { Sort = other.Sort }); Replace(other, other with { Sort = it.Sort });
+        if (it.Sort == other.Sort) { Replace(_draft.First(x => x.Id == it.Id), _draft.First(x => x.Id == it.Id) with { Sort = other.Sort + dir }); }
+    }
+
+    private void MoveSection(string s, int dir)
+    {
+        var i = _draftSections.IndexOf(s); var j = i + dir;
+        if (j < 0 || j >= _draftSections.Count) return;
+        (_draftSections[i], _draftSections[j]) = (_draftSections[j], _draftSections[i]);
+    }
+
+    private void AddLink()
+    {
+        _draft.Add(new NavItem("link_" + Guid.NewGuid().ToString("N")[..8], _newLabel.Trim(), _newUrl.Trim(), "custom:" + (string.IsNullOrWhiteSpace(_newIcon) ? "🔗" : _newIcon.Trim()), _newSection, false, true, _newUrl.StartsWith("http"), false, MaxSort(_newSection) + 10, false));
+        _newLabel = ""; _newUrl = "";
+    }
+
+    private async Task SaveAsync()
+    {
+        // normalizar orden por sección
+        foreach (var s in _draftSections)
+        {
+            var n = 0;
+            foreach (var it in _draft.Where(i => i.Section == s).OrderBy(i => i.Sort).ToList()) Replace(it, it with { Sort = n += 10 });
+        }
+        await Navs.SaveAsync(_me, NavService.ToConfig(_draft, _draftSections));
+        _editing = false;
+        await LoadAsync();
+    }
+
+    private async Task ResetAsync()
+    {
+        if (!await Dialogs.ConfirmAsync("¿Volver al menú predeterminado?")) return;
+        await Navs.SaveAsync(_me, null);
+        _editing = false;
+        await LoadAsync();
+    }
+}

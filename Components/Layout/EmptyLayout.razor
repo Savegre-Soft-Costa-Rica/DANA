@@ -1,0 +1,14 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Nav
+
+@if (Nav.Uri.EndsWith("/imprimir"))
+{
+    <div class="print-shell">@Body</div>
+}
+else
+{
+    <div class="auth-page">
+        <div class="auth-brand">Dana <small>CRM</small></div>
+        @Body
+    </div>
+}

@@ -1,0 +1,260 @@
+@page "/leads/new"
+@page "/leads/{Id}"
+@inject LeadService Leads
+@inject PipelineService Pipelines
+@inject UserService Users
+@inject CurrentUser Me
+@inject DrawerService Drawer
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<PageTitle>Dana · @(IsNew ? "Nuevo prospecto" : _model.Title)</PageTitle>
+
+@if (_loading)
+{
+    <p class="muted">Cargando…</p>
+    return;
+}
+
+<div class="page-head">
+    <div>
+        <h3>@(IsNew ? "Nuevo prospecto" : _model.Title)</h3>
+        <div class="sub">
+            <Badge Text="@_status.Name" Color="@_status.Color" />
+            @if (!IsNew) { <span class="ms-2">Creado @_model.CreatedAt.ToLocalTime().ToString("g")</span> }
+        </div>
+    </div>
+    <div class="actions">
+        @if (!Embedded) { <a class="btn-secondary" href="leads">← Tablero</a> }
+        @if (!IsNew && _model.Status != LeadStatuses.Converted)
+        {
+            <button class="btn-primary" style="background:var(--success)" @onclick="() => _showConvert = !_showConvert">⇄ Convertir</button>
+        }
+        @if (!IsNew)
+        {
+            <button class="btn-secondary" @onclick="() => _emailOpen = true" disabled="@string.IsNullOrWhiteSpace(_model.Email)">✉ Enviar correo</button>
+            <button class="btn-secondary" @onclick="ArchiveAsync">@(_model.IsArchived ? "↩ Restaurar" : "🗂 Archivar")</button>
+            <button class="btn-danger" @onclick="DeleteAsync">Eliminar</button>
+        }
+    </div>
+</div>
+
+@if (_model.IsArchived) { <div class="alert alert-secondary">Este elemento está <strong>archivado</strong>. No aparece en el tablero salvo con el filtro "Archivados".</div> }
+
+@if (_model.Status == LeadStatuses.Converted)
+{
+    <div class="alert alert-success">
+        Este prospecto ya fue <strong>convertido</strong>.
+        @if (_model.ConvertedContactId is not null) { <a class="ms-2" href="contacts/@_model.ConvertedContactId">Ver contacto</a> }
+        @if (_model.ConvertedCompanyId is not null) { <a class="ms-2" href="companies/@_model.ConvertedCompanyId">Ver compañía</a> }
+        @if (_model.ConvertedDealId is not null) { <a class="ms-2" href="deals/@_model.ConvertedDealId">Ver negociación</a> }
+    </div>
+}
+
+@if (_showConvert)
+{
+    <div class="card mb-3" style="border-color:var(--success)">
+        <div class="card-header">Convertir prospecto</div>
+        <div class="card-body">
+            <p class="small muted">Se crearán las entidades seleccionadas con los datos del prospecto y éste pasará a estado <em>Convertido</em>.</p>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="cvContact" @bind="_cvContact" />
+                <label class="form-check-label" for="cvContact">Crear <strong>Contacto</strong> (@(_model.FullName is { Length: > 0 } ? _model.FullName : _model.Title))</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="cvCompany" @bind="_cvCompany" disabled="@string.IsNullOrWhiteSpace(_model.CompanyName)" />
+                <label class="form-check-label" for="cvCompany">Crear <strong>Compañía</strong> @(string.IsNullOrWhiteSpace(_model.CompanyName) ? "(sin nombre de compañía)" : $"({_model.CompanyName})")</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="cvDeal" @bind="_cvDeal" />
+                <label class="form-check-label" for="cvDeal">Crear <strong>Negociación</strong> por <Money Amount="_model.Opportunity" Currency="@_model.Currency" /></label>
+            </div>
+            @if (_cvDeal)
+            {
+                <div class="mt-2" style="max-width:320px">
+                    <label class="form-label">Embudo</label>
+                    <select class="form-select form-select-sm" @bind="_cvPipelineId">
+                        @foreach (var p in _pipelines) { <option value="@p.Id">@p.Name @(p.IsDefault ? "(predeterminado)" : "")</option> }
+                    </select>
+                </div>
+            }
+            @if (_convertError is not null) { <div class="text-danger small mt-2">@_convertError</div> }
+            <div class="mt-3 d-flex gap-2">
+                <button class="btn-primary" style="background:var(--success)" @onclick="ConvertAsync" disabled="@(_busy || !(_cvContact || _cvCompany || _cvDeal))">Convertir ahora</button>
+                <button class="btn-secondary" @onclick="() => _showConvert = false">Cancelar</button>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="item-view @(IsNew ? "single" : "")">
+    <EditForm Model="_model" OnValidSubmit="SaveAsync" FormName="leadForm">
+        <DataAnnotationsValidator />
+        <div class="card">
+            <div class="card-header">Información</div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label">Título *</label>
+                        <InputText class="form-control" @bind-Value="_model.Title" placeholder="Ej. Consulta web – Empresa X" />
+                        <ValidationMessage For="() => _model.Title" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Estado</label>
+                        <InputSelect class="form-select" @bind-Value="_model.Status" disabled="@(_model.Status == LeadStatuses.Converted)">
+                            @foreach (var s in LeadStatuses.All.Where(s => s.Id != LeadStatuses.Converted || _model.Status == LeadStatuses.Converted))
+                            {
+                                <option value="@s.Id">@s.Name</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="col-md-4"><label class="form-label">Nombre</label><InputText class="form-control" @bind-Value="_model.Name" /></div>
+                    <div class="col-md-4"><label class="form-label">Apellido</label><InputText class="form-control" @bind-Value="_model.LastName" /></div>
+                    <div class="col-md-4"><label class="form-label">Cargo</label><InputText class="form-control" @bind-Value="_model.Position" /></div>
+                    <div class="col-md-4"><label class="form-label">Compañía</label><InputText class="form-control" @bind-Value="_model.CompanyName" /></div>
+                    <div class="col-md-4"><label class="form-label">Teléfono</label><InputText class="form-control" @bind-Value="_model.Phone" /></div>
+                    <div class="col-md-4">
+                        <label class="form-label">Correo</label>
+                        <InputText class="form-control" @bind-Value="_model.Email" />
+                        <ValidationMessage For="() => _model.Email" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Fuente</label>
+                        <InputSelect class="form-select" @bind-Value="_model.Source">
+                            <option value="">—</option>
+                            @foreach (var s in Catalogs.Sources) { <option value="@s">@s</option> }
+                        </InputSelect>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Oportunidad</label>
+                        <InputNumber class="form-control" @bind-Value="_model.Opportunity" />
+                        <ValidationMessage For="() => _model.Opportunity" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Moneda</label>
+                        <InputSelect class="form-select" @bind-Value="_model.Currency">
+                            @foreach (var c in Catalogs.Currencies) { <option value="@c">@c</option> }
+                        </InputSelect>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Responsable</label>
+                        <InputSelect class="form-select" @bind-Value="_model.AssignedTo">
+                            <option value="">Sin asignar</option>
+                            @foreach (var p in _people) { <option value="@p">@p</option> }
+                        </InputSelect>
+                    </div>
+                    <div class="col-12"><label class="form-label">Comentarios</label><InputTextArea class="form-control" rows="3" @bind-Value="_model.Comments" /></div>
+                </div>
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center">
+                <span class="muted small">@(_saved ? "✓ Guardado" : "")</span>
+                <button type="submit" class="btn-primary" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </EditForm>
+
+    @if (!IsNew)
+    {
+        <div>
+        <TaskList EntityType="lead" EntityId="@_model.Id" EntityTitle="@(_model.Title)" />
+        @if (!IsNew) { <DocumentsCard EntityType="lead" EntityId="@_model.Id" /> }
+        <div class="card mt-3">
+            <div class="card-header">Actualizaciones</div>
+            <div class="card-body">
+                <Updates EntityType="lead" EntityId="@_model.Id" EntityTitle="@(_model.Title)" />
+            </div>
+        </div>
+        </div>
+    }
+</div>
+
+<EmailComposer @bind-Open="_emailOpen" To="@(_model.Email)" Context="@(new EmailContext(_model.Name, _model.LastName, _model.CompanyName, _model.Email, _model.Title, string.Empty))" EntityType="lead" EntityId="@(_model.Id ?? string.Empty)" EntityTitle="@(_model.Title)" />
+
+@code {
+    private bool _emailOpen;
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public bool Embedded { get; set; }
+    private bool IsNew => string.IsNullOrEmpty(Id);
+
+    private Lead _model = new();
+    private LeadStatus _status => LeadStatuses.Get(_model.Status);
+    private List<Pipeline> _pipelines = new();
+    private List<string> _people = new();
+    private bool _loading = true;
+    private bool _busy, _saved;
+    private bool _showConvert;
+    private bool _cvContact = true, _cvCompany = true, _cvDeal = true;
+    private string? _cvPipelineId;
+    private string? _convertError;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _pipelines = await Pipelines.GetAllAsync();
+        _people = (await Users.GetAllAsync()).Where(u => u.IsActive).Select(u => u.Name).OrderBy(n => n).ToList();
+        _cvPipelineId ??= (_pipelines.FirstOrDefault(p => p.IsDefault) ?? _pipelines.FirstOrDefault())?.Id;
+        if (IsNew)
+        {
+            _model = new Lead { AssignedTo = await Me.NameAsync() };
+        }
+        else
+        {
+            var found = await Leads.GetAsync(Id);
+            if (found is null) { Nav.NavigateTo("leads"); return; }
+            _model = found;
+            _cvCompany = !string.IsNullOrWhiteSpace(_model.CompanyName);
+        }
+        _loading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            var wasNew = IsNew;
+            await Leads.SaveAsync(_model, await Me.NameAsync());
+            _saved = true;
+            if (Embedded)
+            {
+                await Drawer.NotifyChangedAsync();
+                if (wasNew) Drawer.Open<LeadEdit>(_model.Id, "Prospecto");
+            }
+            else if (wasNew) Nav.NavigateTo($"leads/{_model.Id}");
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ConvertAsync()
+    {
+        _busy = true;
+        _convertError = null;
+        try
+        {
+            var author = await Me.NameAsync();
+            await Leads.SaveAsync(_model, author);
+            await Leads.ConvertAsync(_model, new ConvertOptions(_cvContact, _cvCompany, _cvDeal, _cvPipelineId), author);
+            _showConvert = false;
+            if (Embedded) await Drawer.NotifyChangedAsync();
+            if (_model.ConvertedDealId is not null) Nav.NavigateTo($"deals/{_model.ConvertedDealId}");
+        }
+        catch (Exception ex) { _convertError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar el prospecto \"{_model.Title}\"?")) return;
+        await Leads.DeleteAsync(_model.Id!, await Me.NameAsync());
+        if (Embedded) { await Drawer.NotifyChangedAsync(); await Drawer.CloseAsync(); }
+        else Nav.NavigateTo("leads");
+    }
+
+    private async Task ArchiveAsync()
+    {
+        _model.IsArchived = !_model.IsArchived;
+        await Leads.SaveAsync(_model, await Me.NameAsync());
+        if (Embedded) { await Drawer.NotifyChangedAsync(); await Drawer.CloseAsync(); }
+    }
+}

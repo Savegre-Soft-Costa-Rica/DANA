@@ -1,0 +1,75 @@
+@page "/formulario/{Slug}"
+@attribute [AllowAnonymous]
+@layout EmptyLayout
+@using System.ComponentModel.DataAnnotations
+@inject LeadFormService Forms
+
+<PageTitle>@(_form?.Title ?? "Formulario")</PageTitle>
+
+<div class="pub-form" style="--accent:@(_form?.AccentColor ?? "#0073ea")">
+    <div class="pub-card">
+        @if (_form is null || !_form.IsEnabled)
+        {
+            <h2>Formulario no disponible</h2>
+            <p class="muted">Este formulario no existe o fue deshabilitado.</p>
+        }
+        else if (_done)
+        {
+            <h2>✓ @_form.SuccessMessage</h2>
+            <p class="muted">Nos pondremos en contacto pronto.</p>
+        }
+        else
+        {
+            <h2>@_form.Title</h2>
+            @if (!string.IsNullOrEmpty(_form.Description)) { <p class="muted">@_form.Description</p> }
+            @if (_error is not null) { <div class="alert alert-danger py-2 small">@_error</div> }
+            <EditForm Model="Input" method="post" OnValidSubmit="SubmitAsync" FormName="pub">
+                <DataAnnotationsValidator />
+                <input class="hp" name="Input.Website" tabindex="-1" autocomplete="off" @bind="Input.Website" />
+                <div class="row g-2">
+                    <div class="@(_form.AskLastName ? "col-md-6" : "col-12")"><label class="form-label">Nombre *</label><InputText class="form-control" @bind-Value="Input.Name" /><ValidationMessage For="() => Input.Name" /></div>
+                    @if (_form.AskLastName) { <div class="col-md-6"><label class="form-label">Apellido</label><InputText class="form-control" @bind-Value="Input.LastName" /></div> }
+                    @if (_form.AskEmail) { <div class="col-md-6"><label class="form-label">Correo</label><InputText type="email" class="form-control" @bind-Value="Input.Email" /><ValidationMessage For="() => Input.Email" /></div> }
+                    @if (_form.AskPhone) { <div class="col-md-6"><label class="form-label">Teléfono</label><InputText class="form-control" @bind-Value="Input.Phone" /></div> }
+                    @if (_form.AskCompany) { <div class="col-12"><label class="form-label">Compañía</label><InputText class="form-control" @bind-Value="Input.Company" /></div> }
+                    @if (_form.AskMessage) { <div class="col-12"><label class="form-label">Mensaje</label><InputTextArea class="form-control" rows="4" @bind-Value="Input.Message" /></div> }
+                </div>
+                <button type="submit" class="btn-primary">@_form.ButtonText</button>
+            </EditForm>
+        }
+        <div class="muted small text-center mt-3">Formulario gestionado con Dana CRM</div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+    [SupplyParameterFromForm] private InputModel Input { get; set; } = default!;
+
+    private LeadForm? _form;
+    private bool _done;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        _form = await Forms.FindBySlugAsync(Slug);
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_form is null) return;
+        var r = await Forms.SubmitAsync(_form, new FormSubmission(Input.Name, Input.LastName, Input.Email, Input.Phone, Input.Company, Input.Message, Input.Website));
+        if (r.Ok) _done = true; else _error = r.Error;
+    }
+
+    private sealed class InputModel
+    {
+        [Required(ErrorMessage = "Indique su nombre")] public string Name { get; set; } = "";
+        public string? LastName { get; set; }
+        [EmailAddress(ErrorMessage = "Correo inválido")] public string? Email { get; set; }
+        public string? Phone { get; set; }
+        public string? Company { get; set; }
+        public string? Message { get; set; }
+        public string? Website { get; set; }
+    }
+}

@@ -1,0 +1,184 @@
+@page "/pipelines/new"
+@page "/pipelines/{Id}"
+@inject PipelineService Pipelines
+@inject NavigationManager Nav
+
+<PageTitle>Dana · @(IsNew ? "Nuevo embudo" : _model.Name)</PageTitle>
+
+<PageHeader Title="@(IsNew ? "Nuevo embudo" : _model.Name)" Subtitle="Configuración del embudo y sus etapas">
+    <Actions>
+        <a class="btn-secondary" href="pipelines">← Volver</a>
+    </Actions>
+</PageHeader>
+
+@if (_loading)
+{
+    <p class="text-muted">Cargando…</p>
+    return;
+}
+
+@if (_error is not null) { <div class="alert alert-danger">@_error</div> }
+
+<EditForm Model="_model" OnValidSubmit="SaveAsync" FormName="pipelineForm">
+    <DataAnnotationsValidator />
+    <div class="card mb-3">
+        <div class="card-body row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Nombre *</label>
+                <InputText class="form-control" @bind-Value="_model.Name" />
+                <ValidationMessage For="() => _model.Name" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Orden</label>
+                <InputNumber class="form-control" @bind-Value="_model.Sort" />
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <div class="form-check">
+                    <InputCheckbox class="form-check-input" id="isDefault" @bind-Value="_model.IsDefault" />
+                    <label class="form-check-label" for="isDefault">Embudo predeterminado</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong>Etapas</strong>
+            <button type="button" class="btn-secondary btn-sm" @onclick="AddStage">+ Agregar etapa</button>
+        </div>
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width:60px"></th>
+                        <th>Nombre</th>
+                        <th style="width:90px">Color</th>
+                        <th style="width:180px">Tipo</th>
+                        <th style="width:120px" class="text-end"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @{ var ordered = _model.Stages.OrderBy(s => s.Sort).ToList(); }
+                    @for (var i = 0; i < ordered.Count; i++)
+                    {
+                        var s = ordered[i];
+                        var idx = i;
+                        <tr>
+                            <td class="text-nowrap">
+                                <button type="button" class="btn-secondary btn-sm" disabled="@(idx == 0)" @onclick="() => Move(s, -1)">↑</button>
+                                <button type="button" class="btn-secondary btn-sm" disabled="@(idx == ordered.Count - 1)" @onclick="() => Move(s, +1)">↓</button>
+                            </td>
+                            <td><input class="form-control form-control-sm" @bind="s.Name" placeholder="Nombre de la etapa" /></td>
+                            <td><input type="color" class="form-control form-control-color form-control-sm" @bind="s.Color" /></td>
+                            <td>
+                                <select class="form-select form-select-sm" @bind="s.Kind">
+                                    <option value="@StageKind.Process">En proceso</option>
+                                    <option value="@StageKind.Success">Ganada (final)</option>
+                                    <option value="@StageKind.Failure">Perdida (final)</option>
+                                </select>
+                            </td>
+                            <td class="text-end">
+                                <button type="button" class="btn-danger btn-sm" @onclick="() => RemoveStageAsync(s)">Quitar</button>
+                            </td>
+                        </tr>
+                    }
+                    @if (ordered.Count == 0)
+                    {
+                        <tr><td colspan="5" class="text-muted text-center py-3">Agregue al menos una etapa.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer small text-muted">
+            Las etapas de tipo <em>Ganada</em> o <em>Perdida</em> cierran la negociación. Se recomienda una de cada tipo al final del embudo.
+        </div>
+    </div>
+
+    <div class="d-flex justify-content-end">
+        <button type="submit" class="btn-primary" disabled="@_busy">Guardar</button>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter] public string? Id { get; set; }
+    private bool IsNew => string.IsNullOrEmpty(Id);
+
+    private Pipeline _model = new();
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        if (IsNew)
+        {
+            _model = Pipeline.CreateDefault("", isDefault: false);
+        }
+        else
+        {
+            var found = await Pipelines.GetAsync(Id);
+            if (found is null) { Nav.NavigateTo("pipelines"); return; }
+            _model = found;
+        }
+        _loading = false;
+    }
+
+    private void AddStage()
+    {
+        var max = _model.Stages.Count == 0 ? 0 : _model.Stages.Max(s => s.Sort);
+        // Insertar antes de las etapas finales para mantenerlas al final
+        var finals = _model.Stages.Where(s => s.IsFinal).OrderBy(s => s.Sort).ToList();
+        var sort = finals.Count > 0 ? finals[0].Sort - 5 : max + 10;
+        _model.Stages.Add(new Stage { Name = "Nueva etapa", Sort = sort });
+        Renumber();
+    }
+
+    private void Move(Stage s, int dir)
+    {
+        var ordered = _model.Stages.OrderBy(x => x.Sort).ToList();
+        var i = ordered.IndexOf(s);
+        var j = i + dir;
+        if (j < 0 || j >= ordered.Count) return;
+        (ordered[i].Sort, ordered[j].Sort) = (ordered[j].Sort, ordered[i].Sort);
+        Renumber();
+    }
+
+    private void Renumber()
+    {
+        var n = 0;
+        foreach (var s in _model.Stages.OrderBy(x => x.Sort).ToList()) s.Sort = n += 10;
+    }
+
+    private async Task RemoveStageAsync(Stage s)
+    {
+        _error = null;
+        if (!IsNew)
+        {
+            var count = await Pipelines.CountDealsInStageAsync(_model.Id!, s.Id);
+            if (count > 0)
+            {
+                _error = $"La etapa \"{s.Name}\" tiene {count} negociación(es). Muévalas a otra etapa antes de quitarla.";
+                return;
+            }
+        }
+        _model.Stages.Remove(s);
+        Renumber();
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (_model.Stages.Count == 0) { _error = "El embudo debe tener al menos una etapa."; return; }
+        if (_model.Stages.Any(s => string.IsNullOrWhiteSpace(s.Name))) { _error = "Todas las etapas deben tener nombre."; return; }
+
+        _busy = true;
+        try
+        {
+            var wasNew = IsNew;
+            await Pipelines.SaveAsync(_model);
+            Nav.NavigateTo(wasNew ? $"pipelines/{_model.Id}" : "pipelines");
+        }
+        finally { _busy = false; }
+    }
+}

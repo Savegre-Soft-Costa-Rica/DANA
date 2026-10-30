@@ -1,0 +1,26 @@
+@page "/documentos/{Id}/imprimir"
+@layout EmptyLayout
+@inject DocumentService Docs
+@inject SettingsService Settings
+
+<PageTitle>@(_d?.Title ?? "Documento")</PageTitle>
+
+@if (_d is null) { <p>Documento no encontrado.</p> }
+else
+{
+    <div class="print-page doc-print">
+        <div class="no-print print-bar"><button class="btn-primary" onclick="window.print()">🖨 Imprimir / Guardar como PDF</button> <a class="btn-secondary" href="documentos/@_d.Id">Volver</a> <a class="btn-secondary" href="documentos/@_d.Id/word">Word</a></div>
+        <header class="print-head">
+            <div><div class="print-company">@_s.CompanyName</div><div class="print-muted">@_s.Address<br />@_s.TaxId @(string.IsNullOrEmpty(_s.Phone) ? "" : "· " + _s.Phone) @(string.IsNullOrEmpty(_s.Email) ? "" : "· " + _s.Email)</div></div>
+            <div class="print-title"><div class="print-muted">@DocumentKinds.Get(_d.Kind).Label · v@_d.Version · @DocumentStatuses.Get(_d.Status).Label</div><div class="print-muted">@_d.UpdatedAt.ToLocalTime().ToString("dd/MM/yyyy")</div></div>
+        </header>
+        <div class="doc-preview">@((MarkupString)DocumentService.ToHtml(_d.Content))@((MarkupString)DocumentService.SignaturesHtml(_d))</div>
+    </div>
+}
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+    private CrmDocument? _d;
+    private AppSettings _s = new();
+    protected override async Task OnInitializedAsync() { _d = await Docs.GetAsync(Id); _s = await Settings.GetAsync(); }
+}

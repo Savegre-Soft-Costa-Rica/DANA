@@ -1,0 +1,237 @@
+@page "/automatizaciones"
+@inject AutomationService AutoSvc
+@inject PipelineService Pipelines
+@inject UserService Users
+@inject EmailService Email
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<PageTitle>Dana · Automatizaciones</PageTitle>
+
+<PageHeader Title="Automatizaciones" Subtitle="Recetas: cuando ocurre algo en un tablero, Dana actúa por usted.">
+    <Actions>
+        <button class="btn-primary" @onclick="() => _edit = new Automation()">+ Nueva automatización</button>
+    </Actions>
+</PageHeader>
+
+@if (_edit is null)
+{
+    <div class="widget w-12 mb-3">
+        <div class="widget-title">Recetas populares <span class="muted small fw-normal">(clic para usarla como punto de partida)</span></div>
+        <div class="recipe-list">
+            @foreach (var r in Recipes)
+            {
+                <div class="recipe-card" @onclick="() => _edit = r()">
+                    <div class="recipe"><span class="when">⚡ @TriggerLabel(r().Trigger)</span><span class="arrow">→</span>@foreach (var a in r().Actions) { <span class="then">@ActionLabel(a)</span> }</div>
+                </div>
+            }
+        </div>
+    </div>
+}
+else
+{
+    <EditForm Model="_edit" OnValidSubmit="SaveAsync" FormName="auto">
+        <DataAnnotationsValidator />
+        <div class="card mb-3">
+            <div class="card-header">@(_edit.Id is null ? "Nueva automatización" : _edit.Name)</div>
+            <div class="card-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-5"><label class="form-label">Nombre *</label><InputText class="form-control" @bind-Value="_edit.Name" placeholder="Ej. Avisar al ganar" /><ValidationMessage For="() => _edit.Name" /></div>
+                    <div class="col-md-4"><label class="form-label">Tablero</label>
+                        <select class="form-select" value="@_edit.BoardKey" @onchange="OnBoardChanged">
+                            <option value="leads">Prospectos</option><option value="deals">Negociaciones</option><option value="contacts">Contactos</option><option value="companies">Compañías</option>
+                        </select></div>
+                    <div class="col-md-3 d-flex align-items-end"><div class="form-check"><InputCheckbox class="form-check-input" id="aen" @bind-Value="_edit.IsEnabled" /><label class="form-check-label" for="aen">Activa</label></div></div>
+                </div>
+
+                <h6>⚡ Cuando…</h6>
+                <div class="action-row" style="grid-template-columns: 1fr 1fr 28px">
+                    <select class="form-select" value="@_edit.Trigger.Type" @onchange="e => { _edit.Trigger = new AutomationStep { Type = e.Value?.ToString() ?? TriggerTypes.Created }; }">
+                        @foreach (var t in TriggerTypes.All.Where(t => t.Boards.Contains(_edit.BoardKey))) { <option value="@t.Id">@t.Label</option> }
+                    </select>
+                    <div class="action-params">
+                        @if (_edit.Trigger.Type == TriggerTypes.StageChanged)
+                        {
+                            <select value='@_edit.Trigger.Get("stageId")' @onchange='e => _edit.Trigger.Params["stageId"] = e.Value?.ToString() ?? string.Empty'>
+                                <option value="">cualquier etapa</option>
+                                @foreach (var (id, label) in _stages) { <option value="@id">@label</option> }
+                            </select>
+                        }
+                        else if (_edit.Trigger.Type == TriggerTypes.StatusChanged)
+                        {
+                            <select value='@_edit.Trigger.Get("status")' @onchange='e => _edit.Trigger.Params["status"] = e.Value?.ToString() ?? string.Empty'>
+                                <option value="">cualquier estado</option>
+                                @foreach (var s in LeadStatuses.All) { <option value="@s.Id">@s.Name</option> }
+                            </select>
+                        }
+                        else if (_edit.Trigger.Type == TriggerTypes.OverdueClose) { <span class="muted small align-self-center">Se evalúa cada minuto para negociaciones abiertas con cierre previsto pasado (una vez por negociación).</span> }
+                    </div>
+                    <span></span>
+                </div>
+
+                <h6 class="mt-3">→ Entonces…</h6>
+                @foreach (var a in _edit.Actions)
+                {
+                    <div class="action-row">
+                        <select class="form-select" value="@a.Type" @onchange="e => { a.Type = e.Value?.ToString() ?? ActionTypes.Notify; a.Params.Clear(); }">
+                            @foreach (var t in ActionTypes.All.Where(t => t.Boards.Contains(_edit.BoardKey))) { <option value="@t.Id">@t.Label</option> }
+                        </select>
+                        <div class="action-params">
+                            @switch (a.Type)
+                            {
+                                case ActionTypes.Notify:
+                                    @UserPicker(a, "user", "@assignee")
+                                    <input class="wide" placeholder="Texto, p. ej. «{{titulo}} pasó a {{etapa}}»" value='@a.Get("text")' @onchange='e => a.Params["text"] = e.Value?.ToString() ?? string.Empty' />
+                                    break;
+                                case ActionTypes.Assign:
+                                    @UserPicker(a, "user", "@roundrobin")
+                                    break;
+                                case ActionTypes.SetStage:
+                                    <select value='@a.Get("stageId")' @onchange='e => a.Params["stageId"] = e.Value?.ToString() ?? string.Empty'><option value="">— etapa —</option>@foreach (var (id, label) in _stages) { <option value="@id">@label</option> }</select>
+                                    break;
+                                case ActionTypes.SetStatus:
+                                    <select value='@a.Get("status")' @onchange='e => a.Params["status"] = e.Value?.ToString() ?? string.Empty'><option value="">— estado —</option>@foreach (var s in LeadStatuses.All) { <option value="@s.Id">@s.Name</option> }</select>
+                                    break;
+                                case ActionTypes.CreateTask:
+                                    <select value='@a.Get("kind", TaskKinds.Task)' @onchange='e => a.Params["kind"] = e.Value?.ToString() ?? TaskKinds.Task'>@foreach (var k in TaskKinds.All) { <option value="@k.Id">@k.Icon @k.Name</option> }</select>
+                                    <input class="wide" placeholder="Título, p. ej. «Llamar a {{titulo}}»" value='@a.Get("title")' @onchange='e => a.Params["title"] = e.Value?.ToString() ?? string.Empty' />
+                                    <span class="d-flex align-items-center gap-1 small">en <input type="number" style="width:64px" value='@a.Get("days", "1")' @onchange='e => a.Params["days"] = e.Value?.ToString() ?? "1"' /> día(s)</span>
+                                    @UserPicker(a, "user", "@assignee")
+                                    break;
+                                case ActionTypes.SendEmail:
+                                    <select value='@a.Get("templateId")' @onchange='e => a.Params["templateId"] = e.Value?.ToString() ?? string.Empty'><option value="">— plantilla —</option>@foreach (var t in _templates) { <option value="@t.Id">@t.Name</option> }</select>
+                                    <span class="muted small align-self-center">al correo del elemento (en negociaciones: del contacto o compañía)</span>
+                                    break;
+                                case ActionTypes.Webhook:
+                                    <input class="wide" placeholder="https://… (recibirá un POST JSON con el elemento)" value='@a.Get("url")' @onchange='e => a.Params["url"] = e.Value?.ToString() ?? string.Empty' />
+                                    break;
+                                case ActionTypes.AskAgent:
+                                    <select value='@a.Get("agentId")' @onchange='e => a.Params["agentId"] = e.Value?.ToString() ?? string.Empty'><option value="">— agente —</option>@foreach (var ag in _agents) { <option value="@ag.Id">🤖 @ag.Name · @ag.Role</option> }</select>
+                                    <input class="wide" placeholder="Encargo, p. ej. «Califica el prospecto {{titulo}} y propone el primer paso»" value='@a.Get("prompt")' @onchange='e => a.Params["prompt"] = e.Value?.ToString() ?? string.Empty' />
+                                    <span class="small">avisar a</span>
+                                    <select value='@a.Get("user", AssigneeSpec)' @onchange='e => a.Params["user"] = e.Value?.ToString() ?? AssigneeSpec'>
+                                        <option value="@@assignee">👤 Responsable del elemento</option>
+                                        <option value="@@all">👥 Todos los usuarios</option>
+                                        @foreach (var p in _people) { <option value="@p">@p</option> }
+                                    </select>
+                                    <label class="small d-flex align-items-center gap-1"><input type="checkbox" checked="@(a.Get("note", "1") == "1")" @onchange='e => a.Params["note"] = (bool)e.Value! ? "1" : "0"' /> anotar la respuesta en el elemento</label>
+                                    break;
+                            }
+                        </div>
+                        <button type="button" class="icon-btn tiny" title="Quitar" @onclick="() => _edit.Actions.Remove(a)">✕</button>
+                    </div>
+                }
+                <button type="button" class="btn-ghost btn-sm" @onclick="() => _edit.Actions.Add(new AutomationStep { Type = ActionTypes.Notify })">+ Agregar acción</button>
+                <div class="muted small mt-2">Marcadores en textos: {{titulo}}, {{responsable}}, {{etapa}}, {{estado}}, {{importe}}. Persona «@@assignee» = responsable del elemento; «@@roundrobin» = rotación entre usuarios.</div>
+            </div>
+            <div class="card-footer d-flex justify-content-end gap-2">
+                <button type="button" class="btn-secondary" @onclick="() => _edit = null">Cancelar</button>
+                <button type="submit" class="btn-primary" disabled="@(_edit.Actions.Count == 0)">Guardar</button>
+            </div>
+        </div>
+    </EditForm>
+}
+
+@if (_items is null) { <p class="muted">Cargando…</p> }
+else if (_items.Count == 0) { <div class="empty-state">Aún no hay automatizaciones. Elija una receta o cree una nueva.</div> }
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover crm-table align-middle">
+            <thead><tr><th></th><th>Nombre</th><th>Tablero</th><th>Receta</th><th class="text-center">Ejecuciones</th><th>Última</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var a in _items)
+                {
+                    <tr class="@(a.IsEnabled ? "" : "text-muted")">
+                        <td><input type="checkbox" class="cell-check" checked="@a.IsEnabled" @onchange="() => ToggleAsync(a)" title="Activar / desactivar" /></td>
+                        <td><strong>@a.Name</strong>@if (a.LastError is not null) { <div class="small text-danger">@a.LastError</div> }</td>
+                        <td>@BoardLabel(a.BoardKey)</td>
+                        <td><div class="recipe small"><span class="when">@TriggerLabel(a.Trigger)</span><span class="arrow">→</span>@foreach (var x in a.Actions) { <span class="then">@ActionLabel(x)</span> }</div></td>
+                        <td class="text-center">@a.RunCount</td>
+                        <td class="small">@(a.LastRunAt is null ? "nunca" : Updates.TimeAgo(a.LastRunAt.Value))</td>
+                        <td class="text-end text-nowrap"><button class="btn-secondary btn-sm" @onclick="() => _edit = a">Editar</button> <button class="btn-danger btn-sm" @onclick="() => DeleteAsync(a)">Eliminar</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<Automation>? _items;
+    private Automation? _edit;
+    private List<string> _people = new();
+    private List<AiAgent> _agents = new();
+    private const string AssigneeSpec = "@assignee";
+    [Inject] private Dana.Services.Ai.AgentService AgentSvc { get; set; } = default!;
+    private List<(string Id, string Label)> _stages = new();
+    private List<EmailTemplate> _templates = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _people = (await Users.GetAllAsync()).Where(u => u.IsActive).Select(u => u.Name).OrderBy(n => n).ToList();
+        _stages = (await Pipelines.GetAllAsync()).SelectMany(p => p.OrderedStages.Select(s => (s.Id, $"{p.Name} · {s.Name}"))).ToList();
+        _templates = await Email.GetTemplatesAsync();
+        _agents = (await AgentSvc.GetAllAsync()).Where(x => x.IsActive).ToList();
+        _items = await AutoSvc.GetAllAsync();
+    }
+
+    private RenderFragment UserPicker(AutomationStep a, string key, string def) => @<select value='@a.Get(key, def)' @onchange='e => a.Params[key] = e.Value?.ToString() ?? def'>
+            <option value="@@assignee">👤 Responsable del elemento</option>
+            <option value="@@roundrobin">🔁 Rotación entre usuarios</option>
+            @foreach (var p in _people) { <option value="@p">@p</option> }
+        </select>;
+
+    private void OnBoardChanged(ChangeEventArgs e)
+    {
+        _edit!.BoardKey = e.Value?.ToString() ?? "deals";
+        if (!TriggerTypes.All.First(t => t.Id == _edit.Trigger.Type).Boards.Contains(_edit.BoardKey)) _edit.Trigger = new AutomationStep { Type = TriggerTypes.Created };
+        _edit.Actions.RemoveAll(a => !ActionTypes.All.First(t => t.Id == a.Type).Boards.Contains(_edit.BoardKey));
+    }
+
+    private async Task SaveAsync() { await AutoSvc.SaveAsync(_edit!); _edit = null; _items = await AutoSvc.GetAllAsync(); }
+    private async Task ToggleAsync(Automation a) { a.IsEnabled = !a.IsEnabled; await AutoSvc.SaveAsync(a); }
+    private async Task DeleteAsync(Automation a)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar \"{a.Name}\"?")) return;
+        await AutoSvc.DeleteAsync(a.Id!); _items = await AutoSvc.GetAllAsync();
+    }
+
+    private static string BoardLabel(string b) => b switch { "leads" => "Prospectos", "deals" => "Negociaciones", "contacts" => "Contactos", _ => "Compañías" };
+
+    private string TriggerLabel(AutomationStep t)
+    {
+        var label = TriggerTypes.All.FirstOrDefault(x => x.Id == t.Type).Label ?? t.Type;
+        if (t.Type == TriggerTypes.StageChanged && t.Get("stageId") != "") label = "Cuando pasa a " + (_stages.FirstOrDefault(s => s.Id == t.Get("stageId")).Label ?? "etapa");
+        if (t.Type == TriggerTypes.StatusChanged && t.Get("status") != "") label = "Cuando pasa a " + LeadStatuses.Get(t.Get("status")).Name;
+        return label;
+    }
+
+    private string ActionLabel(AutomationStep a)
+    {
+        string User(string v) => v == "@assignee" ? "el responsable" : v == "@roundrobin" ? "rotación" : v;
+        return a.Type switch
+        {
+            ActionTypes.Notify => $"notificar a {User(a.Get("user", "@assignee"))}",
+            ActionTypes.Assign => $"asignar a {User(a.Get("user", "@roundrobin"))}",
+            ActionTypes.SetStage => $"mover a {_stages.FirstOrDefault(s => s.Id == a.Get("stageId")).Label ?? "etapa"}",
+            ActionTypes.SetStatus => $"estado → {LeadStatuses.Get(a.Get("status")).Name}",
+            ActionTypes.CreateTask => $"crear {TaskKinds.Get(a.Get("kind", TaskKinds.Task)).Name.ToLower()} en {a.Get("days", "1")} día(s)",
+            ActionTypes.SendEmail => $"enviar correo «{_templates.FirstOrDefault(t => t.Id == a.Get("templateId"))?.Name ?? "plantilla"}»",
+            ActionTypes.Webhook => "llamar webhook",
+            ActionTypes.AskAgent => $"consultar al agente {_agents.FirstOrDefault(x => x.Id == a.Get("agentId"))?.Name ?? "IA"}",
+            ActionTypes.Archive => "archivar",
+            _ => a.Type
+        };
+    }
+
+    private IEnumerable<Func<Automation>> Recipes => new Func<Automation>[]
+    {
+        () => new Automation { Name = "Avisar al responsable al ganar", BoardKey = "deals", Trigger = new() { Type = TriggerTypes.StageChanged, Params = new() { ["stageId"] = _stages.FirstOrDefault(s => s.Label.EndsWith("Ganada")).Id ?? "" } }, Actions = [new() { Type = ActionTypes.Notify, Params = new() { ["user"] = "@assignee", ["text"] = "🎉 ¡Negociación ganada! {{titulo}} por ${{importe}}" } }] },
+        () => new Automation { Name = "Nuevo prospecto: asignar y programar llamada", BoardKey = "leads", Trigger = new() { Type = TriggerTypes.Created }, Actions = [new() { Type = ActionTypes.Assign, Params = new() { ["user"] = "@roundrobin" } }, new() { Type = ActionTypes.CreateTask, Params = new() { ["kind"] = TaskKinds.Call, ["title"] = "Primer contacto: {{titulo}}", ["days"] = "1", ["user"] = "@assignee" } }] },
+        () => new Automation { Name = "Cierre vencido: avisar y crear tarea", BoardKey = "deals", Trigger = new() { Type = TriggerTypes.OverdueClose }, Actions = [new() { Type = ActionTypes.Notify, Params = new() { ["user"] = "@assignee", ["text"] = "📅 Venció el cierre previsto de {{titulo}}" } }, new() { Type = ActionTypes.CreateTask, Params = new() { ["kind"] = TaskKinds.Task, ["title"] = "Actualizar fecha de cierre: {{titulo}}", ["days"] = "0", ["user"] = "@assignee" } }] },
+        () => new Automation { Name = "Prospecto calificado: enviar correo", BoardKey = "leads", Trigger = new() { Type = TriggerTypes.StatusChanged, Params = new() { ["status"] = LeadStatuses.Qualified } }, Actions = [new() { Type = ActionTypes.SendEmail, Params = new() { ["templateId"] = _templates.FirstOrDefault()?.Id ?? "" } }] },
+        () => new Automation { Name = "Negociación perdida: archivar", BoardKey = "deals", Trigger = new() { Type = TriggerTypes.StageChanged, Params = new() { ["stageId"] = _stages.FirstOrDefault(s => s.Label.EndsWith("Perdida")).Id ?? "" } }, Actions = [new() { Type = ActionTypes.CreateTask, Params = new() { ["kind"] = TaskKinds.Task, ["title"] = "Registrar motivo de pérdida: {{titulo}}", ["days"] = "1", ["user"] = "@assignee" } }] },
+        () => new Automation { Name = "Nueva compañía: avisar al equipo", BoardKey = "companies", Trigger = new() { Type = TriggerTypes.Created }, Actions = [new() { Type = ActionTypes.Notify, Params = new() { ["user"] = _people.FirstOrDefault() ?? "@assignee", ["text"] = "Nueva compañía registrada: {{titulo}}" } }] },
+    };
+}

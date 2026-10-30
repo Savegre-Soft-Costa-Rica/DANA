@@ -1,0 +1,46 @@
+@implements IDisposable
+@inject DialogService Dialogs
+
+@if (Dialogs.Current is { } d)
+{
+    <div class="sheet-backdrop" @onclick="() => Dialogs.Resolve(null)"></div>
+    <div class="sheet dialog" role="dialog">
+        <div class="sheet-head"><strong>@d.Title</strong><button class="icon-btn" @onclick="() => Dialogs.Resolve(null)">✕</button></div>
+        <div class="sheet-body">
+            @if (!string.IsNullOrEmpty(d.Message)) { <p class="mb-2">@d.Message</p> }
+            @if (d.Kind == "prompt")
+            {
+                <input class="form-control" @ref="_input" value="@_value" @oninput="e => _value = e.Value?.ToString() ?? string.Empty" @onkeydown="OnKey" />
+            }
+        </div>
+        <div class="sheet-foot">
+            <button class="btn-secondary" @onclick="() => Dialogs.Resolve(null)">Cancelar</button>
+            <button class="btn-primary" @onclick="Ok">@(d.Kind == "prompt" ? "Aceptar" : "Sí, continuar")</button>
+        </div>
+    </div>
+}
+
+@code {
+    private string _value = "";
+    private ElementReference _input;
+    private bool _focus;
+
+    protected override void OnInitialized() => Dialogs.Changed += OnChanged;
+
+    private void OnChanged()
+    {
+        _value = Dialogs.Current?.DefaultValue ?? "";
+        _focus = Dialogs.Current?.Kind == "prompt";
+        InvokeAsync(StateHasChanged);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focus) { _focus = false; try { await _input.FocusAsync(); } catch { } }
+    }
+
+    private void Ok() => Dialogs.Resolve(Dialogs.Current?.Kind == "prompt" ? _value : "ok");
+    private void OnKey(KeyboardEventArgs e) { if (e.Key == "Enter") Ok(); else if (e.Key == "Escape") Dialogs.Resolve(null); }
+
+    public void Dispose() => Dialogs.Changed -= OnChanged;
+}

@@ -1,0 +1,76 @@
+@page "/pipelines"
+@inject PipelineService Pipelines
+@inject DealService Deals
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<PageTitle>Dana · Embudos</PageTitle>
+
+<PageHeader Title="Embudos de venta" Subtitle="Cada embudo define las etapas por las que pasan sus negociaciones">
+    <Actions>
+        <a class="btn-primary" href="pipelines/new">+ Nuevo embudo</a>
+    </Actions>
+</PageHeader>
+
+@if (_error is not null) { <div class="alert alert-warning">@_error</div> }
+
+@if (_items is null)
+{
+    <p class="text-muted">Cargando…</p>
+}
+else
+{
+    <div class="row g-3">
+        @foreach (var p in _items)
+        {
+            <div class="col-md-6 col-xl-4">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><strong>@p.Name</strong> @if (p.IsDefault) { <span class="badge text-bg-primary ms-1">Predeterminado</span> }</span>
+                        <span class="text-muted small">@_counts.GetValueOrDefault(p.Id!) negociaciones</span>
+                    </div>
+                    <div class="card-body">
+                        <ol class="mb-0 ps-3">
+                            @foreach (var s in p.OrderedStages)
+                            {
+                                <li>
+                                    <span class="stage-dot" style="background:@s.Color"></span>@s.Name
+                                    @if (s.Kind == StageKind.Success) { <span class="badge text-bg-success ms-1">ganada</span> }
+                                    @if (s.Kind == StageKind.Failure) { <span class="badge text-bg-danger ms-1">perdida</span> }
+                                </li>
+                            }
+                        </ol>
+                    </div>
+                    <div class="card-footer d-flex gap-2">
+                        <a class="btn-secondary btn-sm" href="pipelines/@p.Id">Editar</a>
+                        <a class="btn-secondary btn-sm" href="deals/board/@p.Id">Kanban</a>
+                        <button class="btn-danger btn-sm ms-auto" @onclick="() => DeleteAsync(p)">Eliminar</button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<Pipeline>? _items;
+    private Dictionary<string, int> _counts = new();
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _items = await Pipelines.GetAllAsync();
+        _counts = (await Deals.GetAllAsync()).GroupBy(d => d.PipelineId).ToDictionary(g => g.Key, g => g.Count());
+    }
+
+    private async Task DeleteAsync(Pipeline p)
+    {
+        _error = null;
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar el embudo \"{p.Name}\"?")) return;
+        var (ok, error) = await Pipelines.DeleteAsync(p.Id!);
+        if (!ok) { _error = error; return; }
+        await LoadAsync();
+    }
+}

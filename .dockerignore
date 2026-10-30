@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+**/App_Data/
+**/.vs/
+**/.idea/
+**/*.user
+.git/
+.env
+docker-compose*.yml
+README.md
+ROADMAP.md

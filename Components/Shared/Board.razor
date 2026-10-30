@@ -1,0 +1,730 @@
+@typeparam TItem where TItem : Entity
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+@if (View == BoardView.Table)
+{
+    <div class="board-scroll">
+    <div class="board @(_popItem is not null || _editColumn?.Type == ColumnType.LongText ? "has-popover" : "")">
+        @foreach (var g in Groups)
+        {
+            var rows = RowsFor(g);
+            if (rows.Count == 0 && HideEmptyGroups) continue;
+            var collapsed = _collapsed.Contains(g.Key);
+            <div class="board-group" style="--group-color:@g.Color">
+                <div class="group-header">
+                    <button class="group-toggle" @onclick="() => Toggle(g)">@(collapsed ? "▸" : "▾")</button>
+                    <span class="group-title">@g.Title</span>
+                    <span class="group-count">@rows.Count @(rows.Count == 1 ? "elemento" : "elementos")</span>
+                </div>
+                @if (!collapsed)
+                {
+                    <div class="board-table-wrap" style="width:max(@(TableMinWidth)px, 100%)">
+                        <table class="board-table" style="width:max(@(TableMinWidth)px, 100%)">
+                            <thead>
+                                <tr>
+                                    <th class="col-sel"><input type="checkbox" checked="@(rows.Count > 0 && rows.All(r => _selected.Contains(r.Id!)))" @onchange="e => SelectAll(rows, e)" /></th>
+                                    <th class="col-name @(_sortKey == NameColumn.Key ? "sorted" : "")" @onclick="() => Sort(NameColumn.Key)">@NameColumn.Title @SortIcon(NameColumn.Key)</th>
+                                    @foreach (var c in DataColumns)
+                                    {
+                                        <th class="@(_sortKey == c.Key ? "sorted" : "") @(_menuColumn?.Key == c.Key ? "menu-open" : "")" style="width:@(c.Width)px" @onclick="() => Sort(c.Key)">
+                                            <span class="th-title">@c.Title @SortIcon(c.Key)</span>
+                                            @if (Config is not null)
+                                            {
+                                                <button class="th-menu-btn" title="Opciones de columna" @onclick="() => _menuColumn = c" @onclick:stopPropagation>▾</button>
+                                                @if (_menuColumn?.Key == c.Key)
+                                                {
+                                                    <div class="popover-backdrop" @onclick="() => _menuColumn = null" @onclick:stopPropagation></div>
+                                                    <div class="popover column-menu @(DataColumns.IndexOf(c) >= DataColumns.Count - 2 ? "popover-right" : "")" @onclick:stopPropagation>
+                                                        <button class="list-opt" @onclick="() => { _sortKey = c.Key; _sortDesc = false; _menuColumn = null; }">↑ Ordenar ascendente</button>
+                                                        <button class="list-opt" @onclick="() => { _sortKey = c.Key; _sortDesc = true; _menuColumn = null; }">↓ Ordenar descendente</button>
+                                                        <button class="list-opt" @onclick="() => MoveColumnAsync(c, -1)" disabled="@(DataColumns.IndexOf(c) == 0)">← Mover a la izquierda</button>
+                                                        <button class="list-opt" @onclick="() => MoveColumnAsync(c, +1)" disabled="@(DataColumns.IndexOf(c) == DataColumns.Count - 1)">→ Mover a la derecha</button>
+                                                        @if (c.LabelsEditable)
+                                                        {
+                                                            <button class="list-opt" @onclick="() => OpenLabelsEditor(c)">🏷 Editar etiquetas</button>
+                                                        }
+                                                        @if (c.IsCustom)
+                                                        {
+                                                            <button class="list-opt" @onclick="() => RenameColumnAsync(c)">✎ Renombrar</button>
+                                                        }
+                                                        <button class="list-opt" @onclick="() => HideColumnAsync(c)">👁 Ocultar columna</button>
+                                                        @if (c.IsCustom)
+                                                        {
+                                                            <button class="list-opt danger" @onclick="() => DeleteColumnAsync(c)">🗑 Eliminar columna</button>
+                                                        }
+                                                    </div>
+                                                }
+                                            }
+                                        </th>
+                                    }
+                                    <th class="col-fill">
+                                        @if (Config is not null)
+                                        {
+                                            <button class="add-col-btn" title="Agregar columna" @onclick="() => { _addColumnOpen = true; _newColTitle = string.Empty; _newColType = ColumnType.Text; }" @onclick:stopPropagation>+</button>
+                                        }
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in rows)
+                                {
+                                    <tr class="@(_selected.Contains(item.Id!) ? "selected" : "")">
+                                        <td class="col-sel"><input type="checkbox" checked="@_selected.Contains(item.Id!)" @onchange="e => ToggleSelect(item, e)" /></td>
+                                        <td class="col-name">
+                                            @if (IsEditing(item, NameColumn))
+                                            {
+                                                <input class="cell-editor" @ref="_editorRef" value="@_editText" @oninput="e => _editText = e.Value?.ToString() ?? string.Empty" @onkeydown="OnEditorKey" @onblur="CommitEditAsync" />
+                                            }
+                                            else
+                                            {
+                                                <div class="name-cell">
+                                                    <span class="item-name" @onclick="() => OnOpen.InvokeAsync(item)">@NameColumn.Display(item)</span>
+                                                    @if (!NameColumn.ReadOnly)
+                                                    {
+                                                        <button class="cell-edit-btn" title="Renombrar" @onclick="() => StartEdit(item, NameColumn)">✎</button>
+                                                    }
+                                                    <button class="open-btn" @onclick="() => OnOpen.InvokeAsync(item)">Abrir ⤢</button>
+                                                </div>
+                                            }
+                                        </td>
+                                        @foreach (var c in DataColumns)
+                                        {
+                                            <td class="cell cell-@c.Type.ToString().ToLowerInvariant() @(c.ReadOnly ? "readonly" : "")" @onclick="() => CellClick(item, c)">
+                                                @if (IsEditing(item, c))
+                                                {
+                                                    @if (c.Type == ColumnType.LongText)
+                                                    {
+                                                        <textarea class="cell-editor" @ref="_editorRef" value="@_editText" @oninput="e => _editText = e.Value?.ToString() ?? string.Empty" @onkeydown="OnEditorKey" @onblur="CommitEditAsync" @onclick:stopPropagation></textarea>
+                                                    }
+                                                    else
+                                                    {
+                                                        <input class="cell-editor" type="@EditorInputType(c)" step="any" @ref="_editorRef" value="@_editText" @oninput="e => _editText = e.Value?.ToString() ?? string.Empty" @onkeydown="OnEditorKey" @onblur="CommitEditAsync" @onclick:stopPropagation />
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    switch (c.Type)
+                                                    {
+                                                        case ColumnType.Status:
+                                                            var opt = c.OptionFor(c.GetValue(item));
+                                                            <div class="status-pill @(opt is null ? "empty" : "")" style="@(opt is null ? "" : $"background:{opt.Color}")">@(opt?.Label ?? "")</div>
+                                                            break;
+                                                        case ColumnType.Select:
+                                                            var sel = c.OptionFor(c.GetValue(item));
+                                                            <span class="cell-text">@if (sel is null) { <span class="cell-empty">—</span> } else { <span class="stage-dot" style="background:@sel.Color"></span>@sel.Label }</span>
+                                                            break;
+                                                        case ColumnType.Person:
+                                                            <span class="cell-text"><PersonChip Name="@c.GetValue(item)?.ToString()" /></span>
+                                                            break;
+                                                        case ColumnType.Email:
+                                                            var em = c.Display(item);
+                                                            <span class="cell-text">@if (em == "") { <span class="cell-empty">—</span> } else { <a class="cell-link" href="mailto:@em" @onclick:stopPropagation>@em</a> }</span>
+                                                            break;
+                                                        case ColumnType.Link:
+                                                            var url = c.Display(item);
+                                                            <span class="cell-text">@if (url == "") { <span class="cell-empty">—</span> } else { <a class="cell-link" href="@(url.StartsWith("http") ? url : "https://" + url)" target="_blank" @onclick:stopPropagation>@url.Replace("https://", "").Replace("http://", "")</a> }</span>
+                                                            break;
+                                                        case ColumnType.Date:
+                                                            var dv = c.GetValue(item) as DateTime?;
+                                                            var late = dv is not null && dv < DateTime.UtcNow.Date && HighlightPastDates;
+                                                            <span class="cell-text" style="@(late ? "color:var(--danger)" : "")">@(dv is null ? "" : dv.Value.ToString("dd MMM yyyy"))@if (dv is null) { <span class="cell-empty">—</span> }</span>
+                                                            break;
+                                                        case ColumnType.Checkbox:
+                                                            <span class="cell-text"><input type="checkbox" class="cell-check" checked="@(c.GetValue(item) is true)" disabled="@c.ReadOnly" @onclick:stopPropagation @onchange="e => ToggleCheckAsync(item, c, e)" /></span>
+                                                            break;
+                                                        case ColumnType.Money:
+                                                            var mv = c.GetValue(item) as decimal?;
+                                                            <span class="cell-text">@(mv is null ? "" : mv.Value.ToString("N2"))</span>
+                                                            break;
+                                                        default:
+                                                            var txt = c.Display(item);
+                                                            <span class="cell-text" title="@txt">@txt</span>
+                                                            break;
+                                                    }
+                                                }
+
+                                                @if (IsPopover(item, c))
+                                                {
+                                                    <div class="popover-backdrop" @onclick="ClosePopover" @onclick:stopPropagation></div>
+                                                    <div class="popover @(DataColumns.IndexOf(c) >= DataColumns.Count - 2 ? "popover-right" : "")" @onclick:stopPropagation>
+                                                        @if (c.Type == ColumnType.Status)
+                                                        {
+                                                            var current = c.GetValue(item)?.ToString();
+                                                            <div class="status-grid">
+                                                                @foreach (var o in c.Options)
+                                                                {
+                                                                    <button class="status-opt @(o.Value == current ? "selected" : "")" style="background:@o.Color" @onclick="() => PickAsync(item, c, o.Value)">@o.Label</button>
+                                                                }
+                                                                @if (AllowClearStatus)
+                                                                {
+                                                                    <button class="status-opt clear" @onclick="() => PickAsync(item, c, null)">Sin valor</button>
+                                                                }
+                                                            </div>
+                                                        }
+                                                        else
+                                                        {
+                                                            var current = c.GetValue(item)?.ToString();
+                                                            <div class="list-popover">
+                                                                <input placeholder="Buscar…" @bind="_popoverFilter" @bind:event="oninput" />
+                                                                <button class="list-opt @(string.IsNullOrEmpty(current) ? "selected" : "")" @onclick="() => PickAsync(item, c, null)">
+                                                                    <span class="cell-empty">—</span> @(c.Type == ColumnType.Person ? "Sin asignar" : "Ninguno")
+                                                                </button>
+                                                                @foreach (var o in c.Options.Where(o => string.IsNullOrEmpty(_popoverFilter) || o.Label.Contains(_popoverFilter, StringComparison.OrdinalIgnoreCase)))
+                                                                {
+                                                                    <button class="list-opt @(o.Value == current ? "selected" : "")" @onclick="() => PickAsync(item, c, o.Value)">
+                                                                        @if (c.Type == ColumnType.Person) { <span class="avatar avatar-letter avatar-sm" style="background:@o.Color">@Avatar.Initials(o.Label)</span> }
+                                                                        else { <span class="stage-dot" style="background:@o.Color"></span> }
+                                                                        <span>@o.Label</span>
+                                                                    </button>
+                                                                }
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                }
+                                            </td>
+                                        }
+                                        <td class="col-fill"></td>
+                                    </tr>
+                                }
+                                @if (OnAdd.HasDelegate)
+                                {
+                                    <tr class="add-row">
+                                        <td class="col-sel"></td>
+                                        <td colspan="@(DataColumns.Count + 2)">
+                                            <input class="add-input" placeholder="+ Agregar elemento" value="@GetNewTitle(g)" @oninput="e => _newTitles[g.Key] = e.Value?.ToString() ?? string.Empty" @onkeydown="e => AddKeyAsync(e, g)" />
+                                        </td>
+                                    </tr>
+                                }
+                                <tr class="summary-row">
+                                    <td class="col-sel"></td>
+                                    <td class="col-name"></td>
+                                    @foreach (var c in DataColumns)
+                                    {
+                                        <td>
+                                            @switch (c.Type)
+                                            {
+                                                case ColumnType.Number:
+                                                case ColumnType.Money:
+                                                    var sum = rows.Sum(r => c.GetValue(r) as decimal? ?? 0);
+                                                    <span class="sum"><b>@sum.ToString(c.Format ?? "N0")</b><small>suma</small></span>
+                                                    break;
+                                                case ColumnType.Status:
+                                                    @if (rows.Count > 0)
+                                                    {
+                                                        <div class="status-bar">
+                                                            @foreach (var o in c.Options)
+                                                            {
+                                                                var n = rows.Count(r => c.GetValue(r)?.ToString() == o.Value);
+                                                                if (n == 0) continue;
+                                                                <span style="width:@(100.0 * n / rows.Count)%; background:@o.Color" title="@o.Label: @n (@Math.Round(100.0 * n / rows.Count)%)"></span>
+                                                            }
+                                                        </div>
+                                                    }
+                                                    break;
+                                                case ColumnType.Date:
+                                                    var dates = rows.Select(r => c.GetValue(r) as DateTime?).Where(d => d is not null).Select(d => d!.Value).ToList();
+                                                    @if (dates.Count > 0)
+                                                    {
+                                                        <span class="sum date-range">@dates.Min().ToString("dd MMM") – @dates.Max().ToString("dd MMM")</span>
+                                                    }
+                                                    break;
+                                            }
+                                        </td>
+                                    }
+                                    <td></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+        @if (!Items.Any())
+        {
+            <div class="board-empty">No hay elementos todavía. Use la fila <em>+ Agregar elemento</em> o el botón <em>Nuevo</em>.</div>
+        }
+    </div>
+    </div>
+}
+else
+{
+    <div class="kanban">
+        @foreach (var g in Groups)
+        {
+            var cards = RowsFor(g);
+            <div class="kanban-col @(_dragOverGroup == g.Key ? "drag-over" : "")"
+                 ondragover="event.preventDefault();"
+                 @ondragenter="() => _dragOverGroup = g.Key"
+                 @ondrop="() => DropAsync(g)">
+                <div class="kanban-head" style="background:@g.Color">
+                    <span>@g.Title</span>
+                    <span class="meta">@cards.Count@(KanbanSumColumn is not null ? " · " + cards.Sum(r => KanbanSumColumn.GetValue(r) as decimal? ?? 0).ToString("N0") : "")</span>
+                </div>
+                <div class="kanban-body">
+                    @foreach (var item in cards)
+                    {
+                        <div class="kanban-card @(_draggingId == item.Id ? "dragging" : "")"
+                             draggable="@(OnMove.HasDelegate ? "true" : "false")"
+                             @ondragstart="() => _draggingId = item.Id"
+                             @ondragend="() => { _draggingId = null; _dragOverGroup = null; }">
+                            <div class="title" @onclick="() => OnOpen.InvokeAsync(item)">@NameColumn.Display(item)</div>
+                            @foreach (var c in DataColumns.Where(c => c.ShowInCard).Take(KanbanCardFields))
+                            {
+                                var txt = c.Display(item);
+                                if (txt == "") continue;
+                                <div class="kv">
+                                    <span>@c.Title</span>
+                                    @if (c.Type == ColumnType.Status)
+                                    {
+                                        var o = c.OptionFor(c.GetValue(item));
+                                        <span class="pill" style="background:@(o?.Color ?? "#c4c4c4")">@txt</span>
+                                    }
+                                    else if (c.Type == ColumnType.Person)
+                                    {
+                                        <PersonChip Name="@txt" />
+                                    }
+                                    else
+                                    {
+                                        <b>@txt</b>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                    @if (OnAdd.HasDelegate)
+                    {
+                        @if (_kanbanAddGroup == g.Key)
+                        {
+                            <input class="cell-editor" placeholder="Título del elemento" value="@GetNewTitle(g)" @ref="_editorRef"
+                                   @oninput="e => _newTitles[g.Key] = e.Value?.ToString() ?? string.Empty"
+                                   @onkeydown="e => AddKeyAsync(e, g)" @onblur="() => _kanbanAddGroup = null" />
+                        }
+                        else
+                        {
+                            <button class="kanban-add" @onclick="() => { _kanbanAddGroup = g.Key; _focusPending = true; }">+ Agregar elemento</button>
+                        }
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (_selected.Count > 0)
+{
+    <div class="bulk-bar">
+        <div class="bulk-count">@_selected.Count</div>
+        <span>@(_selected.Count == 1 ? "elemento seleccionado" : "elementos seleccionados")</span>
+        @if (OnMove.HasDelegate && Groups.Count > 1)
+        {
+            <select @onchange="BulkMoveAsync">
+                <option value="">Mover a…</option>
+                @foreach (var g in Groups) { <option value="@g.Key">@g.Title</option> }
+            </select>
+        }
+        @if (OnDuplicate.HasDelegate)
+        {
+            <button class="btn-secondary btn-sm" @onclick="BulkDuplicateAsync">Duplicar</button>
+        }
+        @if (OnArchive.HasDelegate)
+        {
+            <button class="btn-secondary btn-sm" @onclick="BulkArchiveAsync">@(ShowArchived ? "Restaurar" : "Archivar")</button>
+        }
+        @if (OnDelete.HasDelegate)
+        {
+            <button class="btn-danger btn-sm" @onclick="BulkDeleteAsync">Eliminar</button>
+        }
+        <button class="btn-ghost btn-sm" @onclick="() => _selected.Clear()">✕</button>
+    </div>
+}
+
+@if (_addColumnOpen)
+{
+    <div class="sheet-backdrop" @onclick="() => _addColumnOpen = false"></div>
+    <div class="sheet">
+        <div class="sheet-head"><strong>Agregar columna</strong><button class="icon-btn" @onclick="() => _addColumnOpen = false">✕</button></div>
+        <div class="sheet-body">
+            <label class="form-label">Nombre</label>
+            <input class="form-control mb-3" placeholder="Ej. Prioridad" @bind="_newColTitle" @bind:event="oninput" />
+            <label class="form-label">Tipo</label>
+            <div class="type-grid">
+                @foreach (var (t, label) in ColumnTypes.Creatable)
+                {
+                    <button class="type-opt @(_newColType == t ? "selected" : "")" @onclick="() => _newColType = t">@TypeIcon(t) @label</button>
+                }
+            </div>
+        </div>
+        <div class="sheet-foot">
+            <button class="btn-secondary" @onclick="() => _addColumnOpen = false">Cancelar</button>
+            <button class="btn-primary" disabled="@string.IsNullOrWhiteSpace(_newColTitle)" @onclick="AddColumnAsync">Agregar</button>
+        </div>
+    </div>
+}
+
+@if (_labelsColumn is not null)
+{
+    <div class="sheet-backdrop" @onclick="() => _labelsColumn = null"></div>
+    <div class="sheet">
+        <div class="sheet-head"><strong>Etiquetas · @_labelsColumn.Title</strong><button class="icon-btn" @onclick="() => _labelsColumn = null">✕</button></div>
+        <div class="sheet-body">
+            @foreach (var o in _labelDraft)
+            {
+                <div class="label-row">
+                    <input type="color" class="form-control form-control-color" @bind="o.Color" />
+                    <input class="form-control" @bind="o.Label" placeholder="Nombre de la etiqueta" />
+                    @if (_labelsColumn.LockedValues.Contains(o.Value))
+                    {
+                        <span class="muted small" title="Etiqueta del sistema: se puede renombrar pero no eliminar">🔒</span>
+                    }
+                    else
+                    {
+                        <button class="icon-btn" title="Quitar" @onclick="() => _labelDraft.Remove(o)">✕</button>
+                    }
+                </div>
+            }
+            <button class="btn-ghost btn-sm" @onclick="AddLabelDraft">+ Nueva etiqueta</button>
+            @if (_labelsColumn.LockedValues.Count > 0)
+            {
+                <div class="muted small mt-2">Las etiquetas 🔒 son del sistema: puede cambiarles nombre y color, pero no eliminarlas.</div>
+            }
+        </div>
+        <div class="sheet-foot">
+            <button class="btn-secondary" @onclick="() => _labelsColumn = null">Cancelar</button>
+            <button class="btn-primary" @onclick="SaveLabelsAsync">Guardar</button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public List<TItem> Items { get; set; } = new();
+    [Parameter, EditorRequired] public List<BoardColumn<TItem>> Columns { get; set; } = new();
+    [Parameter] public List<BoardGroup> Groups { get; set; } = new();
+    [Parameter] public Func<TItem, string?>? GroupKey { get; set; }
+    [Parameter] public BoardView View { get; set; } = BoardView.Table;
+    [Parameter] public string? Search { get; set; }
+    [Parameter] public bool HideEmptyGroups { get; set; }
+    [Parameter] public bool AllowClearStatus { get; set; }
+    [Parameter] public bool HighlightPastDates { get; set; } = true;
+    [Parameter] public int KanbanCardFields { get; set; } = 4;
+    [Parameter] public BoardColumn<TItem>? KanbanSumColumn { get; set; }
+
+    [Parameter] public EventCallback<BoardChange<TItem>> OnChanged { get; set; }
+    [Parameter] public EventCallback<BoardMove<TItem>> OnMove { get; set; }
+    [Parameter] public EventCallback<BoardAdd> OnAdd { get; set; }
+    [Parameter] public EventCallback<TItem> OnOpen { get; set; }
+    [Parameter] public EventCallback<TItem> OnDelete { get; set; }
+    [Parameter] public EventCallback<TItem> OnArchive { get; set; }
+    [Parameter] public EventCallback<TItem> OnDuplicate { get; set; }
+    [Parameter] public bool ShowArchived { get; set; }
+    [Parameter] public BoardConfig? Config { get; set; }
+    [Parameter] public EventCallback OnConfigChanged { get; set; }
+
+    private BoardColumn<TItem>? _menuColumn;
+    private bool _addColumnOpen;
+    private string _newColTitle = "";
+    private ColumnType _newColType = ColumnType.Text;
+    private BoardColumn<TItem>? _labelsColumn;
+    private List<StatusOptionDef> _labelDraft = new();
+
+    private int TableMinWidth => 36 + 300 + DataColumns.Sum(c => c.Width) + 40;
+    private BoardColumn<TItem> NameColumn => Columns.FirstOrDefault(c => c.Type == ColumnType.Name) ?? Columns[0];
+    private List<BoardColumn<TItem>> DataColumns => Columns.Where(c => c.Type != ColumnType.Name).ToList();
+
+    private readonly HashSet<string> _collapsed = new();
+    private readonly HashSet<string> _selected = new();
+    private readonly Dictionary<string, string> _newTitles = new();
+    private string? _sortKey;
+    private bool _sortDesc;
+
+    private TItem? _editItem;
+    private BoardColumn<TItem>? _editColumn;
+    private string _editText = "";
+    private ElementReference _editorRef;
+    private bool _focusPending;
+
+    private TItem? _popItem;
+    private BoardColumn<TItem>? _popColumn;
+    private string _popoverFilter = "";
+
+    private string? _draggingId;
+    private string? _dragOverGroup;
+    private string? _kanbanAddGroup;
+
+    protected override void OnParametersSet()
+    {
+        if (Groups.Count == 0) Groups = [new BoardGroup { Key = "", Title = "Todos los elementos", Color = "#0073ea" }];
+    }
+
+    private List<TItem> RowsFor(BoardGroup g)
+    {
+        IEnumerable<TItem> q = Items;
+        if (GroupKey is not null)
+        {
+            if (Groups.Count == 1 && string.IsNullOrEmpty(g.Key)) { }
+            else q = q.Where(i => (GroupKey(i) ?? "") == g.Key);
+        }
+        if (!string.IsNullOrWhiteSpace(Search))
+            q = q.Where(i => Columns.Any(c => c.Display(i).Contains(Search, StringComparison.OrdinalIgnoreCase)));
+        if (_sortKey is not null)
+        {
+            var col = Columns.FirstOrDefault(c => c.Key == _sortKey);
+            if (col is not null)
+            {
+                q = _sortDesc ? q.OrderByDescending(i => SortValue(col, i), Comparer<object?>.Create(CompareValues))
+                              : q.OrderBy(i => SortValue(col, i), Comparer<object?>.Create(CompareValues));
+            }
+        }
+        return q.ToList();
+    }
+
+    private static object? SortValue(BoardColumn<TItem> c, TItem i) =>
+        c.Type is ColumnType.Status or ColumnType.Select
+            ? c.Options.FindIndex(o => o.Value == c.GetValue(i)?.ToString()) is var idx && idx >= 0 ? idx : int.MaxValue
+            : c.GetValue(i);
+
+    private static int CompareValues(object? a, object? b)
+    {
+        if (a is null && b is null) return 0;
+        if (a is null) return 1;
+        if (b is null) return -1;
+        if (a is IComparable ca && a.GetType() == b.GetType()) return ca.CompareTo(b);
+        return string.Compare(a.ToString(), b.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void Sort(string key)
+    {
+        if (_sortKey == key) { if (_sortDesc) _sortKey = null; else _sortDesc = true; }
+        else { _sortKey = key; _sortDesc = false; }
+    }
+
+    private string SortIcon(string key) => _sortKey != key ? "" : _sortDesc ? "↓" : "↑";
+
+    private void Toggle(BoardGroup g) { if (!_collapsed.Remove(g.Key)) _collapsed.Add(g.Key); }
+
+    // ----- selección -----
+    private void ToggleSelect(TItem item, ChangeEventArgs e)
+    {
+        if (e.Value is true) _selected.Add(item.Id!); else _selected.Remove(item.Id!);
+    }
+
+    private void SelectAll(List<TItem> rows, ChangeEventArgs e)
+    {
+        foreach (var r in rows) { if (e.Value is true) _selected.Add(r.Id!); else _selected.Remove(r.Id!); }
+    }
+
+    private async Task BulkDeleteAsync()
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar {_selected.Count} elemento(s)?")) return;
+        foreach (var item in Items.Where(i => _selected.Contains(i.Id!)).ToList())
+            await OnDelete.InvokeAsync(item);
+        _selected.Clear();
+    }
+
+    private async Task BulkDuplicateAsync()
+    {
+        foreach (var item in Items.Where(i => _selected.Contains(i.Id!)).ToList())
+            await OnDuplicate.InvokeAsync(item);
+        _selected.Clear();
+    }
+
+    private async Task BulkArchiveAsync()
+    {
+        foreach (var item in Items.Where(i => _selected.Contains(i.Id!)).ToList())
+            await OnArchive.InvokeAsync(item);
+        _selected.Clear();
+    }
+
+    private async Task ToggleCheckAsync(TItem item, BoardColumn<TItem> c, ChangeEventArgs e)
+    {
+        c.SetValue?.Invoke(item, e.Value is true);
+        await OnChanged.InvokeAsync(new BoardChange<TItem> { Item = item, Column = c });
+    }
+
+    // ----- configuración de columnas -----
+    private static string TypeIcon(ColumnType t) => t switch
+    {
+        ColumnType.Text => "Aa", ColumnType.LongText => "¶", ColumnType.Number => "#", ColumnType.Money => "$", ColumnType.Date => "📅",
+        ColumnType.Status => "●", ColumnType.Select => "▾", ColumnType.Person => "👤", ColumnType.Checkbox => "☑", ColumnType.Link => "🔗",
+        ColumnType.Email => "@", ColumnType.Phone => "☎", _ => ""
+    };
+
+    private async Task AddColumnAsync()
+    {
+        if (Config is null || string.IsNullOrWhiteSpace(_newColTitle)) return;
+        var def = new CustomColumnDef { Title = _newColTitle.Trim(), Type = _newColType.ToString(), Width = _newColType is ColumnType.LongText ? 220 : 150 };
+        if (_newColType is ColumnType.Status or ColumnType.Select)
+            def.Options = [new StatusOptionDef { Value = "op1", Label = "Opción 1", Color = "#00c875" }, new StatusOptionDef { Value = "op2", Label = "Opción 2", Color = "#fdab3d" }, new StatusOptionDef { Value = "op3", Label = "Opción 3", Color = "#e2445c" }];
+        Config.CustomColumns.Add(def);
+        _addColumnOpen = false;
+        await OnConfigChanged.InvokeAsync();
+    }
+
+    private async Task HideColumnAsync(BoardColumn<TItem> c)
+    {
+        _menuColumn = null;
+        if (Config is null) return;
+        if (!Config.HiddenColumns.Contains(c.Key)) Config.HiddenColumns.Add(c.Key);
+        await OnConfigChanged.InvokeAsync();
+    }
+
+    private async Task MoveColumnAsync(BoardColumn<TItem> c, int dir)
+    {
+        _menuColumn = null;
+        if (Config is null) return;
+        var keys = DataColumns.Select(x => x.Key).ToList();
+        var i = keys.IndexOf(c.Key); var j = i + dir;
+        if (j < 0 || j >= keys.Count) return;
+        (keys[i], keys[j]) = (keys[j], keys[i]);
+        // conservar las ocultas al final del orden
+        Config.ColumnOrder = keys.Concat(Config.ColumnOrder.Where(k => !keys.Contains(k))).ToList();
+        await OnConfigChanged.InvokeAsync();
+    }
+
+    private async Task RenameColumnAsync(BoardColumn<TItem> c)
+    {
+        _menuColumn = null;
+        if (Config is null || c.CustomId is null) return;
+        var name = await Dialogs.PromptAsync("Nuevo nombre de la columna:", c.Title);
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var def = Config.CustomColumns.FirstOrDefault(d => d.Id == c.CustomId);
+        if (def is null) return;
+        def.Title = name.Trim();
+        await OnConfigChanged.InvokeAsync();
+    }
+
+    private async Task DeleteColumnAsync(BoardColumn<TItem> c)
+    {
+        _menuColumn = null;
+        if (Config is null || c.CustomId is null) return;
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar la columna \"{c.Title}\"? Los valores guardados dejarán de mostrarse.")) return;
+        Config.CustomColumns.RemoveAll(d => d.Id == c.CustomId);
+        Config.HiddenColumns.Remove(c.Key);
+        Config.ColumnOrder.Remove(c.Key);
+        Config.LabelOverrides.Remove(c.Key);
+        await OnConfigChanged.InvokeAsync();
+    }
+
+    private void OpenLabelsEditor(BoardColumn<TItem> c)
+    {
+        _menuColumn = null;
+        _labelsColumn = c;
+        _labelDraft = c.Options.Select(o => new StatusOptionDef { Value = o.Value, Label = o.Label, Color = o.Color }).ToList();
+    }
+
+    private void AddLabelDraft()
+    {
+        var n = _labelDraft.Count + 1;
+        _labelDraft.Add(new StatusOptionDef { Value = "op" + Guid.NewGuid().ToString("N")[..6], Label = "Etiqueta " + n, Color = BoardColumn<TItem>.LabelPalette[n % BoardColumn<TItem>.LabelPalette.Length] });
+    }
+
+    private async Task SaveLabelsAsync()
+    {
+        if (Config is null || _labelsColumn is null) return;
+        var clean = _labelDraft.Where(o => !string.IsNullOrWhiteSpace(o.Label)).ToList();
+        if (_labelsColumn.IsCustom && _labelsColumn.CustomId is not null)
+        {
+            var def = Config.CustomColumns.FirstOrDefault(d => d.Id == _labelsColumn.CustomId);
+            if (def is not null) def.Options = clean;
+        }
+        else Config.LabelOverrides[_labelsColumn.Key] = clean;
+        _labelsColumn = null;
+        await OnConfigChanged.InvokeAsync();
+    }
+
+    private async Task BulkMoveAsync(ChangeEventArgs e)
+    {
+        var g = Groups.FirstOrDefault(x => x.Key == e.Value?.ToString());
+        if (g is null) return;
+        foreach (var item in Items.Where(i => _selected.Contains(i.Id!)).ToList())
+            await OnMove.InvokeAsync(new BoardMove<TItem> { Item = item, Group = g });
+        _selected.Clear();
+    }
+
+    // ----- edición en línea -----
+    private bool IsEditing(TItem item, BoardColumn<TItem> c) => _editItem?.Id == item.Id && _editColumn?.Key == c.Key;
+    private bool IsPopover(TItem item, BoardColumn<TItem> c) => _popItem?.Id == item.Id && _popColumn?.Key == c.Key;
+
+    private static string EditorInputType(BoardColumn<TItem> c) => c.Type switch
+    {
+        ColumnType.Date => "date",
+        ColumnType.Number or ColumnType.Money => "number",
+        ColumnType.Email => "email",
+        _ => "text"
+    };
+
+    private void CellClick(TItem item, BoardColumn<TItem> c)
+    {
+        if (c.ReadOnly || IsEditing(item, c) || IsPopover(item, c)) return;
+        if (c.Type is ColumnType.Status or ColumnType.Select or ColumnType.Person)
+        {
+            _popItem = item; _popColumn = c; _popoverFilter = "";
+        }
+        else StartEdit(item, c);
+    }
+
+    private void StartEdit(TItem item, BoardColumn<TItem> c)
+    {
+        _editItem = item; _editColumn = c; _editText = c.EditText(item); _focusPending = true;
+    }
+
+    private async Task OnEditorKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && (_editColumn?.Type != ColumnType.LongText || e.CtrlKey)) await CommitEditAsync();
+        else if (e.Key == "Escape") { _editItem = null; _editColumn = null; }
+    }
+
+    private async Task CommitEditAsync()
+    {
+        if (_editItem is null || _editColumn is null) return;
+        var item = _editItem; var col = _editColumn;
+        _editItem = null; _editColumn = null;
+        if (col.EditText(item) == _editText) return;
+        col.SetFromText(item, _editText);
+        await OnChanged.InvokeAsync(new BoardChange<TItem> { Item = item, Column = col });
+    }
+
+    private void ClosePopover() { _popItem = null; _popColumn = null; }
+
+    private async Task PickAsync(TItem item, BoardColumn<TItem> c, string? value)
+    {
+        ClosePopover();
+        if (c.GetValue(item)?.ToString() == value) return;
+        c.SetValue?.Invoke(item, value);
+        await OnChanged.InvokeAsync(new BoardChange<TItem> { Item = item, Column = c });
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusPending)
+        {
+            _focusPending = false;
+            try { await _editorRef.FocusAsync(); } catch { }
+        }
+    }
+
+    // ----- agregar -----
+    private string GetNewTitle(BoardGroup g) => _newTitles.GetValueOrDefault(g.Key, "");
+
+    private async Task AddKeyAsync(KeyboardEventArgs e, BoardGroup g)
+    {
+        if (e.Key == "Escape") { _newTitles[g.Key] = ""; _kanbanAddGroup = null; return; }
+        if (e.Key != "Enter") return;
+        var title = GetNewTitle(g).Trim();
+        if (title == "") return;
+        _newTitles[g.Key] = "";
+        _kanbanAddGroup = null;
+        await OnAdd.InvokeAsync(new BoardAdd { Group = g, Title = title });
+    }
+
+    // ----- kanban -----
+    private async Task DropAsync(BoardGroup g)
+    {
+        _dragOverGroup = null;
+        if (_draggingId is null) return;
+        var item = Items.FirstOrDefault(i => i.Id == _draggingId);
+        _draggingId = null;
+        if (item is null || (GroupKey?.Invoke(item) ?? "") == g.Key) return;
+        await OnMove.InvokeAsync(new BoardMove<TItem> { Item = item, Group = g });
+    }
+}

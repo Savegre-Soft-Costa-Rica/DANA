@@ -1,0 +1,119 @@
+@page "/cotizaciones/{Id}"
+@inject QuoteService Quotes
+@inject IRepository<Company> Companies
+@inject IRepository<Contact> Contacts
+@inject CurrentUser Me
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<PageTitle>Dana · @(_q?.Number ?? "Cotización")</PageTitle>
+
+@if (_q is null) { <p class="muted">Cargando…</p> }
+else
+{
+    var st = QuoteStatuses.Get(_q.Status);
+    <div class="page-head">
+        <div><h3>@_q.Number · @_q.Title</h3><div class="sub"><Badge Text="@st.Label" Color="@st.Color" /> <span class="ms-2">@_client</span> @if (_q.DealId is not null) { <a class="ms-2" href="deals/@_q.DealId">Ver negociación</a> }</div></div>
+        <div class="actions">
+            <a class="btn-secondary" href="cotizaciones">← Cotizaciones</a>
+            <a class="btn-secondary" href="cotizaciones/@_q.Id/imprimir" target="_blank">🖨 Imprimir / PDF</a>
+            <select class="form-select" style="width:auto" value="@_q.Status" @onchange="async e => await SetStatusAsync(e.Value?.ToString() ?? string.Empty)">
+                @foreach (var (id, label, _) in QuoteStatuses.All) { <option value="@id">@label</option> }
+            </select>
+            <button class="btn-danger" @onclick="DeleteAsync">Eliminar</button>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body row g-3">
+            <div class="col-md-6"><label class="form-label">Título</label><input class="form-control" @bind="_q.Title" /></div>
+            <div class="col-md-2"><label class="form-label">Fecha</label><input type="date" class="form-control" value="@_q.Date.ToString("yyyy-MM-dd")" @onchange="e => _q.Date = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : _q.Date" /></div>
+            <div class="col-md-2"><label class="form-label">Válida hasta</label><input type="date" class="form-control" value="@_q.ValidUntil?.ToString("yyyy-MM-dd")" @onchange="e => _q.ValidUntil = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : null" /></div>
+            <div class="col-md-2"><label class="form-label">Moneda</label><select class="form-select" @bind="_q.Currency">@foreach (var c in Catalogs.Currencies) { <option value="@c">@c</option> }</select></div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header"><span>Líneas</span>
+            <span class="d-flex gap-2 align-items-center">
+                <select class="form-select form-select-sm" style="width:auto" @onchange="AddProduct">
+                    <option value="">+ Agregar producto del catálogo…</option>
+                    @foreach (var p in _products.Where(p => p.IsActive)) { <option value="@p.Id">@p.Name (@p.Price.ToString("N2") @p.Currency)</option> }
+                </select>
+                <button class="btn-secondary btn-sm" @onclick="() => _q.Lines.Add(new QuoteLine { TaxRate = _defaultTax })">+ Línea libre</button>
+            </span>
+        </div>
+        <div class="table-responsive">
+            <table class="table align-middle mb-0 quote-lines">
+                <thead><tr><th>Descripción</th><th style="width:90px">Cant.</th><th style="width:90px">Unidad</th><th style="width:120px">Precio</th><th style="width:90px">Desc. %</th><th style="width:90px">Imp. %</th><th style="width:120px" class="text-end">Total</th><th style="width:40px"></th></tr></thead>
+                <tbody>
+                    @foreach (var l in _q.Lines)
+                    {
+                        <tr>
+                            <td><input class="form-control form-control-sm" @bind="l.Description" placeholder="Descripción" /></td>
+                            <td><input type="number" step="any" class="form-control form-control-sm" @bind="l.Quantity" /></td>
+                            <td><input class="form-control form-control-sm" @bind="l.Unit" /></td>
+                            <td><input type="number" step="any" class="form-control form-control-sm" @bind="l.UnitPrice" /></td>
+                            <td><input type="number" step="any" class="form-control form-control-sm" @bind="l.DiscountPercent" /></td>
+                            <td><input type="number" step="any" class="form-control form-control-sm" @bind="l.TaxRate" /></td>
+                            <td class="text-end">@l.Total.ToString("N2")</td>
+                            <td><button class="icon-btn tiny" @onclick="() => _q.Lines.Remove(l)">✕</button></td>
+                        </tr>
+                    }
+                    @if (_q.Lines.Count == 0) { <tr><td colspan="8" class="muted text-center py-3">Agregue productos o líneas libres.</td></tr> }
+                </tbody>
+                <tfoot>
+                    <tr><td colspan="6" class="text-end">Subtotal</td><td class="text-end">@_q.Subtotal.ToString("N2")</td><td></td></tr>
+                    <tr><td colspan="6" class="text-end">Impuestos</td><td class="text-end">@_q.Tax.ToString("N2")</td><td></td></tr>
+                    <tr class="fw-bold"><td colspan="6" class="text-end">Total @_q.Currency</td><td class="text-end">@_q.Total.ToString("N2")</td><td></td></tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+    <div class="card mb-3"><div class="card-body row g-3">
+        <div class="col-md-6"><label class="form-label">Notas para el cliente</label><textarea class="form-control" rows="3" @bind="_q.Notes"></textarea></div>
+        <div class="col-md-6"><label class="form-label">Términos y condiciones</label><textarea class="form-control" rows="3" @bind="_q.Terms"></textarea></div>
+    </div></div>
+
+    <div class="d-flex justify-content-end gap-2 align-items-center">
+        <span class="muted small">@(_saved ? "✓ Guardado" : "")</span>
+        <button class="btn-primary" @onclick="SaveAsync">Guardar</button>
+    </div>
+}
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+    private Quote? _q;
+    private List<Product> _products = new();
+    private string _client = "";
+    private decimal _defaultTax = 13m;
+    private bool _saved;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _q = await Quotes.GetAsync(Id);
+        if (_q is null) { Nav.NavigateTo("cotizaciones"); return; }
+        _products = await Quotes.GetProductsAsync();
+        var co = _q.CompanyId is null ? null : await Companies.GetByIdAsync(_q.CompanyId);
+        var ct = _q.ContactId is null ? null : await Contacts.GetByIdAsync(_q.ContactId);
+        _client = string.Join(" · ", new[] { co?.Title, ct?.FullName }.Where(x => x is not null));
+    }
+
+    private void AddProduct(ChangeEventArgs e)
+    {
+        var p = _products.FirstOrDefault(x => x.Id == e.Value?.ToString());
+        if (p is null) return;
+        _q!.Lines.Add(new QuoteLine { ProductId = p.Id, Description = p.Name + (string.IsNullOrEmpty(p.Description) ? "" : " — " + p.Description), Unit = p.Unit, UnitPrice = p.Price, TaxRate = p.TaxRate });
+    }
+
+    private async Task SaveAsync() { await Quotes.SaveAsync(_q!, await Me.NameAsync()); _saved = true; }
+    private async Task SetStatusAsync(string status) { await Quotes.SaveAsync(_q!, await Me.NameAsync()); await Quotes.SetStatusAsync(_q!, status, await Me.NameAsync()); }
+    private async Task DeleteAsync()
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar la cotización {_q!.Number}?")) return;
+        await Quotes.DeleteAsync(_q.Id!, await Me.NameAsync());
+        Nav.NavigateTo(_q.DealId is null ? "cotizaciones" : $"deals/{_q.DealId}");
+    }
+}

@@ -1,0 +1,221 @@
+@page "/contacts/new"
+@page "/contacts/{Id}"
+@inject IRepository<Contact> Contacts
+@inject IRepository<Company> Companies
+@inject DealService Deals
+@inject PipelineService Pipelines
+@inject ActivityService Activities
+@inject AutomationService Automations
+@inject UserService Users
+@inject CurrentUser Me
+@inject DrawerService Drawer
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<PageTitle>Dana · @(IsNew ? "Nuevo contacto" : _model.FullName)</PageTitle>
+
+@if (_loading)
+{
+    <p class="muted">Cargando…</p>
+    return;
+}
+
+<div class="page-head">
+    <div class="d-flex align-items-center gap-3">
+        <span class="avatar avatar-letter" style="width:44px;height:44px;font-size:1rem;background:@Avatar.ColorFor(_model.FullName)">@Avatar.Initials(IsNew ? "?" : _model.FullName)</span>
+        <div>
+            <h3>@(IsNew ? "Nuevo contacto" : _model.FullName)</h3>
+            <div class="sub">@_model.Position @(_company is null ? "" : $"· {_company.Title}")</div>
+        </div>
+    </div>
+    <div class="actions">
+        @if (!Embedded) { <a class="btn-secondary" href="contacts">← Tablero</a> }
+        @if (!IsNew)
+        {
+            <a class="btn-secondary" href="deals/new?contactId=@_model.Id&companyId=@_model.CompanyId">+ Negociación</a>
+            <button class="btn-secondary" @onclick="() => _emailOpen = true" disabled="@string.IsNullOrWhiteSpace(_model.Email)">✉ Enviar correo</button>
+            <button class="btn-secondary" @onclick="ArchiveAsync">@(_model.IsArchived ? "↩ Restaurar" : "🗂 Archivar")</button>
+            <button class="btn-danger" @onclick="DeleteAsync">Eliminar</button>
+        }
+    </div>
+</div>
+
+@if (_model.IsArchived) { <div class="alert alert-secondary">Este elemento está <strong>archivado</strong>. No aparece en el tablero salvo con el filtro "Archivados".</div> }
+
+<div class="item-view @(IsNew ? "single" : "")">
+    <div>
+        <EditForm Model="_model" OnValidSubmit="SaveAsync" FormName="contactForm">
+            <DataAnnotationsValidator />
+            <div class="card">
+                <div class="card-header">Información</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Nombre *</label>
+                            <InputText class="form-control" @bind-Value="_model.Name" />
+                            <ValidationMessage For="() => _model.Name" />
+                        </div>
+                        <div class="col-md-4"><label class="form-label">Apellido</label><InputText class="form-control" @bind-Value="_model.LastName" /></div>
+                        <div class="col-md-4"><label class="form-label">Cargo</label><InputText class="form-control" @bind-Value="_model.Position" /></div>
+                        <div class="col-md-6">
+                            <label class="form-label">Compañía</label>
+                            <InputSelect class="form-select" @bind-Value="_model.CompanyId">
+                                <option value="">— Sin compañía —</option>
+                                @foreach (var c in _companies) { <option value="@c.Id">@c.Title</option> }
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Tipo</label>
+                            <InputSelect class="form-select" @bind-Value="_model.Type">
+                                <option value="">—</option>
+                                @foreach (var t in Catalogs.ContactTypes) { <option value="@t">@t</option> }
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Fuente</label>
+                            <InputSelect class="form-select" @bind-Value="_model.Source">
+                                <option value="">—</option>
+                                @foreach (var s in Catalogs.Sources) { <option value="@s">@s</option> }
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-4"><label class="form-label">Teléfono</label><InputText class="form-control" @bind-Value="_model.Phone" /></div>
+                        <div class="col-md-4">
+                            <label class="form-label">Correo</label>
+                            <InputText class="form-control" @bind-Value="_model.Email" />
+                            <ValidationMessage For="() => _model.Email" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Responsable</label>
+                            <InputSelect class="form-select" @bind-Value="_model.AssignedTo">
+                                <option value="">Sin asignar</option>
+                                @foreach (var p in _people) { <option value="@p">@p</option> }
+                            </InputSelect>
+                        </div>
+                        <div class="col-12"><label class="form-label">Dirección</label><InputText class="form-control" @bind-Value="_model.Address" /></div>
+                        <div class="col-12"><label class="form-label">Comentarios</label><InputTextArea class="form-control" rows="3" @bind-Value="_model.Comments" /></div>
+                    </div>
+                </div>
+                <div class="card-footer d-flex justify-content-between align-items-center">
+                    <span class="muted small">@(_saved ? "✓ Guardado" : "")</span>
+                    <button type="submit" class="btn-primary" disabled="@_busy">Guardar</button>
+                </div>
+            </div>
+        </EditForm>
+
+        @if (!IsNew)
+        {
+            <div class="card mt-3">
+                <div class="card-header">Negociaciones <span class="muted">(@_deals.Count)</span></div>
+                <div class="card-body">
+                    @if (_deals.Count == 0) { <div class="muted">Sin negociaciones.</div> }
+                    <ul class="list-rows">
+                        @foreach (var d in _deals)
+                        {
+                            var stage = _pipelines.GetValueOrDefault(d.PipelineId)?.GetStage(d.StageId);
+                            <li>
+                                <span><a href="deals/@d.Id">@d.Title</a> @if (stage is not null) { <Badge Text="@stage.Name" Color="@stage.Color" /> }</span>
+                                <Money Amount="d.Amount" Currency="@d.Currency" />
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (!IsNew)
+    {
+        <div>
+        <TaskList EntityType="contact" EntityId="@_model.Id" EntityTitle="@(_model.FullName)" />
+        <div class="card mt-3">
+            <div class="card-header">Actualizaciones</div>
+            <div class="card-body">
+                <Updates EntityType="contact" EntityId="@_model.Id" EntityTitle="@(_model.FullName)" />
+            </div>
+        </div>
+        </div>
+    }
+</div>
+
+<EmailComposer @bind-Open="_emailOpen" To="@(_model.Email)" Context="@(new EmailContext(_model.Name, _model.LastName, _company?.Title, _model.Email, _model.FullName, string.Empty))" EntityType="contact" EntityId="@(_model.Id ?? string.Empty)" EntityTitle="@(_model.FullName)" />
+
+@code {
+    private bool _emailOpen;
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public bool Embedded { get; set; }
+    [SupplyParameterFromQuery(Name = "companyId")] public string? QueryCompanyId { get; set; }
+    private bool IsNew => string.IsNullOrEmpty(Id);
+
+    private Contact _model = new();
+    private Company? _company;
+    private List<Company> _companies = new();
+    private List<Deal> _deals = new();
+    private List<string> _people = new();
+    private Dictionary<string, Pipeline> _pipelines = new();
+    private bool _loading = true;
+    private bool _busy, _saved;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _companies = (await Companies.GetAllAsync()).OrderBy(c => c.Title).ToList();
+        _people = (await Users.GetAllAsync()).Where(u => u.IsActive).Select(u => u.Name).OrderBy(n => n).ToList();
+        if (IsNew)
+        {
+            _model = new Contact { CompanyId = string.IsNullOrEmpty(QueryCompanyId) ? null : QueryCompanyId, AssignedTo = await Me.NameAsync() };
+        }
+        else
+        {
+            var found = await Contacts.GetByIdAsync(Id);
+            if (found is null) { Nav.NavigateTo("contacts"); return; }
+            _model = found;
+            _deals = await Deals.GetByContactAsync(_model.Id!);
+            _pipelines = (await Pipelines.GetAllAsync()).ToDictionary(p => p.Id!);
+        }
+        _company = _companies.FirstOrDefault(c => c.Id == _model.CompanyId);
+        _loading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (string.IsNullOrEmpty(_model.CompanyId)) _model.CompanyId = null;
+            var wasNew = IsNew;
+            if (wasNew)
+            {
+                _model.CreatedBy = await Me.NameAsync();
+                await Contacts.InsertAsync(_model);
+                await Activities.LogAsync("contact", _model.Id!, _model.FullName, ActivityKinds.Created, "Creó el contacto", await Me.NameAsync());
+                await Automations.TriggerAsync(new AutomationEvent("contacts", TriggerTypes.Created, _model, await Me.NameAsync()));
+            }
+            else { _model.UpdatedBy = await Me.NameAsync(); await Contacts.UpdateAsync(_model); }
+            _saved = true;
+            _company = _companies.FirstOrDefault(c => c.Id == _model.CompanyId);
+            if (Embedded)
+            {
+                await Drawer.NotifyChangedAsync();
+                if (wasNew) Drawer.Open<ContactEdit>(_model.Id, "Contacto");
+            }
+            else if (wasNew) Nav.NavigateTo($"contacts/{_model.Id}");
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar el contacto \"{_model.FullName}\"?")) return;
+        await Contacts.DeleteAsync(_model.Id!, await Me.NameAsync());
+        if (Embedded) { await Drawer.NotifyChangedAsync(); await Drawer.CloseAsync(); }
+        else Nav.NavigateTo("contacts");
+    }
+
+    private async Task ArchiveAsync()
+    {
+        _model.IsArchived = !_model.IsArchived;
+        await Contacts.UpdateAsync(_model);
+        if (Embedded) { await Drawer.NotifyChangedAsync(); await Drawer.CloseAsync(); }
+    }
+}

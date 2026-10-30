@@ -1,0 +1,106 @@
+@page "/cuenta/perfil"
+@layout EmptyLayout
+@using System.ComponentModel.DataAnnotations
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@inject UserService Users
+@inject NavigationManager Nav
+
+<PageTitle>Dana · Mi cuenta</PageTitle>
+
+<div class="auth-box text-start" style="max-width:520px">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">Mi cuenta</h4>
+        <a class="btn btn-sm btn-outline-secondary" href="/">← Volver al CRM</a>
+    </div>
+
+    @if (_user is null)
+    {
+        <p class="text-muted">Cargando…</p>
+    }
+    else
+    {
+        @if (_ok is not null) { <div class="alert alert-success py-2 small">@_ok</div> }
+        @if (_error is not null) { <div class="alert alert-danger py-2 small">@_error</div> }
+
+        <div class="small text-muted mb-3">
+            @_user.Email · Rol: <strong>@_user.Role</strong>
+            @if (_user.HasGoogle) { <span class="badge text-bg-light border ms-1">Google vinculado</span> }
+        </div>
+
+        <EditForm Model="Input" method="post" OnValidSubmit="SaveAsync" FormName="profile">
+            <DataAnnotationsValidator />
+            <div class="mb-3">
+                <label class="form-label">Nombre</label>
+                <InputText class="form-control" @bind-Value="Input.Name" />
+                <ValidationMessage For="() => Input.Name" />
+            </div>
+            <hr />
+            <p class="small text-muted mb-2">@(_user.PasswordHash is null ? "Defina una contraseña para poder entrar también sin Google." : "Cambiar contraseña (opcional)")</p>
+            @if (_user.PasswordHash is not null)
+            {
+                <div class="mb-3">
+                    <label class="form-label">Contraseña actual</label>
+                    <InputText class="form-control" @bind-Value="Input.CurrentPassword" type="password" autocomplete="current-password" />
+                </div>
+            }
+            <div class="mb-3">
+                <label class="form-label">Nueva contraseña</label>
+                <InputText class="form-control" @bind-Value="Input.NewPassword" type="password" autocomplete="new-password" />
+                <ValidationMessage For="() => Input.NewPassword" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Confirmar nueva contraseña</label>
+                <InputText class="form-control" @bind-Value="Input.ConfirmPassword" type="password" autocomplete="new-password" />
+                <ValidationMessage For="() => Input.ConfirmPassword" />
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Guardar</button>
+        </EditForm>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+    [SupplyParameterFromForm] private InputModel Input { get; set; } = default!;
+
+    private User? _user;
+    private string? _ok, _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        _user = await Users.GetAsync(HttpContext.User.FindFirstValue(ClaimTypes.NameIdentifier));
+        if (_user is null) { Nav.NavigateTo("cuenta/login"); return; }
+        if (HttpContext.Request.Method == "GET") Input.Name = _user.Name;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_user is null) return;
+        if (!string.IsNullOrEmpty(Input.NewPassword))
+        {
+            if (Input.NewPassword.Length < 8) { _error = "La nueva contraseña debe tener al menos 8 caracteres."; return; }
+            var err = await Users.ChangePasswordAsync(_user, Input.CurrentPassword, Input.NewPassword);
+            if (err is not null) { _error = err; return; }
+        }
+        _user.Name = Input.Name.Trim();
+        await Users.UpdateProfileAsync(_user);
+
+        // Refrescar la cookie con el nuevo nombre
+        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, UserService.CreatePrincipal(_user),
+            new AuthenticationProperties { IsPersistent = true });
+        _ok = "Cambios guardados.";
+        Input.CurrentPassword = Input.NewPassword = Input.ConfirmPassword = "";
+    }
+
+    private sealed class InputModel
+    {
+        [Required(ErrorMessage = "Ingrese su nombre")]
+        public string Name { get; set; } = "";
+        public string? CurrentPassword { get; set; }
+        public string NewPassword { get; set; } = "";
+        [Compare(nameof(NewPassword), ErrorMessage = "Las contraseñas no coinciden")]
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

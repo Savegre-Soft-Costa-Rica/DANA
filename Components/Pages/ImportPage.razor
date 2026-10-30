@@ -1,0 +1,94 @@
+@page "/importar"
+@inject ExportImportService Import
+@inject CurrentUser Me
+
+<PageTitle>Dana · Importar</PageTitle>
+
+<PageHeader Title="Importar desde Excel o CSV" Subtitle="Suba un archivo, asigne cada columna a un campo y cree los elementos en lote." />
+
+<div class="card mb-3">
+    <div class="card-body row g-3 align-items-end">
+        <div class="col-md-3"><label class="form-label">Tablero destino</label>
+            <select class="form-select" @bind="_board"><option value="leads">Prospectos</option><option value="contacts">Contactos</option><option value="companies">Compañías</option><option value="deals">Negociaciones</option></select></div>
+        <div class="col-md-5"><label class="form-label">Archivo (.xlsx o .csv, primera fila = encabezados)</label><InputFile class="form-control" OnChange="OnFileAsync" accept=".xlsx,.csv,.txt" /></div>
+        <div class="col-md-4 muted small">Descargue un ejemplo: <a href="export/@(_board).xlsx">exportación actual en Excel</a> (sirve de plantilla).</div>
+    </div>
+</div>
+
+@if (_error is not null) { <div class="alert alert-danger">@_error</div> }
+
+@if (_preview is not null && _preview.Columns.Count > 0)
+{
+    <div class="card mb-3">
+        <div class="card-header"><span>Mapeo de columnas <span class="muted">(@_preview.TotalRows filas detectadas)</span></span></div>
+        <div class="card-body">
+            <div class="row g-2">
+                @foreach (var col in _preview.Columns)
+                {
+                    <div class="col-md-4 col-lg-3">
+                        <label class="form-label text-truncate" title="@col">@col</label>
+                        <select class="form-select form-select-sm" value="@_mapping.GetValueOrDefault(col)" @onchange="e => { var v = e.Value?.ToString(); if (string.IsNullOrEmpty(v)) _mapping.Remove(col); else _mapping[col] = v; }">
+                            <option value="">— ignorar —</option>
+                            @foreach (var f in ExportImportService.FieldsFor(_board)) { <option value="@f.Key">@f.Label@(f.Required ? " *" : "")</option> }
+                        </select>
+                    </div>
+                }
+            </div>
+            @{ var missing = ExportImportService.FieldsFor(_board).Where(f => f.Required && !_mapping.ContainsValue(f.Key)).ToList(); }
+            @if (missing.Count > 0) { <div class="text-danger small mt-2">Falta asignar: @string.Join(", ", missing.Select(m => m.Label))</div> }
+            <div class="table-responsive mt-3">
+                <table class="report-table">
+                    <thead><tr>@foreach (var c in _preview.Columns) { <th>@c<br /><small class="muted">@(_mapping.TryGetValue(c, out var m) ? "→ " + ExportImportService.FieldsFor(_board).First(f => f.Key == m).Label : "ignorar")</small></th> }</tr></thead>
+                    <tbody>@foreach (var r in _preview.Rows.Take(5)) { <tr>@foreach (var v in r) { <td>@v</td> }</tr> }</tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer d-flex justify-content-between align-items-center">
+            <span class="muted small">Se crearán hasta @_preview.TotalRows elementos. Las compañías referidas por nombre se crean si no existen.</span>
+            <button class="btn-primary" disabled="@(_busy || missing.Count > 0)" @onclick="RunAsync">@(_busy ? "Importando…" : $"Importar {_preview.TotalRows} filas")</button>
+        </div>
+    </div>
+}
+
+@if (_result is not null)
+{
+    <div class="alert @(_result.Errors.Count == 0 ? "alert-success" : "alert-warning")">
+        <strong>Importación terminada:</strong> @_result.Created creados · @_result.Skipped omitidos (sin datos obligatorios o duplicados).
+        @if (_result.Errors.Count > 0) { <ul class="mb-0 small">@foreach (var e in _result.Errors.Take(20)) { <li>@e</li> }</ul> }
+    </div>
+}
+
+@code {
+    private string _board = "leads";
+    private ImportPreview? _preview;
+    private Dictionary<string, string> _mapping = new();
+    private ImportResult? _result;
+    private string? _error;
+    private bool _busy;
+
+    private async Task OnFileAsync(InputFileChangeEventArgs e)
+    {
+        _error = null; _result = null; _preview = null;
+        try
+        {
+            var f = e.File;
+            await using var stream = f.OpenReadStream(20 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            ms.Position = 0;
+            _preview = ExportImportService.Parse(ms, f.Name);
+            _mapping = ExportImportService.SuggestMapping(_board, _preview.Columns);
+            if (_preview.Columns.Count == 0) _error = "No se encontraron columnas en el archivo.";
+        }
+        catch (Exception ex) { _error = "No se pudo leer el archivo: " + ex.Message; }
+    }
+
+    private async Task RunAsync()
+    {
+        if (_preview is null) return;
+        _busy = true;
+        try { _result = await Import.ImportAsync(_board, _preview.Columns, _preview.Rows, _mapping, await Me.NameAsync()); _preview = null; }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+}

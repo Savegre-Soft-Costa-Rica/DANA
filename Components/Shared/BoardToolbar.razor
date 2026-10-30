@@ -1,0 +1,159 @@
+<div class="view-tabs">
+    <button class="view-tab @(ActiveViewId is null && View == BoardView.Table ? "active" : "")" @onclick="() => SelectAsync(null, BoardView.Table)">☷ Tabla principal</button>
+    <button class="view-tab @(ActiveViewId is null && View == BoardView.Kanban ? "active" : "")" @onclick="() => SelectAsync(null, BoardView.Kanban)">▥ Kanban</button>
+    @foreach (var v in Views)
+    {
+        <button class="view-tab saved @(ActiveViewId == v.Id ? "active" : "")" @onclick="() => SelectAsync(v.Id, null)">
+            @(v.View == "Kanban" ? "▥" : "☷") @v.Name
+            @if (ActiveViewId == v.Id) { <span class="view-del" title="Eliminar vista" @onclick="() => OnDeleteView.InvokeAsync(v.Id)" @onclick:stopPropagation>✕</span> }
+        </button>
+    }
+    <button class="view-tab add" title="Guardar la configuración actual como vista" @onclick="OnSaveView">@(ActiveViewId is null ? "+ Guardar vista" : "Actualizar vista")</button>
+    @Tabs
+</div>
+<div class="toolbar">
+    <button class="btn-primary" @onclick="OnNew">+ Nuevo @NewLabel</button>
+    <div class="search"><span class="search-ico">⌕</span><input placeholder="Buscar" value="@Search" @oninput="e => SearchChanged.InvokeAsync(e.Value?.ToString() ?? string.Empty)" /></div>
+    @if (People.Count > 0)
+    {
+        <select value="@Person" @onchange="e => PersonChanged.InvokeAsync(e.Value?.ToString() ?? string.Empty)">
+            <option value="">👤 Persona: todas</option>
+            @foreach (var p in People) { <option value="@p">@p</option> }
+        </select>
+    }
+    <div class="tool-wrap">
+        <button class="tool @(Filters.Count > 0 ? "on" : "")" @onclick="() => _filterOpen = !_filterOpen">⚲ Filtro @(Filters.Count > 0 ? $"({Filters.Count})" : "")</button>
+        @if (_filterOpen)
+        {
+            <div class="menu-backdrop" @onclick="() => _filterOpen = false"></div>
+            <div class="dropdown-panel filter-panel">
+                <div class="small muted mb-2">Mostrar elementos que cumplan <strong>todas</strong> las condiciones:</div>
+                @foreach (var f in Filters)
+                {
+                    var col = FilterColumns.FirstOrDefault(c => c.Key == f.ColumnKey);
+                    <div class="filter-row">
+                        <select value="@f.ColumnKey" @onchange="e => { f.ColumnKey = e.Value?.ToString() ?? string.Empty; f.Value = null; Notify(); }">
+                            @foreach (var c in FilterColumns) { <option value="@c.Key">@c.Title</option> }
+                        </select>
+                        <select value="@f.Op" @onchange="e => { f.Op = e.Value?.ToString() ?? DefaultOp; Notify(); }">
+                            @foreach (var (op, label) in FilterOps.All) { <option value="@op">@label</option> }
+                        </select>
+                        @if (FilterOps.NeedsValue(f.Op))
+                        {
+                            @if (col is not null && col.Options.Count > 0 && f.Op is "is" or "isnot")
+                            {
+                                <select value="@f.Value" @onchange="e => { f.Value = e.Value?.ToString(); Notify(); }">
+                                    <option value="">—</option>
+                                    @foreach (var o in col.Options) { <option value="@o.Value">@o.Label</option> }
+                                </select>
+                            }
+                            else if (col?.Type == ColumnType.Checkbox)
+                            {
+                                <select value="@f.Value" @onchange="e => { f.Value = e.Value?.ToString(); Notify(); }">
+                                    <option value="true">marcada</option>
+                                    <option value="false">sin marcar</option>
+                                </select>
+                            }
+                            else
+                            {
+                                <input type="@(col?.Type == ColumnType.Date ? "date" : col?.Type is ColumnType.Number or ColumnType.Money ? "number" : "text")" value="@f.Value" @oninput="e => { f.Value = e.Value?.ToString(); Notify(); }" placeholder="valor" />
+                            }
+                        }
+                        <button class="icon-btn tiny" title="Quitar" @onclick="() => { Filters.Remove(f); Notify(); }">✕</button>
+                    </div>
+                }
+                <div class="d-flex gap-2 mt-2">
+                    <button class="btn-ghost btn-sm" @onclick="AddFilter" disabled="@(FilterColumns.Count == 0)">+ Agregar condición</button>
+                    @if (Filters.Count > 0) { <button class="btn-ghost btn-sm" @onclick="() => { Filters.Clear(); Notify(); }">Limpiar</button> }
+                </div>
+            </div>
+        }
+    </div>
+    @if (HiddenColumns.Count > 0)
+    {
+        <div class="tool-wrap">
+            <button class="tool" @onclick="() => _colsOpen = !_colsOpen">👁 Columnas ocultas (@HiddenColumns.Count)</button>
+            @if (_colsOpen)
+            {
+                <div class="menu-backdrop" @onclick="() => _colsOpen = false"></div>
+                <div class="dropdown-panel">
+                    @foreach (var c in HiddenColumns)
+                    {
+                        <button @onclick="async () => { _colsOpen = false; await OnShowColumn.InvokeAsync(c.Key); }">Mostrar "@c.Title"</button>
+                    }
+                </div>
+            }
+        </div>
+    }
+    @if (ArchivedCount > 0 || ShowArchived)
+    {
+        <button class="tool @(ShowArchived ? "on" : "")" @onclick="() => ShowArchivedChanged.InvokeAsync(!ShowArchived)">🗂 Archivados (@ArchivedCount)</button>
+    }
+    @if (!string.IsNullOrEmpty(BoardKey))
+    {
+        <div class="tool-wrap ms-auto">
+            <button class="tool" @onclick="() => _exportOpen = !_exportOpen">⇩ Exportar</button>
+            @if (_exportOpen)
+            {
+                <div class="menu-backdrop" @onclick="() => _exportOpen = false"></div>
+                <div class="dropdown-panel">
+                    <a href="export/@(BoardKey).xlsx" target="_blank" @onclick="() => _exportOpen = false">Excel (.xlsx)</a>
+                    <a href="export/@(BoardKey).csv" target="_blank" @onclick="() => _exportOpen = false">CSV</a>
+                    <a href="importar" @onclick="() => _exportOpen = false">Importar desde archivo…</a>
+                </div>
+            }
+        </div>
+    }
+    @Extra
+</div>
+
+@code {
+    [Parameter] public BoardView View { get; set; }
+    [Parameter] public EventCallback<BoardView> ViewChanged { get; set; }
+    [Parameter] public string Search { get; set; } = "";
+    [Parameter] public EventCallback<string> SearchChanged { get; set; }
+    [Parameter] public string Person { get; set; } = "";
+    [Parameter] public EventCallback<string> PersonChanged { get; set; }
+    [Parameter] public List<string> People { get; set; } = new();
+    [Parameter] public string NewLabel { get; set; } = "elemento";
+    [Parameter] public string? BoardKey { get; set; }
+    [Parameter] public EventCallback OnNew { get; set; }
+    [Parameter] public RenderFragment? Tabs { get; set; }
+    [Parameter] public RenderFragment? Extra { get; set; }
+
+    [Parameter] public List<FilterRuleDef> Filters { get; set; } = new();
+    [Parameter] public EventCallback<List<FilterRuleDef>> FiltersChanged { get; set; }
+    [Parameter] public List<FilterColumnInfo> FilterColumns { get; set; } = new();
+    [Parameter] public List<FilterColumnInfo> HiddenColumns { get; set; } = new();
+    [Parameter] public EventCallback<string> OnShowColumn { get; set; }
+    [Parameter] public bool ShowArchived { get; set; }
+    [Parameter] public EventCallback<bool> ShowArchivedChanged { get; set; }
+    [Parameter] public int ArchivedCount { get; set; }
+    [Parameter] public List<SavedView> Views { get; set; } = new();
+    [Parameter] public string? ActiveViewId { get; set; }
+    [Parameter] public EventCallback<string?> OnSelectView { get; set; }
+    [Parameter] public EventCallback OnSaveView { get; set; }
+    [Parameter] public EventCallback<string> OnDeleteView { get; set; }
+
+    private const string DefaultOp = "contains";
+    private bool _filterOpen, _colsOpen, _exportOpen;
+
+    private async Task SelectAsync(string? viewId, BoardView? view)
+    {
+        if (viewId is null)
+        {
+            await OnSelectView.InvokeAsync(null);
+            if (view is not null) await ViewChanged.InvokeAsync(view.Value);
+        }
+        else await OnSelectView.InvokeAsync(viewId);
+    }
+
+    private void AddFilter()
+    {
+        var first = FilterColumns.FirstOrDefault(c => c.Type != ColumnType.Name) ?? FilterColumns.First();
+        Filters.Add(new FilterRuleDef { ColumnKey = first.Key, Op = first.Options.Count > 0 ? "is" : "contains" });
+        Notify();
+    }
+
+    private void Notify() => FiltersChanged.InvokeAsync(Filters);
+}

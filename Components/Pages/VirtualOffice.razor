@@ -1,0 +1,149 @@
+@page "/oficina"
+@using Dana.Services.Ai
+@inject AgentService Agents
+@inject OfficeService Office
+@inject SettingsService Settings
+@inject CurrentUser Me
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@implements IAsyncDisposable
+
+<PageTitle>Dana · Oficina</PageTitle>
+
+<div class="office-page">
+    <div class="office-top">
+        <div>
+            <h3 class="mb-0">Oficina virtual</h3>
+            <div class="sub">Muévete con las flechas o WASD, o haz clic en el suelo. Acércate a un agente y pulsa <kbd>E</kbd> (o haz clic sobre él) para hablar.</div>
+        </div>
+        <div class="office-people">
+            @foreach (var p in _people.OrderBy(p => p.Name))
+            {
+                <span class="office-person" title="@p.Name"><span class="agent-avatar sm" style="background:@p.Color">@p.Name[..1]</span>@p.Name</span>
+            }
+            <a class="btn-secondary btn-sm" href="agentes">🤖 Agentes</a>
+        </div>
+    </div>
+    <div class="office-wrap @(_chat is not null ? "with-chat" : "")">
+        <div class="office-stage" @ref="_stage">
+            <canvas id="office-canvas" tabindex="0"></canvas>
+            @if (_near is not null && _chat is null)
+            {
+                <div class="office-hint">Pulsa <kbd>E</kbd> para hablar con <strong>@_near.Name</strong> · @_near.Role</div>
+            }
+            @if (!_configured)
+            {
+                <div class="office-warn">Sin clave de API: los agentes no podrán responder. @if (_isAdmin) { <a href="configuracion/ia">Configurar proveedores</a> }</div>
+            }
+        </div>
+        @if (_chat is not null)
+        {
+            <div class="office-chat">
+                <AgentChat AgentId="@_chat" Compact="true" OnClose="CloseChat" OnReply="SayAsync" />
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private IJSObjectReference? _mod;
+    private DotNetObjectReference<VirtualOffice>? _ref;
+    private ElementReference _stage;
+    private List<AiAgent> _agents = new();
+    private List<Presence> _people = new();
+    private AiAgent? _near;
+    private string? _chat;
+    private string _user = "", _myId = Guid.NewGuid().ToString("N");
+    private bool _configured, _isAdmin, _disposed;
+    private DateTime _lastPeoplePush = DateTime.MinValue;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _user = await Me.NameAsync();
+        _isAdmin = await Me.IsAdminAsync();
+        _configured = Agents.AnyConfigured((await Settings.GetAsync()).Ai);
+        await Agents.EnsureDefaultsAsync();
+        _agents = (await Agents.GetAllAsync()).Where(a => a.IsActive).ToList();
+        Office.Changed += OnPeople;
+        Agents.BusyChanged += OnBusy;
+        Agents.Spoke += OnSpoke;
+        Agents.MoodChanged += OnMood;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (!first) return;
+        _mod = await JS.InvokeAsync<IJSObjectReference>("import", "./office.js");
+        _ref = DotNetObjectReference.Create(this);
+        var q = System.Web.HttpUtility.ParseQueryString(new Uri(Nav.Uri).Query);
+        await _mod.InvokeVoidAsync("init", "office-canvas", _ref, new { id = _myId, name = _user, color = ColorOf(_user), avatar = Hash(_user) % 8, canEdit = _isAdmin, focusAgent = q["agente"] });
+        await PushAgentsAsync();
+        Office.Update(_myId, _user, ColorOf(_user), Hash(_user) % 8, 14, 13, "down", false);
+        await PushPeopleAsync();
+    }
+
+    private Task PushAgentsAsync() => _mod!.InvokeVoidAsync("setAgents", _agents.Select(a => new { id = a.Id, name = a.Name, role = a.Role, color = a.Color, avatar = a.Avatar, x = a.X, y = a.Y, busy = Agents.IsBusy(a.Id!), mood = a.Mood, moodEmoji = AgentMood.Describe(a.Mood).Emoji, boss = a.IsBoss })).AsTask();
+    private void OnMood(string id, int mood) => _ = InvokeAsync(async () => { if (_disposed || _mod is null) return; try { await _mod.InvokeVoidAsync("setMood", id, mood, AgentMood.Describe(mood).Emoji); } catch { } });
+
+    private async Task PushPeopleAsync()
+    {
+        _people = Office.All();
+        if (_mod is null) return;
+        try { await _mod.InvokeVoidAsync("setPeople", _people.Where(p => p.Id != _myId).Select(p => new { p.Id, p.Name, p.Color, p.Avatar, p.X, p.Y, p.Dir, p.Moving })); } catch { }
+    }
+
+    private void OnPeople() => _ = InvokeAsync(async () => { if (_disposed) return; await PushPeopleAsync(); StateHasChanged(); });
+    private void OnBusy(string id, bool busy) => _ = InvokeAsync(async () => { if (_disposed || _mod is null) return; try { await _mod.InvokeVoidAsync("setBusy", id, busy); } catch { } });
+    private void OnSpoke(string id, string text) => _ = InvokeAsync(async () => { if (_disposed || _mod is null) return; try { await _mod.InvokeVoidAsync("say", id, Short(text)); } catch { } });
+
+    [JSInvokable] public void Move(double x, double y, string dir, bool moving) => Office.Update(_myId, _user, ColorOf(_user), Hash(_user) % 8, x, y, dir, moving);
+
+    [JSInvokable] public void NearAgent(string? id)
+    {
+        _near = id is null ? null : _agents.FirstOrDefault(a => a.Id == id);
+        StateHasChanged();
+    }
+
+    [JSInvokable] public void OpenAgent(string id)
+    {
+        _chat = id;
+        StateHasChanged();
+    }
+
+    [JSInvokable] public async Task MoveAgent(string id, int x, int y)
+    {
+        if (!_isAdmin) return;
+        var a = await Agents.GetAsync(id);
+        if (a is null) return;
+        a.X = x; a.Y = y;
+        await Agents.SaveAsync(a, _user);
+        var local = _agents.FirstOrDefault(z => z.Id == id);
+        if (local is not null) { local.X = x; local.Y = y; }
+    }
+
+    private async Task CloseChat()
+    {
+        _chat = null;
+        try { await _mod!.InvokeVoidAsync("focus"); } catch { }
+    }
+
+    private Task SayAsync(string text) => _mod is null ? Task.CompletedTask : _mod.InvokeVoidAsync("say", _chat!, Short(text)).AsTask();
+
+    private static string Short(string t) { t = System.Text.RegularExpressions.Regex.Replace(t, @"[*#`_>\[\]]", "").Trim(); return t.Length > 110 ? t[..110] + "…" : t; }
+
+    private static readonly string[] Palette = ["#0073ea", "#00c875", "#a25ddc", "#fdab3d", "#e2445c", "#579bfc", "#ff642e", "#9cd326"];
+    private static string ColorOf(string name) => Palette[Hash(name) % Palette.Length];
+    private static int Hash(string s) { unchecked { var h = 23; foreach (var c in s) h = h * 31 + c; return Math.Abs(h); } }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        Office.Changed -= OnPeople;
+        Agents.BusyChanged -= OnBusy;
+        Agents.Spoke -= OnSpoke;
+        Agents.MoodChanged -= OnMood;
+        Office.Remove(_myId);
+        try { if (_mod is not null) { await _mod.InvokeVoidAsync("destroy"); await _mod.DisposeAsync(); } } catch { }
+        _ref?.Dispose();
+    }
+}

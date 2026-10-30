@@ -1,0 +1,160 @@
+@page "/formularios"
+@inject IRepository<LeadForm> Forms
+@inject UserService Users
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<PageTitle>Dana · Formularios</PageTitle>
+
+<PageHeader Title="Formularios de captación" Subtitle="Páginas públicas que crean prospectos. Comparta el enlace o insértelo en su sitio.">
+    <Actions><button class="btn-primary" @onclick='() => _edit = new LeadForm { Name = "Contacto web" }'>+ Nuevo formulario</button></Actions>
+</PageHeader>
+
+@if (_edit is not null)
+{
+    <EditForm Model="_edit" OnValidSubmit="SaveAsync" FormName="lf">
+        <DataAnnotationsValidator />
+        <div class="card mb-3">
+            <div class="card-header">@(_edit.Id is null ? "Nuevo formulario" : _edit.Name)</div>
+            <div class="card-body row g-3">
+                <div class="col-md-4"><label class="form-label">Nombre interno *</label><InputText class="form-control" @bind-Value="_edit.Name" /><ValidationMessage For="() => _edit.Name" /></div>
+                <div class="col-md-5"><label class="form-label">Título visible</label><InputText class="form-control" @bind-Value="_edit.Title" /></div>
+                <div class="col-md-3"><label class="form-label">Color</label><InputText type="color" class="form-control form-control-color" @bind-Value="_edit.AccentColor" /></div>
+                <div class="col-12"><label class="form-label">Descripción</label><InputText class="form-control" @bind-Value="_edit.Description" /></div>
+                <div class="col-md-6"><label class="form-label">Mensaje de éxito</label><InputText class="form-control" @bind-Value="_edit.SuccessMessage" /></div>
+                <div class="col-md-3"><label class="form-label">Texto del botón</label><InputText class="form-control" @bind-Value="_edit.ButtonText" /></div>
+                <div class="col-md-3 d-flex align-items-end"><div class="form-check"><InputCheckbox class="form-check-input" id="fen" @bind-Value="_edit.IsEnabled" /><label class="form-check-label" for="fen">Habilitado</label></div></div>
+                <div class="col-md-3"><label class="form-label">Fuente del prospecto</label><InputSelect class="form-select" @bind-Value="_edit.Source">@foreach (var s in Catalogs.Sources) { <option value="@s">@s</option> }</InputSelect></div>
+                <div class="col-md-3"><label class="form-label">Asignar a</label><InputSelect class="form-select" @bind-Value="_edit.AssignTo"><option value="">Sin asignar</option>@foreach (var p in _people) { <option value="@p">@p</option> }</InputSelect></div>
+                <div class="col-md-6"><label class="form-label">Campos</label>
+                    <div class="d-flex flex-wrap gap-3">
+                        <label class="form-check-label"><InputCheckbox class="form-check-input me-1" @bind-Value="_edit.AskLastName" />Apellido</label>
+                        <label class="form-check-label"><InputCheckbox class="form-check-input me-1" @bind-Value="_edit.AskEmail" />Correo</label>
+                        <label class="form-check-label"><InputCheckbox class="form-check-input me-1" @bind-Value="_edit.AskPhone" />Teléfono</label>
+                        <label class="form-check-label"><InputCheckbox class="form-check-input me-1" @bind-Value="_edit.AskCompany" />Compañía</label>
+                        <label class="form-check-label"><InputCheckbox class="form-check-input me-1" @bind-Value="_edit.AskMessage" />Mensaje</label>
+                        <label class="form-check-label"><InputCheckbox class="form-check-input me-1" @bind-Value="_edit.RequirePhoneOrEmail" />Exigir teléfono o correo</label>
+                    </div></div>
+            </div>
+            <div class="card-footer d-flex justify-content-end gap-2">
+                <button type="button" class="btn-secondary" @onclick="() => _edit = null">Cancelar</button>
+                <button type="submit" class="btn-primary">Guardar</button>
+            </div>
+        </div>
+    </EditForm>
+}
+
+@if (_items is null) { <p class="muted">Cargando…</p> }
+else if (_items.Count == 0 && _edit is null) { <div class="empty-state">Aún no hay formularios.</div> }
+else
+{
+    <div class="widgets">
+        @foreach (var f in _items)
+        {
+            var url = $"{Nav.BaseUri}formulario/{f.Slug}";
+            var api = $"{Nav.BaseUri}api/public/forms/{f.Slug}";
+            var tab = _tab.GetValueOrDefault(f.Id!, "link");
+            <div class="widget w-12">
+                <div class="widget-title"><span><span class="stage-dot" style="background:@f.AccentColor"></span>@f.Name @if (!f.IsEnabled) { <span class="badge-soft">deshabilitado</span> } <small class="muted fw-normal ms-2">@f.SubmitCount envíos @(f.LastSubmitAt is null ? "" : $"· último {Updates.TimeAgo(f.LastSubmitAt.Value)}")</small></span>
+                    <span class="d-flex gap-1"><button class="btn-secondary btn-sm" @onclick="() => _edit = f">Editar</button><button class="btn-danger btn-sm" @onclick="() => DeleteAsync(f)">Eliminar</button></span></div>
+                <div class="view-tabs">
+                    <button class="view-tab @(tab == "link" ? "active" : "")" @onclick='() => _tab[f.Id!] = "link"'>🔗 Enlace</button>
+                    <button class="view-tab @(tab == "iframe" ? "active" : "")" @onclick='() => _tab[f.Id!] = "iframe"'>🖼 Insertar (iframe) y vista previa</button>
+                    <button class="view-tab @(tab == "api" ? "active" : "")" @onclick='() => _tab[f.Id!] = "api"'>{ } Enviar por API (JSON)</button>
+                </div>
+                @if (tab == "link")
+                {
+                    <p class="mb-1">Comparta este enlace o úselo como botón "Contáctenos" en su sitio o redes:</p>
+                    <div class="d-flex gap-2 align-items-center"><a href="@url" target="_blank">@url</a> <button class="btn-secondary btn-sm" @onclick="() => CopyAsync(url)">Copiar</button></div>
+                }
+                else if (tab == "iframe")
+                {
+                    <p class="mb-1">Pegue este código en cualquier página HTML (WordPress, React, Wix…). El formulario se muestra dentro de su sitio y los envíos llegan como prospectos.</p>
+                    <div class="d-flex gap-2 align-items-start">
+                        <pre class="code flex-grow-1">&lt;iframe src="@url" style="width:100%;max-width:560px;height:620px;border:0;border-radius:12px" title="@f.Title"&gt;&lt;/iframe&gt;</pre>
+                        <button class="btn-secondary btn-sm" @onclick="() => CopyIframeAsync(f, url)">Copiar</button>
+                    </div>
+                    <div class="small muted mb-2">Vista previa (así se verá incrustado):</div>
+                    <div class="iframe-preview"><iframe src="@url" style="width:100%;max-width:560px;height:620px;border:0;border-radius:12px" title="@f.Title"></iframe></div>
+                }
+                else
+                {
+                    <p class="mb-1">Si prefiere usar su propio formulario (por ejemplo en React), envíe los datos con un <strong>POST JSON</strong> a este endpoint. No necesita clave: el formulario es público y aplica su configuración (fuente, responsable, validaciones y anti-spam).</p>
+                    <div class="row g-3">
+                        <div class="col-lg-6">
+                            <div class="small muted mb-1">Endpoint</div>
+                            <pre class="code">POST @api
+Content-Type: application/json
+
+{
+  "name": "María",            // obligatorio
+  "lastName": "Rodríguez",
+  "email": "maria@acme.com",  // correo o teléfono@(f.RequirePhoneOrEmail ? " (obligatorio uno de los dos)" : "")
+  "phone": "+506 8888-0000",
+  "company": "ACME",
+  "message": "Quiero una cotización"
+}</pre>
+                            <div class="small muted mb-1">Respuestas</div>
+                            <pre class="code">201 { "ok": true, "id": "…", "message": "@f.SuccessMessage" }
+400 { "ok": false, "error": "Indique su nombre." }
+403 formulario deshabilitado · 404 formulario no encontrado</pre>
+                        </div>
+                        <div class="col-lg-6">
+                            <div class="small muted mb-1">React / JavaScript</div>
+                            <pre class="code">async function enviar(datos) {
+  const res = await fetch("@api", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: datos.nombre, lastName: datos.apellido,
+      email: datos.correo, phone: datos.telefono,
+      company: datos.empresa, message: datos.mensaje
+    })
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error);
+  return json; // { ok: true, id, message }
+}</pre>
+                            <div class="small muted mb-1">curl</div>
+                            <pre class="code">curl -X POST @api \
+  -H "Content-Type: application/json" \
+  -d '{"name":"María","email":"maria@acme.com","message":"Hola"}'</pre>
+                        </div>
+                    </div>
+                    <div class="small muted">¿Necesita mapear campos con otros nombres, asignar por rotación o restringir orígenes? Use un canal de la <a href="configuracion/api">API de prospectos</a>.</div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<LeadForm>? _items;
+    private LeadForm? _edit;
+    private List<string> _people = new();
+    private readonly Dictionary<string, string> _tab = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _people = (await Users.GetAllAsync()).Where(u => u.IsActive).Select(u => u.Name).OrderBy(n => n).ToList();
+        _items = await Forms.GetAllAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrEmpty(_edit!.AssignTo)) _edit.AssignTo = null;
+        if (_edit.Id is null) await Forms.InsertAsync(_edit); else await Forms.UpdateAsync(_edit);
+        _edit = null; _items = await Forms.GetAllAsync();
+    }
+
+    private async Task DeleteAsync(LeadForm f)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar el formulario \"{f.Name}\"?")) return;
+        await Forms.DeleteAsync(f.Id!); _items = await Forms.GetAllAsync();
+    }
+
+    private Task CopyIframeAsync(LeadForm f, string url) => CopyAsync($"<iframe src=\"{url}\" style=\"width:100%;max-width:560px;height:620px;border:0;border-radius:12px\" title=\"{f.Title}\"></iframe>");
+
+    private async Task CopyAsync(string text) { try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", text); } catch { } }
+}

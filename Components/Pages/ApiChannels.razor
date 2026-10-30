@@ -1,0 +1,311 @@
+@page "/configuracion/api"
+@attribute [Authorize(Policy = "Admin")]
+@inject InboundLeadService Inbound
+@inject IRepository<ApiToken> Tokens
+@inject CurrentUser Me
+@inject UserService Users
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<PageTitle>Dana · API de prospectos</PageTitle>
+
+<PageHeader Title="API de prospectos" Subtitle="Reciba el formulario de contacto de su sitio web (React, WordPress, n8n…) directamente como prospectos.">
+    <Actions>
+        <button class="btn-primary" @onclick='() => _edit = new ApiChannel { Name = "Sitio web" }'>+ Nuevo canal</button>
+    </Actions>
+</PageHeader>
+
+<div class="widgets">
+    <div class="widget w-12">
+        <div class="widget-title">Cómo conectar su sitio</div>
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <div class="small muted mb-1">Endpoint</div>
+                <pre class="code">POST @BaseUrl/api/public/leads
+Content-Type: application/json
+X-Api-Key: &lt;clave del canal&gt;</pre>
+                <div class="small muted mb-1">Ejemplo con React (fetch)</div>
+                <pre class="code">async function enviarFormulario(datos) {
+  const res = await fetch("@BaseUrl/api/public/leads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Api-Key": "@(_items?.FirstOrDefault()?.Key ?? "SU_CLAVE")" },
+    body: JSON.stringify({
+      name: datos.nombre, lastName: datos.apellido,
+      email: datos.correo, phone: datos.telefono,
+      company: datos.empresa, message: datos.mensaje
+    })
+  });
+  const json = await res.json();   // { ok: true, id: "...", title: "..." }
+  if (!res.ok) throw new Error(json.error);
+  return json;
+}</pre>
+            </div>
+            <div class="col-lg-6">
+                <div class="small muted mb-1">Ejemplo con curl</div>
+                <pre class="code">curl -X POST @BaseUrl/api/public/leads \
+  -H "Content-Type: application/json" \
+  -H "X-Api-Key: @(_items?.FirstOrDefault()?.Key ?? "SU_CLAVE")" \
+  -d '{"name":"María Rodríguez","email":"maria@acme.com","phone":"+506 8888-0000","company":"ACME","message":"Quiero una cotización"}'</pre>
+                <ul class="small muted mb-0">
+                    <li>La clave también se acepta como <code>?key=</code> en la URL o como campo <code>apiKey</code> del JSON.</li>
+                    <li>Acepta JSON o formularios <code>application/x-www-form-urlencoded</code>. Los nombres de campo se reconocen según el <strong>mapeo</strong> del canal (name/nombre, email/correo…). Los campos no mapeados se agregan a los comentarios.</li>
+                    <li>Respuestas: <code>201</code> creado · <code>400</code> sin datos mínimos · <code>401</code> clave inválida · <code>403</code> canal deshabilitado u origen no permitido.</li>
+                    <li>CORS está habilitado para que el navegador pueda llamar al endpoint directamente desde su sitio.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (_edit is not null)
+{
+    <EditForm Model="_edit" OnValidSubmit="SaveAsync" FormName="apich">
+        <DataAnnotationsValidator />
+        <div class="card mt-3">
+            <div class="card-header">@(_edit.Id is null ? "Nuevo canal" : _edit.Name)</div>
+            <div class="card-body row g-3">
+                <div class="col-md-4"><label class="form-label">Nombre del canal *</label><InputText class="form-control" @bind-Value="_edit.Name" placeholder="Ej. Sitio web, Landing campaña" /><ValidationMessage For="() => _edit.Name" /></div>
+                <div class="col-md-6">
+                    <label class="form-label">Clave de API</label>
+                    <div class="d-flex gap-2">
+                        <input class="form-control font-monospace" readonly value="@_edit.Key" />
+                        <button type="button" class="btn-secondary" @onclick="() => CopyAsync(_edit.Key)">Copiar</button>
+                        <button type="button" class="btn-secondary" @onclick="() => _edit.Key = ApiChannel.NewKey()" title="Generar una clave nueva (la anterior dejará de funcionar)">↻</button>
+                    </div>
+                </div>
+                <div class="col-md-2 d-flex align-items-end flex-column justify-content-end">
+                    <div class="form-check"><InputCheckbox class="form-check-input" id="en" @bind-Value="_edit.IsEnabled" /><label class="form-check-label" for="en">Habilitado</label></div>
+                    <div class="form-check"><InputCheckbox class="form-check-input" id="cat" @bind-Value="_edit.AllowCatalog" /><label class="form-check-label" for="cat">Catálogo de productos</label></div>
+                </div>
+
+                <div class="col-12"><h6 class="mb-0 mt-2">Cómo se crea el prospecto</h6></div>
+                <div class="col-md-3"><label class="form-label">Fuente</label>
+                    <InputSelect class="form-select" @bind-Value="_edit.Source">@foreach (var s in Catalogs.Sources) { <option value="@s">@s</option> }</InputSelect></div>
+                <div class="col-md-3"><label class="form-label">Estado inicial</label>
+                    <InputSelect class="form-select" @bind-Value="_edit.Status">@foreach (var s in LeadStatuses.All.Where(s => s.Id != LeadStatuses.Converted)) { <option value="@s.Id">@s.Name</option> }</InputSelect></div>
+                <div class="col-md-3"><label class="form-label">Asignar a</label>
+                    <InputSelect class="form-select" @bind-Value="_edit.AssignTo">
+                        <option value="">Sin asignar</option>
+                        <option value="@@roundrobin">🔁 Rotación entre usuarios</option>
+                        @foreach (var p in _people) { <option value="@p">@p</option> }
+                    </InputSelect></div>
+                <div class="col-md-3"><label class="form-label">Título del prospecto</label><InputText class="form-control" @bind-Value="_edit.TitleTemplate" /><div class="muted small">Marcadores: {{nombre}}, {{apellido}}, {{compañía}}, {{correo}}, {{fecha}}</div></div>
+                <div class="col-md-6"><label class="form-label">Notificar también a</label>
+                    <div class="d-flex flex-wrap gap-2">
+                        @foreach (var p in _people)
+                        {
+                            var on = _edit.NotifyUsers.Contains(p);
+                            <button type="button" class="kind-opt @(on ? "selected" : "")" style="@(on ? "background:var(--primary);border-color:var(--primary);color:#fff" : "")" @onclick="() => { if (on) _edit.NotifyUsers.Remove(p); else _edit.NotifyUsers.Add(p); }">@p</button>
+                        }
+                    </div></div>
+                <div class="col-md-3 d-flex align-items-end"><div class="form-check"><InputCheckbox class="form-check-input" id="na" @bind-Value="_edit.NotifyAssignee" /><label class="form-check-label" for="na">Notificar al responsable</label></div></div>
+                <div class="col-md-3"><label class="form-label">Orígenes permitidos (uno por línea)</label><textarea class="form-control" rows="2" placeholder="https://www.grupomecsa.net" value='@string.Join("\n", _edit.AllowedOrigins)' @onchange="e => _edit.AllowedOrigins = (e.Value?.ToString() ?? string.Empty).Split('\n').Select(x => x.Trim()).Where(x => x != string.Empty).ToList()"></textarea><div class="muted small">Vacío = cualquier origen.</div></div>
+
+                <div class="col-12"><h6 class="mb-0 mt-2">Mapeo de campos <span class="muted small fw-normal">(nombres aceptados en el JSON, separados por coma)</span></h6></div>
+                @foreach (var (field, label) in ApiChannel.LeadFields)
+                {
+                    <div class="col-md-4">
+                        <label class="form-label">@label <code class="muted">@field</code></label>
+                        <input class="form-control form-control-sm" value="@_edit.FieldMap.GetValueOrDefault(field)" @onchange="e => _edit.FieldMap[field] = e.Value?.ToString() ?? string.Empty" />
+                    </div>
+                }
+            </div>
+            <div class="card-footer d-flex justify-content-between">
+                <button type="button" class="btn-secondary" @onclick="SendTestAsync" disabled="@(_edit.Id is null)">▶ Enviar solicitud de prueba</button>
+                <span class="d-flex gap-2">
+                    <button type="button" class="btn-secondary" @onclick="() => _edit = null">Cancelar</button>
+                    <button type="submit" class="btn-primary">Guardar</button>
+                </span>
+            </div>
+        </div>
+    </EditForm>
+}
+
+@if (_testResult is not null) { <div class="alert @(_testOk ? "alert-success" : "alert-warning") mt-2">@_testResult</div> }
+
+@if (_items is null) { <p class="muted mt-3">Cargando…</p> }
+else if (_items.Count == 0 && _edit is null) { <div class="empty-state">Aún no hay canales. Cree uno para obtener su clave de API.</div> }
+else
+{
+    <div class="table-responsive mt-3">
+        <table class="table table-hover crm-table align-middle">
+            <thead><tr><th>Canal</th><th>Clave</th><th>Fuente / Estado</th><th>Asignar a</th><th class="text-center">Recibidos</th><th>Último</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var c in _items)
+                {
+                    <tr class="@(c.IsEnabled ? "" : "text-muted")">
+                        <td><strong>@c.Name</strong> @if (!c.IsEnabled) { <span class="badge-soft">deshabilitado</span> }
+                            @if (c.LastError is not null) { <div class="small text-danger">@c.LastError</div> }</td>
+                        <td><code>@c.Key[..12]…</code> <button class="btn-ghost btn-sm" @onclick="() => CopyAsync(c.Key)">Copiar</button></td>
+                        <td>@c.Source · @LeadStatuses.Get(c.Status).Name</td>
+                        <td>@(c.AssignTo == "@roundrobin" ? "🔁 rotación" : string.IsNullOrEmpty(c.AssignTo) ? "—" : c.AssignTo)</td>
+                        <td class="text-center">@c.ReceivedCount</td>
+                        <td class="small">@(c.LastReceivedAt is null ? "nunca" : Updates.TimeAgo(c.LastReceivedAt.Value))
+                            @if (c.LastPayload is not null) { <details><summary class="muted">payload</summary><pre class="code small">@c.LastPayload</pre></details> }</td>
+                        <td class="text-end text-nowrap">
+                            <button class="btn-secondary btn-sm" @onclick="() => _edit = c">Editar</button>
+                            <button class="btn-danger btn-sm" @onclick="() => DeleteAsync(c)">Eliminar</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+<div class="widgets mt-4 mb-3">
+    <div class="widget w-12">
+        <div class="widget-title" id="catalogo">Catálogo de productos para su sitio web (lectura pública con clave de canal)</div>
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <pre class="code">GET @BaseUrl/api/public/products?key=&lt;clave&gt;
+    &amp;category=Servicios &amp;tag=oferta &amp;q=texto        (filtros opcionales)
+GET @BaseUrl/api/public/products/{id}?key=&lt;clave&gt;
+GET @BaseUrl/catalog/images/{imageId}                 (imagen pública, sin clave)</pre>
+                <div class="small muted">Solo devuelve productos <strong>activos y publicados</strong>. Cada canal puede permitir o no el catálogo (casilla "Catálogo de productos"). Para crear o editar productos use la API REST con token (<code>/api/v1/products</code>).</div>
+            </div>
+            <div class="col-lg-6">
+                <pre class="code">const res = await fetch("@BaseUrl/api/public/products?key=@(_items?.FirstOrDefault()?.Key ?? "SU_CLAVE")");
+const { items, categories } = await res.json();
+// items[i] = { id, name, sku, description, category, tags, unit, price,
+//              currency, taxRate, stock, image, images[], updatedAt }
+items.forEach(p =&gt; console.log(p.name, p.price, p.image));</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="page-head mt-4"><div><h3>API REST (<code>/api/v1</code>)</h3><div class="sub">Tokens personales para integrar Dana con otros sistemas: leer y escribir prospectos, contactos, compañías, negociaciones y actividades.</div></div>
+    <div class="actions"><button class="btn-primary" @onclick="NewTokenAsync">+ Nuevo token</button></div></div>
+
+<div class="widgets mb-3">
+    <div class="widget w-12">
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <div class="small muted mb-1">Autenticación</div>
+                <pre class="code">Authorization: Bearer &lt;token&gt;      (o cabecera X-Api-Key)</pre>
+                <div class="small muted mb-1">Recursos (GET lista · GET /{id} · POST · PUT parcial · DELETE)</div>
+                <pre class="code">@BaseUrl/api/v1/leads        ?q=texto&amp;limit=100&amp;skip=0&amp;archived=false
+@BaseUrl/api/v1/contacts
+@BaseUrl/api/v1/companies
+@BaseUrl/api/v1/deals        POST /deals/{id}/stage  { "stageId": "…" }
+@BaseUrl/api/v1/tasks
+@BaseUrl/api/v1/products     @BaseUrl/api/v1/product-categories
+@BaseUrl/api/v1/pipelines    @BaseUrl/api/v1/users    @BaseUrl/api/v1/me
+@BaseUrl/api/v1/{recurso}/{id}/notes   GET · POST { "text": "…" }</pre>
+            </div>
+            <div class="col-lg-6">
+                <div class="small muted mb-1">Ejemplos</div>
+                <pre class="code"># listar negociaciones abiertas que contengan "licencia"
+curl @BaseUrl/api/v1/deals?q=licencia -H "Authorization: Bearer @(_tokens.FirstOrDefault()?.Key ?? "TOKEN")"
+
+# crear un contacto
+curl -X POST @BaseUrl/api/v1/contacts -H "Authorization: Bearer TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"María","lastName":"Rodríguez","email":"maria@acme.com"}'
+
+# actualizar solo el importe de una negociación
+curl -X PUT @BaseUrl/api/v1/deals/ID -H "Authorization: Bearer TOKEN" \
+  -H "Content-Type: application/json" -d '{"amount": 12000, "probability": 80}'</pre>
+                <div class="small muted">Los cambios hechos por la API quedan en la auditoría y la línea de tiempo con el usuario dueño del token.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (_tokens.Count == 0) { <div class="muted mb-3">Aún no hay tokens.</div> }
+else
+{
+    <div class="table-responsive mb-4">
+        <table class="table table-hover crm-table align-middle">
+            <thead><tr><th>Nombre</th><th>Token</th><th>Usuario</th><th class="text-center">Usos</th><th>Último uso</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var t in _tokens)
+                {
+                    <tr class="@(t.IsEnabled ? "" : "text-muted")">
+                        <td><strong>@t.Name</strong> @if (!t.IsEnabled) { <span class="badge-soft">deshabilitado</span> }</td>
+                        <td><code>@t.Key[..10]…</code> <button class="btn-ghost btn-sm" @onclick="() => CopyAsync(t.Key)">Copiar</button></td>
+                        <td><PersonChip Name="@t.UserName" /></td>
+                        <td class="text-center">@t.UseCount</td>
+                        <td class="small">@(t.LastUsedAt is null ? "nunca" : Updates.TimeAgo(t.LastUsedAt.Value))</td>
+                        <td class="text-end text-nowrap">
+                            <button class="btn-secondary btn-sm" @onclick="async () => { t.IsEnabled = !t.IsEnabled; await Tokens.UpdateAsync(t); }">@(t.IsEnabled ? "Deshabilitar" : "Habilitar")</button>
+                            <button class="btn-danger btn-sm" @onclick="() => DeleteTokenAsync(t)">Eliminar</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<ApiToken> _tokens = new();
+
+    private async Task NewTokenAsync()
+    {
+        var name = await Dialogs.PromptAsync("Nombre del token (p. ej. n8n, Power BI):", "Integración");
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var me = await Me.NameAsync();
+        await Tokens.InsertAsync(new ApiToken { Name = name.Trim(), UserName = me, IsAdmin = await Me.IsAdminAsync(), CreatedBy = me });
+        _tokens = await Tokens.GetAllAsync();
+    }
+
+    private async Task DeleteTokenAsync(ApiToken t)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar el token \"{t.Name}\"? Las integraciones que lo usen dejarán de funcionar.")) return;
+        await Tokens.PurgeAsync(t.Id!, await Me.NameAsync());
+        _tokens = await Tokens.GetAllAsync();
+    }
+
+    private List<ApiChannel>? _items;
+    private ApiChannel? _edit;
+    private List<string> _people = new();
+    private string? _testResult;
+    private bool _testOk;
+
+    private string BaseUrl => Nav.BaseUri.TrimEnd('/');
+
+    protected override async Task OnInitializedAsync()
+    {
+        _people = (await Users.GetAllAsync()).Where(u => u.IsActive).Select(u => u.Name).OrderBy(n => n).ToList();
+        _items = await Inbound.GetAllAsync();
+        _tokens = await Tokens.GetAllAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrEmpty(_edit!.AssignTo)) _edit.AssignTo = null;
+        await Inbound.SaveAsync(_edit);
+        _edit = null;
+        _items = await Inbound.GetAllAsync();
+    }
+
+    private async Task DeleteAsync(ApiChannel c)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar el canal \"{c.Name}\"? Las solicitudes con su clave dejarán de aceptarse.")) return;
+        await Inbound.DeleteAsync(c.Id!);
+        _items = await Inbound.GetAllAsync();
+    }
+
+    private async Task CopyAsync(string text)
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", text); } catch { }
+    }
+
+    private async Task SendTestAsync()
+    {
+        if (_edit is null) return;
+        await Inbound.SaveAsync(_edit);
+        var payload = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["name"] = "Prueba", ["lastName"] = "API", ["email"] = "prueba@ejemplo.com", ["phone"] = "+506 0000-0000", ["company"] = "Empresa de prueba", ["message"] = "Solicitud de prueba enviada desde la configuración."
+        };
+        var r = await Inbound.ProcessAsync(_edit.Key, payload, null, "{\"name\":\"Prueba\",\"lastName\":\"API\",\"email\":\"prueba@ejemplo.com\"}");
+        _testOk = r.Ok;
+        _testResult = r.Ok ? $"✓ Prospecto creado: \"{r.Lead!.Title}\". Véalo en el tablero de Prospectos." : $"✕ {r.Error}";
+        _items = await Inbound.GetAllAsync();
+        _edit = _items.FirstOrDefault(c => c.Id == _edit.Id);
+    }
+}

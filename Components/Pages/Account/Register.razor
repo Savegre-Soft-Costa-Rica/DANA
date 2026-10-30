@@ -1,0 +1,107 @@
+@page "/cuenta/registro"
+@attribute [AllowAnonymous]
+@layout EmptyLayout
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@inject UserService Users
+@inject AuthOptions Auth
+@inject NavigationManager Nav
+
+<PageTitle>Dana · Crear cuenta</PageTitle>
+
+<div class="auth-box text-start">
+    <h4 class="mb-1 text-center">Crear cuenta</h4>
+    @if (_isFirst)
+    {
+        <p class="small text-muted text-center">Aún no hay usuarios: esta primera cuenta será <strong>administrador</strong>.</p>
+    }
+
+    @if (_closed)
+    {
+        <div class="alert alert-warning small">El registro está deshabilitado. Solicite acceso a un administrador.</div>
+        <a class="btn btn-outline-secondary w-100" href="cuenta/login">Volver a iniciar sesión</a>
+    }
+    else
+    {
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger py-2 small">@_error</div>
+        }
+
+        <EditForm Model="Input" method="post" OnValidSubmit="RegisterAsync" FormName="register">
+            <DataAnnotationsValidator />
+            <div class="mb-3">
+                <label class="form-label">Nombre</label>
+                <InputText class="form-control" @bind-Value="Input.Name" autocomplete="name" />
+                <ValidationMessage For="() => Input.Name" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Correo</label>
+                <InputText class="form-control" @bind-Value="Input.Email" type="email" autocomplete="username" />
+                <ValidationMessage For="() => Input.Email" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Contraseña</label>
+                <InputText class="form-control" @bind-Value="Input.Password" type="password" autocomplete="new-password" />
+                <ValidationMessage For="() => Input.Password" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Confirmar contraseña</label>
+                <InputText class="form-control" @bind-Value="Input.ConfirmPassword" type="password" autocomplete="new-password" />
+                <ValidationMessage For="() => Input.ConfirmPassword" />
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Crear cuenta</button>
+        </EditForm>
+
+        <p class="text-center small text-muted mt-3 mb-0">
+            ¿Ya tiene cuenta? <a href="cuenta/login?returnUrl=@Uri.EscapeDataString(SafeReturnUrl)">Inicie sesión</a>
+        </p>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+    [SupplyParameterFromForm] private InputModel Input { get; set; } = default!;
+    [SupplyParameterFromQuery(Name = "returnUrl")] private string? ReturnUrl { get; set; }
+
+    private string? _error;
+    private bool _isFirst;
+    private bool _closed;
+
+    private string SafeReturnUrl => string.IsNullOrEmpty(ReturnUrl) || !ReturnUrl.StartsWith('/') || ReturnUrl.StartsWith("//") ? "/" : ReturnUrl;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        _isFirst = await Users.CountAsync() == 0;
+        _closed = !Auth.AllowRegistration && !_isFirst;
+    }
+
+    private async Task RegisterAsync()
+    {
+        if (_closed) return;
+        var (user, error) = await Users.RegisterAsync(Input.Email, Input.Name, Input.Password);
+        if (user is null)
+        {
+            _error = error;
+            return;
+        }
+
+        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, UserService.CreatePrincipal(user),
+            new AuthenticationProperties { IsPersistent = true });
+        Nav.NavigateTo(SafeReturnUrl);
+    }
+
+    private sealed class InputModel
+    {
+        [Required(ErrorMessage = "Ingrese su nombre")]
+        public string Name { get; set; } = "";
+        [Required(ErrorMessage = "Ingrese su correo"), EmailAddress(ErrorMessage = "Correo inválido")]
+        public string Email { get; set; } = "";
+        [Required(ErrorMessage = "Ingrese una contraseña"), MinLength(8, ErrorMessage = "Mínimo 8 caracteres")]
+        public string Password { get; set; } = "";
+        [Compare(nameof(Password), ErrorMessage = "Las contraseñas no coinciden")]
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

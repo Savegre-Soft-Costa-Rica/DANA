@@ -1,0 +1,68 @@
+@page "/firmar/{Token}"
+@attribute [AllowAnonymous]
+@layout EmptyLayout
+@inject DocumentService Docs
+@inject SettingsService Settings
+
+<PageTitle>Firma · @(_doc?.Title ?? "Documento")</PageTitle>
+
+<div class="sign-page">
+    @if (_doc is null || _signer is null)
+    {
+        <div class="sign-card"><h2>Enlace no válido</h2><p>Este enlace de firma no existe o fue retirado. Contacte con quien le envió el documento.</p></div>
+    }
+    @if (_doc is not null && _signer is not null)
+    {
+        <div class="sign-card">
+            <div class="sign-head">
+                <div><div class="print-company">@_s.CompanyName</div><div class="print-muted">Solicitud de firma electrónica</div></div>
+                <div class="text-end print-muted">@KindLabel<br />Firmante: <strong>@_signer.Name</strong>@RoleSuffix</div>
+            </div>
+            @if (Ok == "1" || _signer.IsSigned)
+            {
+                <div class="sign-ok">✔ Documento firmado el @SignedAtText. Gracias, @SignedName. Puede imprimir o guardar esta página como comprobante.</div>
+                <div class="no-print mb-3"><button class="btn-primary" onclick="window.print()">🖨 Imprimir / Guardar PDF</button></div>
+            }
+            else if (Error is not null)
+            {
+                <div class="sign-err">@(Error == "2" ? "Este enlace ya fue utilizado o no es válido." : "Revise los campos: escriba su nombre completo y marque la casilla de aceptación.")</div>
+            }
+            <div class="doc-preview sign-doc">@((MarkupString)DocumentService.ToHtml(_doc.Content))@((MarkupString)DocumentService.SignaturesHtml(_doc))</div>
+
+            @if (!_signer.IsSigned && Ok != "1")
+            {
+                <form method="post" action="/api/firmar/@Token" class="sign-form" id="signForm">
+                    <h3>Firmar como @_signer.Name</h3>
+                    <div class="row g-2">
+                        <div class="col-md-6"><label class="form-label">Nombre completo</label><input class="form-control" name="nombre" value="@_signer.Name" required minlength="2" /></div>
+                        <div class="col-md-6"><label class="form-label">Cargo (opcional)</label><input class="form-control" name="cargo" value="@_signer.Role" /></div>
+                    </div>
+                    <label class="form-label mt-2">Dibuje su firma</label>
+                    <div class="sig-pad-wrap"><canvas id="sigpad" width="520" height="160"></canvas><button type="button" class="btn-ghost btn-sm" id="sigclear">Borrar</button></div>
+                    <input type="hidden" name="firma" id="sigdata" />
+                    <label class="d-block mt-2"><input type="checkbox" name="acepto" required /> He leído el documento y acepto firmarlo electrónicamente. Se registrarán la fecha, la hora y la dirección IP como evidencia.</label>
+                    <button type="submit" class="btn-primary mt-3">✍ Firmar documento</button>
+                </form>
+                <script src="sign.js"></script>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Token { get; set; } = "";
+    [SupplyParameterFromQuery(Name = "ok")] public string? Ok { get; set; }
+    [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
+    private CrmDocument? _doc; private DocumentSigner? _signer; private AppSettings _s = new();
+    private string KindLabel => _doc is null ? "" : $"{DocumentKinds.Get(_doc.Kind).Label} · v{_doc.Version}";
+    private string RoleSuffix => _signer?.Role is null ? "" : " · " + _signer.Role;
+    private string SignedAtText => _signer?.SignedAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "";
+    private string SignedName => _signer?.SignedName ?? _signer?.Name ?? "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _s = await Settings.GetAsync();
+        var found = await Docs.FindByTokenAsync(Token);
+        if (found is not null) { _doc = found.Value.Doc; _signer = found.Value.Signer; }
+    }
+}

@@ -1,0 +1,83 @@
+@page "/agentes/telegram"
+@using Dana.Models
+@using Dana.Services.Telegram
+@inject TelegramService Telegram
+@inject CurrentUser Me
+
+<PageTitle>Dana · Telegram</PageTitle>
+
+<PageHeader Title="Hablar con los agentes por Telegram" Subtitle="Vincule su cuenta de Dana con un chat de Telegram. Los agentes responden con sus mismos permisos.">
+    <Actions>
+        <a class="btn-secondary" href="agentes">← Agentes</a>
+    </Actions>
+</PageHeader>
+
+@if (!Telegram.IsConfigured)
+{
+    <div class="onboarding mb-3">
+        <strong>Telegram no está configurado.</strong> Un administrador debe crear un bot con @@BotFather y guardar el token en <code>Telegram:BotToken</code> (User Secrets o variables de entorno).
+    </div>
+}
+else
+{
+    <div class="mb-3">
+        @if (_link?.ChatId is not null)
+        {
+            <p>✅ Este usuario tiene un chat de Telegram vinculado.</p>
+            <button class="btn-secondary" @onclick="UnlinkAsync">Desvincular</button>
+        }
+        else
+        {
+            <p>Genere un código y envíelo al bot desde Telegram:</p>
+            <button class="btn-primary" @onclick="GenerateAsync">Generar código</button>
+
+            @if (_code is not null)
+            {
+                <div class="onboarding mt-3">
+                    <p>Abra el bot @(string.IsNullOrWhiteSpace(Telegram.BotUsername) ? "" : "@" + Telegram.BotUsername) y envíe:</p>
+                    <p><code class="fs-4">/vincular @_code</code></p>
+                    <p class="muted">El código vence a las @_expires?.ToLocalTime().ToString("HH:mm") (hora local).</p>
+                </div>
+            }
+        }
+    </div>
+
+    <div class="onboarding">
+        <strong>Comandos del bot</strong>
+        <ul class="mb-0">
+            <li><code>/agentes</code> — lista los agentes</li>
+            <li><code>/agente NOMBRE</code> o <code>/agente 2</code> — cambia de agente</li>
+            <li><code>/nueva</code> — empieza una conversación nueva</li>
+            <li><code>/desvincular</code> — desvincula el chat</li>
+        </ul>
+    </div>
+}
+
+@code {
+    private TelegramLink? _link;
+    private string _user = "";
+    private string? _code;
+    private DateTime? _expires;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _user = await Me.NameAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => _link = await Telegram.GetLinkForUserAsync(_user);
+
+    private async Task GenerateAsync()
+    {
+        (_code, var expires) = await Telegram.CreatePairingCodeAsync(_user);
+        _expires = expires;
+        await LoadAsync();
+    }
+
+    private async Task UnlinkAsync()
+    {
+        await Telegram.UnlinkUserAsync(_user);
+        _code = null;
+        await LoadAsync();
+    }
+}

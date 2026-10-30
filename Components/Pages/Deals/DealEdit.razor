@@ -1,0 +1,307 @@
+@page "/deals/new"
+@page "/deals/{Id}"
+@inject DealService Deals
+@inject QuoteService Quotes
+@inject PipelineService Pipelines
+@inject IRepository<Contact> Contacts
+@inject IRepository<Company> Companies
+@inject UserService Users
+@inject CurrentUser Me
+@inject DrawerService Drawer
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<PageTitle>Dana · @(IsNew ? "Nueva negociación" : _model.Title)</PageTitle>
+
+@if (_loading)
+{
+    <p class="muted">Cargando…</p>
+    return;
+}
+
+<div class="page-head">
+    <div>
+        <h3>@(IsNew ? "Nueva negociación" : _model.Title)</h3>
+        <div class="sub">
+            @if (CurrentStage is not null) { <Badge Text="@CurrentStage.Name" Color="@CurrentStage.Color" /> }
+            <span class="ms-2">@CurrentPipeline?.Name</span>
+            @if (!IsNew) { <span class="ms-2">· Creada @_model.CreatedAt.ToLocalTime().ToString("g")</span> }
+            @if (_model.ClosedAt is not null) { <span class="ms-2">· Cerrada @_model.ClosedAt.Value.ToLocalTime().ToString("g")</span> }
+        </div>
+    </div>
+    <div class="actions">
+        @if (!Embedded) { <a class="btn-secondary" href="deals/board/@_model.PipelineId">← Tablero</a> }
+        @if (!IsNew) { <button class="btn-secondary" @onclick="() => _emailOpen = true" disabled="@string.IsNullOrWhiteSpace(DealEmail)">✉ Correo al contacto</button> <button class="btn-secondary" @onclick="ArchiveAsync">@(_model.IsArchived ? "↩ Restaurar" : "🗂 Archivar")</button> <button class="btn-danger" @onclick="DeleteAsync">Eliminar</button> }
+    </div>
+</div>
+
+@if (_error is not null) { <div class="alert alert-danger">@_error</div> }
+
+@if (_model.IsArchived) { <div class="alert alert-secondary">Este elemento está <strong>archivado</strong>. No aparece en el tablero salvo con el filtro "Archivados".</div> }
+
+<div class="item-view @(IsNew ? "single" : "")">
+    <div>
+        <EditForm Model="_model" OnValidSubmit="SaveAsync" FormName="dealForm">
+            <DataAnnotationsValidator />
+            <div class="card">
+                <div class="card-header">Información</div>
+                <div class="card-body">
+                    @if (CurrentPipeline is not null)
+                    {
+                        <div class="stage-bar mb-3">
+                            @foreach (var s in CurrentPipeline.OrderedStages)
+                            {
+                                var active = s.Id == _model.StageId;
+                                <button type="button" class="stage-step @(active ? "active" : "")"
+                                        style="@(active ? $"background:{s.Color};border-color:{s.Color}" : $"border-color:{s.Color}")"
+                                        @onclick="() => _model.StageId = s.Id">@s.Name</button>
+                            }
+                        </div>
+                    }
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label class="form-label">Título *</label>
+                            <InputText class="form-control" @bind-Value="_model.Title" />
+                            <ValidationMessage For="() => _model.Title" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Tipo</label>
+                            <InputSelect class="form-select" @bind-Value="_model.Type">
+                                <option value="">—</option>
+                                @foreach (var t in Catalogs.DealTypes) { <option value="@t">@t</option> }
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Embudo *</label>
+                            <select class="form-select" value="@_model.PipelineId" @onchange="OnPipelineChanged">
+                                @foreach (var p in _pipelines) { <option value="@p.Id">@p.Name</option> }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Etapa *</label>
+                            <InputSelect class="form-select" @bind-Value="_model.StageId">
+                                @if (CurrentPipeline is not null)
+                                {
+                                    foreach (var s in CurrentPipeline.OrderedStages) { <option value="@s.Id">@s.Name</option> }
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Contacto</label>
+                            <InputSelect class="form-select" @bind-Value="_model.ContactId">
+                                <option value="">— Sin contacto —</option>
+                                @foreach (var c in _contacts) { <option value="@c.Id">@c.FullName</option> }
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Compañía</label>
+                            <InputSelect class="form-select" @bind-Value="_model.CompanyId">
+                                <option value="">— Sin compañía —</option>
+                                @foreach (var c in _companies) { <option value="@c.Id">@c.Title</option> }
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Importe</label>
+                            <InputNumber class="form-control" @bind-Value="_model.Amount" />
+                            <ValidationMessage For="() => _model.Amount" />
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Moneda</label>
+                            <InputSelect class="form-select" @bind-Value="_model.Currency">
+                                @foreach (var c in Catalogs.Currencies) { <option value="@c">@c</option> }
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Probabilidad (%)</label>
+                            <InputNumber class="form-control" @bind-Value="_model.Probability" />
+                            <ValidationMessage For="() => _model.Probability" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Cierre previsto</label>
+                            <InputDate class="form-control" @bind-Value="_model.ExpectedCloseDate" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Fuente</label>
+                            <InputSelect class="form-select" @bind-Value="_model.Source">
+                                <option value="">—</option>
+                                @foreach (var s in Catalogs.Sources) { <option value="@s">@s</option> }
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Responsable</label>
+                            <InputSelect class="form-select" @bind-Value="_model.AssignedTo">
+                                <option value="">Sin asignar</option>
+                                @foreach (var p in _people) { <option value="@p">@p</option> }
+                            </InputSelect>
+                        </div>
+                        <div class="col-12"><label class="form-label">Comentarios</label><InputTextArea class="form-control" rows="3" @bind-Value="_model.Comments" /></div>
+                    </div>
+                </div>
+                <div class="card-footer d-flex justify-content-between align-items-center">
+                    <span class="muted small">@(_saved ? "✓ Guardado" : "")</span>
+                    <button type="submit" class="btn-primary" disabled="@_busy">Guardar</button>
+                </div>
+            </div>
+        </EditForm>
+
+        @if (!IsNew)
+        {
+            <div class="card mt-3">
+                <div class="card-header"><span>Cotizaciones <span class="muted">(@_quotes.Count)</span></span><button class="btn-secondary btn-sm" @onclick="NewQuoteAsync">+ Cotización</button></div>
+                <div class="card-body">
+                    @if (_quotes.Count == 0) { <div class="muted">Sin cotizaciones. Cree una a partir de los productos del catálogo.</div> }
+                    <ul class="list-rows">
+                        @foreach (var q in _quotes)
+                        {
+                            var st = QuoteStatuses.Get(q.Status);
+                            <li><span><a href="cotizaciones/@q.Id"><strong>@q.Number</strong></a> @q.Title <Badge Text="@st.Label" Color="@st.Color" /></span><span>@q.Total.ToString("N2") @q.Currency <a class="ms-1" href="cotizaciones/@q.Id/imprimir" target="_blank" title="Imprimir">🖨</a></span></li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        }
+
+        @if (!IsNew) { <DocumentsCard EntityType="deal" EntityId="@_model.Id" /> }
+
+        @if (!IsNew && _model.History.Count > 0)
+        {
+            <div class="card mt-3">
+                <div class="card-header">Historial de etapas</div>
+                <div class="card-body">
+                    <ul class="timeline">
+                        @foreach (var h in _model.History.OrderByDescending(h => h.At))
+                        {
+                            <li>
+                                <div>@if (h.FromStageName is not null) { <span class="muted">@h.FromStageName →</span> } <strong>@h.ToStageName</strong></div>
+                                <div class="when">@h.At.ToLocalTime().ToString("g")</div>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (!IsNew)
+    {
+        <div>
+        <TaskList EntityType="deal" EntityId="@_model.Id" EntityTitle="@(_model.Title)" />
+        <div class="card mt-3">
+            <div class="card-header">Actualizaciones</div>
+            <div class="card-body">
+                <Updates EntityType="deal" EntityId="@_model.Id" EntityTitle="@(_model.Title)" />
+            </div>
+        </div>
+        </div>
+    }
+</div>
+
+<EmailComposer @bind-Open="_emailOpen" To="@DealEmail" Context="@(new EmailContext(_contacts.FirstOrDefault(c => c.Id == _model.ContactId)?.Name, _contacts.FirstOrDefault(c => c.Id == _model.ContactId)?.LastName, _companies.FirstOrDefault(c => c.Id == _model.CompanyId)?.Title, DealEmail, _model.Title, string.Empty))" EntityType="deal" EntityId="@(_model.Id ?? string.Empty)" EntityTitle="@_model.Title" />
+
+@code {
+    private bool _emailOpen;
+    private List<Quote> _quotes = new();
+    private string? DealEmail => _contacts.FirstOrDefault(c => c.Id == _model.ContactId)?.Email ?? _companies.FirstOrDefault(c => c.Id == _model.CompanyId)?.Email;
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public bool Embedded { get; set; }
+    [SupplyParameterFromQuery(Name = "pipelineId")] public string? QueryPipelineId { get; set; }
+    [SupplyParameterFromQuery(Name = "contactId")] public string? QueryContactId { get; set; }
+    [SupplyParameterFromQuery(Name = "companyId")] public string? QueryCompanyId { get; set; }
+
+    private bool IsNew => string.IsNullOrEmpty(Id);
+
+    private Deal _model = new();
+    private List<Pipeline> _pipelines = new();
+    private List<Contact> _contacts = new();
+    private List<Company> _companies = new();
+    private List<string> _people = new();
+    private bool _loading = true;
+    private bool _busy, _saved;
+    private string? _error;
+
+    private Pipeline? CurrentPipeline => _pipelines.FirstOrDefault(p => p.Id == _model.PipelineId);
+    private Stage? CurrentStage => CurrentPipeline?.GetStage(_model.StageId);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _pipelines = await Pipelines.GetAllAsync();
+        if (_pipelines.Count == 0) { await Pipelines.GetDefaultAsync(); _pipelines = await Pipelines.GetAllAsync(); }
+        _contacts = (await Contacts.GetAllAsync()).OrderBy(c => c.FullName).ToList();
+        _companies = (await Companies.GetAllAsync()).OrderBy(c => c.Title).ToList();
+        _people = (await Users.GetAllAsync()).Where(u => u.IsActive).Select(u => u.Name).OrderBy(n => n).ToList();
+
+        if (IsNew)
+        {
+            var pipeline = _pipelines.FirstOrDefault(p => p.Id == QueryPipelineId) ?? _pipelines.FirstOrDefault(p => p.IsDefault) ?? _pipelines[0];
+            _model = new Deal
+            {
+                PipelineId = pipeline.Id!,
+                StageId = pipeline.FirstStage?.Id ?? "",
+                ContactId = string.IsNullOrEmpty(QueryContactId) ? null : QueryContactId,
+                CompanyId = string.IsNullOrEmpty(QueryCompanyId) ? null : QueryCompanyId,
+                AssignedTo = await Me.NameAsync()
+            };
+            if (_model.CompanyId is null && _model.ContactId is not null)
+                _model.CompanyId = _contacts.FirstOrDefault(c => c.Id == _model.ContactId)?.CompanyId;
+        }
+        else
+        {
+            var found = await Deals.GetAsync(Id);
+            if (found is null) { Nav.NavigateTo("deals"); return; }
+            _model = found;
+            _quotes = await Quotes.GetForDealAsync(_model.Id!);
+        }
+        _loading = false;
+    }
+
+    private void OnPipelineChanged(ChangeEventArgs e)
+    {
+        _model.PipelineId = e.Value?.ToString() ?? "";
+        _model.StageId = CurrentPipeline?.FirstStage?.Id ?? "";
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            if (string.IsNullOrEmpty(_model.ContactId)) _model.ContactId = null;
+            if (string.IsNullOrEmpty(_model.CompanyId)) _model.CompanyId = null;
+            var wasNew = IsNew;
+            await Deals.SaveAsync(_model, await Me.NameAsync());
+            _saved = true;
+            if (Embedded)
+            {
+                await Drawer.NotifyChangedAsync();
+                if (wasNew) Drawer.Open<DealEdit>(_model.Id, "Negociación");
+            }
+            else if (wasNew) Nav.NavigateTo($"deals/{_model.Id}");
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task NewQuoteAsync()
+    {
+        var q = await Quotes.CreateForDealAsync(_model, await Me.NameAsync());
+        Nav.NavigateTo($"cotizaciones/{q.Id}");
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar la negociación \"{_model.Title}\"?")) return;
+        await Deals.DeleteAsync(_model.Id!, await Me.NameAsync());
+        if (Embedded) { await Drawer.NotifyChangedAsync(); await Drawer.CloseAsync(); }
+        else Nav.NavigateTo($"deals/board/{_model.PipelineId}");
+    }
+
+    private async Task ArchiveAsync()
+    {
+        _model.IsArchived = !_model.IsArchived;
+        await Deals.SaveAsync(_model, await Me.NameAsync());
+        if (Embedded) { await Drawer.NotifyChangedAsync(); await Drawer.CloseAsync(); }
+    }
+}

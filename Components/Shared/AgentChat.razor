@@ -1,0 +1,219 @@
+@using Dana.Services.Ai
+@inject AgentService Agents
+@inject CurrentUser Me
+@inject DialogService Dialogs
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="agent-chat @(Compact ? "compact" : "")">
+    @if (_agent is null) { <div class="muted p-3">Cargando…</div> }
+    else
+    {
+        <div class="agent-chat-head">
+            <span class="agent-avatar" style="background:@_agent.Color">@_agent.Name[..1]</span>
+            <div class="flex-grow-1 min-w-0">
+                <div class="agent-chat-name">@if (_agent.IsBoss) { <span title="Jefe del equipo">👑</span> }@_agent.Name <span class="muted small">· @_agent.Role</span> <span class="agent-mood-emoji" title="@(AgentMood.Describe(_agent.Mood).Label + (_agent.MoodNote is null ? "" : " · " + _agent.MoodNote))">@AgentMood.Describe(_agent.Mood).Emoji</span></div>
+                <div class="small muted text-truncate">@_providerLabel</div>
+            </div>
+            <button class="icon-btn" title="Nueva conversación" @onclick="NewAsync">＋</button>
+            @if (_convs.Count > 1) { <button class="icon-btn" title="Conversaciones anteriores" @onclick="() => _showList = !_showList">🕒</button> }
+            @if (OnClose.HasDelegate) { <button class="icon-btn" title="Cerrar" @onclick="OnClose">✕</button> }
+        </div>
+        @if (_showList)
+        {
+            <div class="agent-conv-list">
+                @foreach (var c in _convs)
+                {
+                    <button class="agent-conv-item @(c.Id == _conv?.Id ? "active" : "")" @onclick="() => OpenConvAsync(c)">
+                        <span class="text-truncate">@c.Title</span><span class="muted small">@c.UpdatedAt.ToLocalTime().ToString("dd/MM HH:mm")</span>
+                    </button>
+                }
+            </div>
+        }
+        <div class="agent-chat-body" @ref="_scroll">
+            @if (_conv is null || _conv.Messages.Count == 0)
+            {
+                <div class="agent-hello">
+                    <span class="agent-avatar big" style="background:@_agent.Color">@_agent.Name[..1]</span>
+                    <strong>Hola, soy @_agent.Name.</strong>
+                    <span class="muted small">@_agent.Description</span>
+                    <div class="agent-suggestions">
+                        @foreach (var s in Suggestions()) { <button class="chip" @onclick="() => SendTextAsync(s)">@s</button> }
+                    </div>
+                </div>
+            }
+            else
+            {
+                @foreach (var m in _conv.Messages)
+                {
+                    @if (m.Role == "user") { <div class="msg me"><div class="bubble">@m.Text</div></div> }
+                    else if (m.Role == "tool")
+                    {
+                        <div class="msg tool"><details class="tool-details"><summary class="tool-pill">🔧 @(AgentTools.Find(m.ToolName ?? "")?.Title ?? m.ToolName)@if (m.ToolInput is null && !string.IsNullOrEmpty(m.Text)) { <text> · @m.Text</text> }</summary>@if (m.ToolInput is not null) { <div class="tool-io"><strong>Entrada</strong><pre>@m.ToolInput</pre><strong>Resultado</strong><pre>@m.Text</pre></div> }</details></div>
+                    }
+                    else if (m.Role == "action" && m.Action is not null)
+                    {
+                        var act = m.Action; var am = m;
+                        <div class="msg action">
+                            <div class="action-card @act.Status">
+                                <div class="action-title">@(act.Status switch { "pending" => "⏳ Requiere tu confirmación", "done" => "✔ Realizada", "cancelled" => "✖ Cancelada", _ => "⚠ Falló" }) · @(AgentTools.Find(act.Tool)?.Title ?? act.Tool)</div>
+                                <pre class="action-body">@act.Summary</pre>
+                                @if (act.Status == "pending")
+                                {
+                                    <div class="d-flex gap-2"><button class="btn-primary btn-sm" disabled="@_sending" @onclick="() => ResolveAsync(am, true)">Confirmar y enviar</button><button class="btn-secondary btn-sm" disabled="@_sending" @onclick="() => ResolveAsync(am, false)">Cancelar</button></div>
+                                }
+                                else if (act.Result is not null && act.Status == "failed") { <div class="small text-danger">@act.Result</div> }
+                            </div>
+                        </div>
+                    }
+                    else if (m.Role == "error") { <div class="msg err"><div class="bubble">⚠ @m.Text</div></div> }
+                    else
+                    {
+                        var msg = m;
+                        <div class="msg bot"><span class="agent-avatar sm" style="background:@_agent.Color">@_agent.Name[..1]</span><div class="bubble md">@if (m.Source is not null) { <div class="msg-source">⏰ Proactivo · @m.Source · @m.At.ToLocalTime().ToString("dd/MM HH:mm")</div> }@((MarkupString)Markdown.ToHtml(m.Text))
+                            <div class="msg-feedback"><button type="button" class="@(m.Feedback > 0 ? "on" : "")" title="Buena respuesta" @onclick="() => FeedbackAsync(msg, 1)">👍</button><button type="button" class="@(m.Feedback < 0 ? "on" : "")" title="Mala respuesta" @onclick="() => FeedbackAsync(msg, -1)">👎</button></div>
+                        </div></div>
+                    }
+                }
+            }
+            @if (_sending)
+            {
+                @if (_draft.Length > 0)
+                {
+                    <div class="msg bot"><span class="agent-avatar sm" style="background:@_agent.Color">@_agent.Name[..1]</span><div class="bubble md streaming">@((MarkupString)Markdown.ToHtml(_draft.ToString()))<span class="caret"></span></div></div>
+                }
+                else
+                {
+                    <div class="msg bot"><span class="agent-avatar sm" style="background:@_agent.Color">@_agent.Name[..1]</span><div class="bubble typing"><span></span><span></span><span></span> @if (_progress is not null) { <em class="small muted">@_progress</em> }</div></div>
+                }
+            }
+        </div>
+        <div class="agent-chat-foot">
+            <label class="icon-btn file-btn" title="Adjuntar archivo para que el agente lo lea (pdf, docx, xlsx, txt…)">📎<InputFile OnChange="OnFilesAsync" multiple /></label>
+            <textarea class="form-control" rows="2" placeholder="Escribe un mensaje… (Enter para enviar, Shift+Enter salto de línea)" @bind="_text" @bind:event="oninput" @onkeydown="OnKey" disabled="@_sending"></textarea>
+            @if (_sending) { <button class="btn-secondary" @onclick="Cancel" title="Detener la respuesta">■ Detener</button> }
+            else { <button class="btn-primary" disabled="@(string.IsNullOrWhiteSpace(_text))" @onclick="SendAsync">Enviar</button> }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string? AgentId { get; set; }
+    [Parameter] public bool Compact { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<string> OnReply { get; set; }
+
+    private AiAgent? _agent;
+    private AgentConversation? _conv;
+    private List<AgentConversation> _convs = new();
+    private string _user = "";
+    private string _text = "";
+    private string? _progress, _providerLabel;
+    private bool _sending, _showList;
+    private readonly System.Text.StringBuilder _draft = new();
+    private CancellationTokenSource? _cts;
+    private void Cancel() { try { _cts?.Cancel(); } catch { } }
+    private DateTime _lastFlush = DateTime.MinValue;
+    private ElementReference _scroll;
+    private string? _loadedId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (AgentId == _loadedId) return;
+        _loadedId = AgentId;
+        _user = await Me.NameAsync();
+        _agent = await Agents.GetAsync(AgentId);
+        if (_agent is null) return;
+        var ai = (await Settings.GetAsync()).Ai;
+        var p = Agents.ResolveProvider(_agent, ai);
+        _providerLabel = (Agents.AnyConfigured(ai) ? (p == AiProviders.OpenAi ? "ChatGPT · " : "Claude · ") + Agents.ResolveModel(_agent, ai, p) : "Sin clave de API configurada");
+        _convs = await Agents.ListConversationsAsync(_agent.Id!, _user);
+        _conv = _convs.FirstOrDefault() ?? await Agents.GetConversationAsync(_agent.Id!, _user);
+        if (_convs.Count == 0) _convs.Add(_conv);
+    }
+
+    [Inject] private SettingsService Settings { get; set; } = default!;
+
+    private IEnumerable<string> Suggestions() => _agent?.Role switch
+    {
+        "Analista de ventas" => ["¿Cómo va el embudo de ventas?", "¿Qué negociaciones están estancadas?", "Resumen de cierres previstos este mes"],
+        "Prospección" => ["¿Qué prospectos nuevos tengo?", "Califica los prospectos de esta semana", "Redacta un primer contacto para un prospecto"],
+        "Redacción" => ["Escribe un correo de seguimiento para una negociación", "Resume una compañía para una reunión", "Propuesta breve para un prospecto"],
+        _ => ["Dame un resumen del CRM", "Busca los contactos recientes", "Crea una tarea de seguimiento para mañana"]
+    };
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey) await SendAsync();
+    }
+
+    private Task SendAsync() => SendTextAsync(_text);
+
+    private async Task SendTextAsync(string text)
+    {
+        text = text.Trim();
+        if (text.Length == 0 || _sending || _agent is null || _conv is null) return;
+        _text = ""; _sending = true; _progress = null; _showList = false; _draft.Clear();
+        StateHasChanged();
+        await ScrollAsync();
+        _cts = new CancellationTokenSource();
+        var reply = await Agents.SendAsync(_agent, _conv, _user, text,
+            p => { _progress = "Usando: " + p; _draft.Clear(); _ = InvokeAsync(StateHasChanged); },
+            _cts.Token,
+            d => { lock (_draft) _draft.Append(d); if ((DateTime.UtcNow - _lastFlush).TotalMilliseconds > 120) { _lastFlush = DateTime.UtcNow; _ = InvokeAsync(async () => { StateHasChanged(); await ScrollAsync(); }); } });
+        _sending = false; _progress = null; _draft.Clear();
+        StateHasChanged();
+        await ScrollAsync();
+        if (reply.Role == "assistant" && OnReply.HasDelegate) await OnReply.InvokeAsync(reply.Text);
+    }
+
+    [Inject] private AttachmentService Attachments { get; set; } = default!;
+    private async Task OnFilesAsync(InputFileChangeEventArgs e)
+    {
+        if (_agent is null || _conv is null) return;
+        var names = new List<string>();
+        foreach (var f in e.GetMultipleFiles(5))
+        {
+            if (f.Size > AttachmentService.MaxSize) { names.Add($"{f.Name} (demasiado grande)"); continue; }
+            await using var stream = f.OpenReadStream(AttachmentService.MaxSize);
+            var att = await Attachments.SaveAsync(stream, f.Name, f.ContentType, f.Size, "conversation", _conv.Id!, null, _user);
+            names.Add($"{f.Name} (id {att.Id})");
+        }
+        if (names.Count == 0) return;
+        _text = (_text.Length > 0 ? _text + "\n" : "") + "📎 Adjunté: " + string.Join(", ", names) + ". ";
+        StateHasChanged();
+    }
+
+    private async Task ResolveAsync(AgentMessage m, bool approve)
+    {
+        if (_agent is null || _conv is null || m.Action is null) return;
+        _sending = true; StateHasChanged();
+        await Agents.ResolveActionAsync(_agent, _conv, m.Action, approve, _user);
+        _sending = false;
+        await ScrollAsync();
+    }
+
+    private async Task FeedbackAsync(AgentMessage m, int value)
+    {
+        if (_agent is null || _conv is null) return;
+        await Agents.FeedbackAsync(_agent, _conv, m, m.Feedback == value ? 0 : value);
+    }
+
+    private async Task NewAsync()
+    {
+        if (_agent is null) return;
+        if (_conv is not null && _conv.Messages.Count == 0) return;
+        _conv = await Agents.NewConversationAsync(_agent.Id!, _user);
+        _convs.Insert(0, _conv);
+        _showList = false;
+    }
+
+    private Task OpenConvAsync(AgentConversation c) { _conv = c; _showList = false; return ScrollAsync(); }
+
+    private async Task ScrollAsync()
+    {
+        try { await JS.InvokeVoidAsync("eval", "document.querySelectorAll('.agent-chat-body').forEach(e=>e.scrollTop=e.scrollHeight)"); } catch { }
+    }
+
+    public void Dispose() { }
+}

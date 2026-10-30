@@ -1,0 +1,105 @@
+@page "/cuenta/login"
+@attribute [AllowAnonymous]
+@layout EmptyLayout
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@inject UserService Users
+@inject AuthOptions Auth
+@inject NavigationManager Nav
+
+<PageTitle>Dana · Iniciar sesión</PageTitle>
+
+<div class="auth-box text-start">
+    <h4 class="mb-3 text-center">Iniciar sesión</h4>
+
+    @if (Salio == "1")
+    {
+        <div class="alert alert-success py-2 small">Sesión cerrada correctamente.</div>
+    }
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger py-2 small">@_error</div>
+    }
+
+    <EditForm Model="Input" method="post" OnValidSubmit="LoginAsync" FormName="login">
+        <DataAnnotationsValidator />
+        <div class="mb-3">
+            <label class="form-label">Correo</label>
+            <InputText class="form-control" @bind-Value="Input.Email" type="email" autocomplete="username" placeholder="nombre@empresa.com" />
+            <ValidationMessage For="() => Input.Email" />
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Contraseña</label>
+            <InputText class="form-control" @bind-Value="Input.Password" type="password" autocomplete="current-password" />
+            <ValidationMessage For="() => Input.Password" />
+        </div>
+        <div class="form-check mb-3">
+            <InputCheckbox class="form-check-input" id="remember" @bind-Value="Input.RememberMe" />
+            <label class="form-check-label" for="remember">Recordarme</label>
+        </div>
+        <button type="submit" class="btn btn-primary w-100">Entrar</button>
+    </EditForm>
+
+    @if (Auth.Google.IsConfigured)
+    {
+        <div class="auth-sep"><span>o</span></div>
+        <a class="btn btn-outline-dark w-100" href="cuenta/login-google?returnUrl=@Uri.EscapeDataString(SafeReturnUrl)">
+            <svg width="18" height="18" viewBox="0 0 48 48" class="me-2" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.3l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.6 5.9c4.4-4.1 7-10.1 7-17.6z"/><path fill="#FBBC05" d="M10.5 28.6A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.6l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.3 0 11.7-2.1 15.5-5.7l-7.6-5.9c-2.1 1.4-4.8 2.3-7.9 2.3-6.3 0-11.6-4.1-13.5-9.9l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>
+            Continuar con Google
+        </a>
+    }
+
+    @if (Auth.AllowRegistration || _noUsers)
+    {
+        <p class="text-center small text-muted mt-3 mb-0">
+            ¿No tiene cuenta? <a href="cuenta/registro?returnUrl=@Uri.EscapeDataString(SafeReturnUrl)">Regístrese</a>
+        </p>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+    [SupplyParameterFromForm] private InputModel Input { get; set; } = default!;
+    [SupplyParameterFromQuery(Name = "returnUrl")] private string? ReturnUrl { get; set; }
+    [SupplyParameterFromQuery(Name = "salio")] private string? Salio { get; set; }
+
+    private string? _error;
+    private bool _noUsers;
+
+    private string SafeReturnUrl => string.IsNullOrEmpty(ReturnUrl) || !ReturnUrl.StartsWith('/') || ReturnUrl.StartsWith("//") ? "/" : ReturnUrl;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        if (HttpContext.User.Identity?.IsAuthenticated == true)
+        {
+            Nav.NavigateTo(SafeReturnUrl);
+            return;
+        }
+        _noUsers = await Users.CountAsync() == 0;
+    }
+
+    private async Task LoginAsync()
+    {
+        var user = await Users.ValidateCredentialsAsync(Input.Email, Input.Password);
+        if (user is null)
+        {
+            _error = "Correo o contraseña incorrectos, o la cuenta está desactivada.";
+            return;
+        }
+
+        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, UserService.CreatePrincipal(user),
+            new AuthenticationProperties { IsPersistent = Input.RememberMe });
+        Nav.NavigateTo(SafeReturnUrl);
+    }
+
+    private sealed class InputModel
+    {
+        [Required(ErrorMessage = "Ingrese su correo"), EmailAddress(ErrorMessage = "Correo inválido")]
+        public string Email { get; set; } = "";
+        [Required(ErrorMessage = "Ingrese su contraseña")]
+        public string Password { get; set; } = "";
+        public bool RememberMe { get; set; } = true;
+    }
+}

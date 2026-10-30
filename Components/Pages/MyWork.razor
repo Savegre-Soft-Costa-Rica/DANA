@@ -1,0 +1,151 @@
+@page "/mi-trabajo"
+@inject TaskService Tasks
+@inject UserService Users
+@inject CurrentUser Me
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<PageTitle>Dana · Mi trabajo</PageTitle>
+
+<PageHeader Title="Mi trabajo" Subtitle="Llamadas, reuniones, correos y tareas asignadas, ordenadas por fecha.">
+    <Actions>
+        <select class="form-select" style="width:auto" value="@_person" @onchange="async e => { _person = e.Value?.ToString() ?? string.Empty; await LoadAsync(); }">
+            <option value="@_me">👤 Mis actividades</option>
+            <option value="">Todas las personas</option>
+            @foreach (var p in _people.Where(p => p != _me)) { <option value="@p">@p</option> }
+        </select>
+        <button class="tool @(_showDone ? "on" : "")" @onclick="async () => { _showDone = !_showDone; await LoadAsync(); }">✓ Ver hechas</button>
+        <button class="btn-primary" @onclick="() => { _adding = !_adding; _draft = new TaskItem { Kind = TaskKinds.Task, AssignedTo = _me }; }">+ Nueva actividad</button>
+    </Actions>
+</PageHeader>
+
+@if (_adding)
+{
+    <div class="card mb-3"><div class="card-body">
+        <div class="task-form" style="margin:0">
+            <div class="kind-picker">
+                @foreach (var k in TaskKinds.All)
+                {
+                    <button class="kind-opt" style="@(_draft.Kind == k.Id ? $"background:{k.Color};border-color:{k.Color};color:#fff" : "")" @onclick="() => _draft.Kind = k.Id">@k.Icon @k.Name</button>
+                }
+            </div>
+            <input class="form-control" placeholder="Título" @bind="_draft.Title" @bind:event="oninput" />
+            <div class="task-form-row">
+                <input type="datetime-local" class="form-control" @onchange="e => _draft.DueAt = DateTime.TryParse(e.Value?.ToString(), out var d) ? d.ToUniversalTime() : null" />
+                <select class="form-select" @bind="_draft.DurationMinutes"><option value="">Duración</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 h</option><option value="120">2 h</option></select>
+                <select class="form-select" @bind="_draft.AssignedTo"><option value="">Sin asignar</option>@foreach (var p in _people) { <option value="@p">@p</option> }</select>
+            </div>
+            <textarea class="form-control" rows="2" placeholder="Notas" @bind="_draft.Notes"></textarea>
+            <div class="d-flex gap-2 justify-content-end">
+                <button class="btn-secondary btn-sm" @onclick="() => _adding = false">Cancelar</button>
+                <button class="btn-primary btn-sm" disabled="@string.IsNullOrWhiteSpace(_draft.Title)" @onclick="SaveNewAsync">Guardar</button>
+            </div>
+        </div>
+    </div></div>
+}
+
+@if (_items is null)
+{
+    <p class="muted">Cargando…</p>
+}
+else if (_items.Count == 0)
+{
+    <div class="empty-state"><div style="font-size:2rem">🎉</div>No hay actividades pendientes.</div>
+}
+else
+{
+    @foreach (var (title, cls, list) in Sections)
+    {
+        if (list.Count == 0) continue;
+        <div class="mywork-section @cls">
+            <h5>@title <span class="count">@list.Count</span></h5>
+            <div class="card"><div class="card-body" style="padding:4px 16px">
+                <ul class="task-list">
+                    @foreach (var t in list)
+                    {
+                        var k = TaskKinds.Get(t.Kind);
+                        <li class="@(t.IsDone ? "done" : "") @(t.IsOverdue ? "overdue" : "")">
+                            <input type="checkbox" class="cell-check" checked="@t.IsDone" @onchange="() => ToggleAsync(t)" />
+                            <span class="task-kind" style="background:@k.Color" title="@k.Name">@k.Icon</span>
+                            <div class="task-main">
+                                <div class="task-title">@t.Title
+                                    @if (t.EntityId is not null) { <a class="task-entity ms-2" href="@EntityLink(t)">@t.EntityTitle</a> }
+                                </div>
+                                <div class="task-meta">
+                                    @if (t.DueAt is not null) { <span>@t.DueAt.Value.ToLocalTime().ToString("ddd dd MMM, HH:mm")</span> }
+                                    @if (t.DurationMinutes is not null) { <span>· @t.DurationMinutes min</span> }
+                                    @if (string.IsNullOrEmpty(_person) && !string.IsNullOrEmpty(t.AssignedTo)) { <span>· <PersonChip Name="@t.AssignedTo" /></span> }
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(t.Notes)) { <div class="task-notes">@t.Notes</div> }
+                            </div>
+                            <button class="icon-btn tiny" title="Eliminar" @onclick="() => DeleteAsync(t)">✕</button>
+                        </li>
+                    }
+                </ul>
+            </div></div>
+        </div>
+    }
+}
+
+@code {
+    private List<TaskItem>? _items;
+    private List<string> _people = new();
+    private string _me = "";
+    private string _person = "";
+    private bool _showDone, _adding;
+    private TaskItem _draft = new();
+
+    private IEnumerable<(string Title, string Cls, List<TaskItem> List)> Sections
+    {
+        get
+        {
+            var now = DateTime.UtcNow;
+            var todayStart = DateTime.Now.Date.ToUniversalTime();
+            var tomorrow = todayStart.AddDays(1);
+            var weekEnd = todayStart.AddDays(7);
+            var items = _items ?? new();
+            yield return ("Vencidas", "overdue", items.Where(t => !t.IsDone && t.DueAt < now && t.DueAt < todayStart).ToList());
+            yield return ("Hoy", "today", items.Where(t => !t.IsDone && t.DueAt >= todayStart && t.DueAt < tomorrow).ToList());
+            yield return ("Esta semana", "", items.Where(t => !t.IsDone && t.DueAt >= tomorrow && t.DueAt < weekEnd).ToList());
+            yield return ("Más adelante", "", items.Where(t => !t.IsDone && t.DueAt >= weekEnd).ToList());
+            yield return ("Sin fecha", "", items.Where(t => !t.IsDone && t.DueAt is null).ToList());
+            yield return ("Hechas", "", items.Where(t => t.IsDone).OrderByDescending(t => t.CompletedAt).ToList());
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _me = await Me.NameAsync();
+        _person = _me;
+        _people = (await Users.GetAllAsync()).Where(u => u.IsActive).Select(u => u.Name).OrderBy(n => n).ToList();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => _items = await Tasks.GetForUserAsync(string.IsNullOrEmpty(_person) ? null : _person, _showDone);
+
+    private async Task SaveNewAsync()
+    {
+        if (string.IsNullOrEmpty(_draft.AssignedTo)) _draft.AssignedTo = null;
+        await Tasks.SaveAsync(_draft, _me);
+        _adding = false;
+        await LoadAsync();
+    }
+
+    private async Task ToggleAsync(TaskItem t)
+    {
+        await Tasks.ToggleDoneAsync(t.Id!, _me);
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(TaskItem t)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar \"{t.Title}\"?")) return;
+        await Tasks.DeleteAsync(t.Id!);
+        await LoadAsync();
+    }
+
+    private static string EntityLink(TaskItem t) => t.EntityType switch
+    {
+        "lead" => $"leads/{t.EntityId}", "contact" => $"contacts/{t.EntityId}", "company" => $"companies/{t.EntityId}", _ => $"deals/{t.EntityId}"
+    };
+}

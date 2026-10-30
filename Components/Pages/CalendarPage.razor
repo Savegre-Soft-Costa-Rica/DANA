@@ -1,0 +1,79 @@
+@page "/calendario"
+@inject DealService Deals
+@inject TaskService Tasks
+@inject PipelineService Pipelines
+@inject DrawerService Drawer
+@inject CurrentUser Me
+@using System.Globalization
+
+<PageTitle>Dana · Calendario</PageTitle>
+
+<PageHeader Title="Calendario" Subtitle="Cierres previstos de negociaciones y actividades programadas.">
+    <Actions>
+        <button class="tool @(_onlyMine ? "on" : "")" @onclick="async () => { _onlyMine = !_onlyMine; await LoadAsync(); }">👤 Solo lo mío</button>
+        <button class="btn-secondary" @onclick="() => Go(-1)">‹</button>
+        <button class="btn-secondary" @onclick="() => { _month = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1); }">Hoy</button>
+        <button class="btn-secondary" @onclick="() => Go(1)">›</button>
+        <strong class="align-self-center" style="min-width:150px;text-align:center">@_month.ToString("MMMM yyyy", new CultureInfo("es-ES"))</strong>
+    </Actions>
+</PageHeader>
+
+<div class="cal">
+    @foreach (var d in new[] { "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom" }) { <div class="cal-dow">@d</div> }
+    @foreach (var day in Days)
+    {
+        var isToday = day.Date == DateTime.Now.Date;
+        var inMonth = day.Month == _month.Month;
+        <div class="cal-day @(inMonth ? "" : "other") @(isToday ? "today" : "")">
+            <div class="cal-num">@day.Day</div>
+            @foreach (var d in _deals.Where(x => x.ExpectedCloseDate?.Date == day.Date))
+            {
+                var stage = _pipelines.GetValueOrDefault(d.PipelineId)?.GetStage(d.StageId);
+                <button class="cal-ev" style="border-left-color:@(stage?.Color ?? "#0073ea")" title="@d.Title · $@d.Amount.ToString("N0") · @stage?.Name" @onclick="() => OpenDeal(d)">◆ @d.Title</button>
+            }
+            @foreach (var t in _tasks.Where(x => x.DueAt is not null && x.DueAt.Value.ToLocalTime().Date == day.Date))
+            {
+                var k = TaskKinds.Get(t.Kind);
+                <a class="cal-ev task @(t.IsDone ? "done" : "")" style="border-left-color:@k.Color" title="@t.Title · @t.DueAt!.Value.ToLocalTime().ToString("HH:mm") · @t.AssignedTo" href="@(t.EntityId is null ? "mi-trabajo" : CrmEntities.LinkOf(t.EntityType!, t.EntityId))">@k.Icon @t.DueAt.Value.ToLocalTime().ToString("HH:mm") @t.Title</a>
+            }
+        </div>
+    }
+</div>
+<div class="legend mt-2"><span><i style="background:#0073ea"></i>◆ Cierre previsto (color de la etapa)</span>@foreach (var k in TaskKinds.All) { <span><i style="background:@k.Color"></i>@k.Icon @k.Name</span> }</div>
+
+@code {
+    private DateTime _month = new(DateTime.Now.Year, DateTime.Now.Month, 1);
+    private List<Deal> _deals = new();
+    private List<TaskItem> _tasks = new();
+    private Dictionary<string, Pipeline> _pipelines = new();
+    private bool _onlyMine;
+    private string _me = "";
+
+    private IEnumerable<DateTime> Days
+    {
+        get
+        {
+            var first = _month;
+            var offset = ((int)first.DayOfWeek + 6) % 7; // lunes = 0
+            var start = first.AddDays(-offset);
+            for (var i = 0; i < 42; i++) yield return start.AddDays(i);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _me = await Me.NameAsync();
+        _pipelines = (await Pipelines.GetAllAsync()).ToDictionary(p => p.Id!);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _deals = (await Deals.GetAllAsync()).Where(d => !d.IsArchived && d.ExpectedCloseDate is not null && (!_onlyMine || d.AssignedTo == _me)).ToList();
+        _tasks = (await Tasks.GetAllAsync()).Where(t => t.DueAt is not null && (!_onlyMine || t.AssignedTo == _me)).ToList();
+        StateHasChanged();
+    }
+
+    private void Go(int months) => _month = _month.AddMonths(months);
+    private void OpenDeal(Deal d) => Drawer.Open<Dana.Components.Pages.Deals.DealEdit>(d.Id, "Negociación", LoadAsync);
+}

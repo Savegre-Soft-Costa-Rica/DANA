@@ -1,0 +1,10 @@
+bin/
+obj/
+*.user
+.vs/
+.idea/
+.env
+App_Data/
+TestResults/
+backups/
+*.trx

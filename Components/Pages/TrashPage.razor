@@ -1,0 +1,105 @@
+@page "/papelera"
+@inject IRepository<Lead> Leads
+@inject IRepository<Deal> Deals
+@inject IRepository<Contact> Contacts
+@inject IRepository<Company> Companies
+@inject LeadService LeadSvc
+@inject DealService DealSvc
+@inject ActivityService Activities
+@inject CurrentUser Me
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<PageTitle>Dana · Papelera</PageTitle>
+
+<PageHeader Title="Papelera" Subtitle="Elementos eliminados. Puede restaurarlos o borrarlos definitivamente.">
+    <Actions>
+        <AuthorizeView Policy="Admin"><button class="btn-danger" @onclick="EmptyAsync" disabled="@(_items.Count == 0)">Vaciar papelera</button></AuthorizeView>
+    </Actions>
+</PageHeader>
+
+@if (_loading) { <p class="muted">Cargando…</p> }
+else if (_items.Count == 0) { <div class="empty-state"><div style="font-size:2rem">🗑</div>La papelera está vacía.</div> }
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover crm-table align-middle">
+            <thead><tr><th>Tipo</th><th>Elemento</th><th>Eliminado por</th><th>Cuándo</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var (type, label, e) in _items)
+                {
+                    <tr>
+                        <td><span class="badge-pill" style="background:@Color(type)">@label</span></td>
+                        <td>@CrmEntities.TitleOf(e)</td>
+                        <td>@(e.DeletedBy ?? "—")</td>
+                        <td class="small">@(e.DeletedAt is null ? "" : Updates.TimeAgo(e.DeletedAt.Value))</td>
+                        <td class="text-end text-nowrap">
+                            <button class="btn-secondary btn-sm" @onclick="() => RestoreAsync(type, e)">↩ Restaurar</button>
+                            <AuthorizeView Policy="Admin"><button class="btn-danger btn-sm" @onclick="() => PurgeAsync(type, e)">Borrar definitivamente</button></AuthorizeView>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<(string Type, string Label, Entity E)> _items = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _items = new();
+        _items.AddRange((await Leads.GetDeletedAsync()).Select(e => ("lead", "Prospecto", (Entity)e)));
+        _items.AddRange((await Deals.GetDeletedAsync()).Select(e => ("deal", "Negociación", (Entity)e)));
+        _items.AddRange((await Contacts.GetDeletedAsync()).Select(e => ("contact", "Contacto", (Entity)e)));
+        _items.AddRange((await Companies.GetDeletedAsync()).Select(e => ("company", "Compañía", (Entity)e)));
+        _items = _items.OrderByDescending(x => x.E.DeletedAt).ToList();
+        _loading = false;
+    }
+
+    private static string Color(string t) => t switch { "lead" => "#a25ddc", "deal" => "#0073ea", "contact" => "#00c875", _ => "#fdab3d" };
+
+    private async Task RestoreAsync(string type, Entity e)
+    {
+        var me = await Me.NameAsync();
+        switch (type)
+        {
+            case "lead": await Leads.RestoreAsync(e.Id!, me); break;
+            case "deal": await Deals.RestoreAsync(e.Id!, me); break;
+            case "contact": await Contacts.RestoreAsync(e.Id!, me); break;
+            default: await Companies.RestoreAsync(e.Id!, me); break;
+        }
+        await LoadAsync();
+    }
+
+    private async Task PurgeAsync(string type, Entity e)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Borrar definitivamente \"{CrmEntities.TitleOf(e)}\"? Esta acción no se puede deshacer.")) return;
+        await PurgeOneAsync(type, e);
+        await LoadAsync();
+    }
+
+    private async Task PurgeOneAsync(string type, Entity e)
+    {
+        var me = await Me.NameAsync();
+        switch (type)
+        {
+            case "lead": await LeadSvc.PurgeAsync(e.Id!, me); break;
+            case "deal": await DealSvc.PurgeAsync(e.Id!, me); break;
+            case "contact": await Contacts.PurgeAsync(e.Id!, me); await Activities.DeleteForAsync("contact", e.Id!); break;
+            default: await Companies.PurgeAsync(e.Id!, me); await Activities.DeleteForAsync("company", e.Id!); break;
+        }
+    }
+
+    private async Task EmptyAsync()
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Borrar definitivamente los {_items.Count} elementos de la papelera?")) return;
+        foreach (var (type, _, e) in _items.ToList()) await PurgeOneAsync(type, e);
+        await LoadAsync();
+    }
+}

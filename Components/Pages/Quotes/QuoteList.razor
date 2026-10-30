@@ -1,0 +1,54 @@
+@page "/cotizaciones"
+@inject QuoteService Quotes
+@inject IRepository<Company> Companies
+@inject IRepository<Contact> Contacts
+
+<PageTitle>Dana · Cotizaciones</PageTitle>
+
+<PageHeader Title="Cotizaciones" Subtitle="Se crean desde la ficha de una negociación (botón + Cotización)." />
+
+<div class="toolbar">
+    <div class="search"><span class="search-ico">⌕</span><input placeholder="Buscar" @bind="_q" @bind:event="oninput" /></div>
+    <select @bind="_status"><option value="">Todos los estados</option>@foreach (var (id, label, _) in QuoteStatuses.All) { <option value="@id">@label</option> }</select>
+</div>
+
+@if (_items is null) { <p class="muted">Cargando…</p> }
+else if (_items.Count == 0) { <div class="empty-state">Aún no hay cotizaciones.</div> }
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover crm-table align-middle">
+            <thead><tr><th>Número</th><th>Título</th><th>Cliente</th><th>Fecha</th><th>Estado</th><th class="text-end">Total</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var q in _items.Where(q => (string.IsNullOrEmpty(_status) || q.Status == _status) && (string.IsNullOrWhiteSpace(_q) || $"{q.Number} {q.Title} {ClientOf(q)}".Contains(_q, StringComparison.OrdinalIgnoreCase))))
+                {
+                    var st = QuoteStatuses.Get(q.Status);
+                    <tr>
+                        <td><a href="cotizaciones/@q.Id"><strong>@q.Number</strong></a></td>
+                        <td>@q.Title</td>
+                        <td>@ClientOf(q)</td>
+                        <td class="small">@q.Date.ToString("dd/MM/yyyy")</td>
+                        <td><Badge Text="@st.Label" Color="@st.Color" /></td>
+                        <td class="text-end">@q.Total.ToString("N2") @q.Currency</td>
+                        <td class="text-end"><a class="btn-secondary btn-sm" href="cotizaciones/@q.Id">Abrir</a> <a class="btn-secondary btn-sm" href="cotizaciones/@q.Id/imprimir" target="_blank">🖨</a></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<Quote>? _items;
+    private Dictionary<string, string> _companies = new(), _contacts = new();
+    private string _q = "", _status = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _companies = (await Companies.GetAllAsync()).ToDictionary(c => c.Id!, c => c.Title);
+        _contacts = (await Contacts.GetAllAsync()).ToDictionary(c => c.Id!, c => c.FullName);
+        _items = await Quotes.GetAllAsync();
+    }
+
+    private string ClientOf(Quote q) => (q.CompanyId is not null ? _companies.GetValueOrDefault(q.CompanyId) : null) ?? (q.ContactId is not null ? _contacts.GetValueOrDefault(q.ContactId) : null) ?? "—";
+}

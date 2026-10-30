@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------------------
+# Desarrollo: solo la base de datos (la app se ejecuta con `dotnet run` o `dotnet watch`).
+#   docker compose up -d
+#   Mongo:         mongodb://localhost:27017
+#   mongo-express: http://localhost:8081
+# Para levantar también la app en contenedor en modo desarrollo:
+#   docker compose --profile app up -d --build
+# ---------------------------------------------------------------------------
+services:
+  mongo:
+    image: mongo:7
+    container_name: dana-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - dana-mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  mongo-express:
+    image: mongo-express:1.0.2
+    container_name: dana-mongo-express
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongo:27017/
+      ME_CONFIG_BASICAUTH: "false"
+
+  app:
+    profiles: ["app"]
+    build:
+      context: .
+      target: final
+    container_name: dana-app-dev
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "5025:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Mongo__ConnectionString: mongodb://mongo:27017
+      Mongo__Database: dana
+    volumes:
+      - dana-uploads-dev:/app/App_Data
+      - dana-keys-dev:/app/keys
+
+volumes:
+  dana-mongo-data:
+  dana-uploads-dev:
+  dana-keys-dev:

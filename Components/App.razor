@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <ResourcePreloader />
+    <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["Dana.styles.css"]" />
+    <ImportMap />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <script>try { var t = localStorage.getItem("dana.theme"); if (t === "dark") document.documentElement.dataset.theme = "dark"; } catch (e) { }</script>
+    <HeadOutlet @rendermode="RenderModeForPage" />
+</head>
+
+<body>
+    <Routes @rendermode="RenderModeForPage" />
+    <ReconnectModal />
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script type="module" src="sprites.js"></script>
+</body>
+
+</html>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    // Las páginas de cuenta (login, registro…) se renderizan de forma estática en el servidor
+    // porque necesitan HttpContext para firmar/cerrar la cookie de sesión.
+    private IComponentRenderMode? RenderModeForPage =>
+        HttpContext.Request.Path.StartsWithSegments("/cuenta") || HttpContext.Request.Path.StartsWithSegments("/formulario") || HttpContext.Request.Path.StartsWithSegments("/firmar") || HttpContext.Request.Path.Value!.EndsWith("/imprimir") ? null : InteractiveServer;
+}

@@ -1,0 +1,343 @@
+@page "/agentes"
+@using Dana.Services.Ai
+@inject AgentService Agents
+@inject SettingsService Settings
+@inject UserService Users
+@inject CurrentUser Me
+@inject DialogService Dialogs
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject Dana.Services.Telegram.TelegramService Telegram
+
+<PageTitle>Dana · Agentes</PageTitle>
+
+<PageHeader Title="Agentes de IA" Subtitle="Asistentes con un rol, instrucciones, herramientas sobre los datos de la organización y rutinas proactivas. Hable con ellos aquí o en la oficina virtual.">
+    <Actions>
+        <a class="btn-secondary" href="oficina">🏢 Ir a la oficina</a>
+        @if (Telegram.IsConfigured) { <a class="btn-secondary" href="agentes/telegram">📨 Telegram</a> }
+        @if (_isAdmin) { <a class="btn-secondary" href="configuracion/ia">🔑 Proveedores</a> }
+        <button class="btn-primary" @onclick="() => _templates = true">+ Nuevo agente</button>
+    </Actions>
+</PageHeader>
+
+@if (!_configured)
+{
+    <div class="onboarding mb-3">
+        <strong>Aún no hay una clave de API.</strong> Los agentes necesitan Claude (Anthropic) o ChatGPT (OpenAI) para responder.
+        @if (_isAdmin) { <a class="btn-primary btn-sm ms-2" href="configuracion/ia">Configurar proveedores</a> } else { <span class="muted"> Pida a un administrador que la configure.</span> }
+    </div>
+}
+
+<div class="agent-grid">
+    @foreach (var a in _agents)
+    {
+        <div class="agent-card @(a.IsActive ? "" : "inactive")">
+            <div class="agent-card-top">
+                <canvas class="agent-sprite" data-avatar="@a.Avatar" data-color="@a.Color" width="64" height="80"></canvas>
+                <div class="min-w-0 flex-grow-1">
+                    <div class="agent-card-name">@if (a.IsBoss) { <span title="Jefe del equipo">👑</span> }@a.Name @if (Agents.IsBusy(a.Id!)) { <span class="badge-pill" style="background:#fdab3d">pensando…</span> } @if (!a.IsActive) { <span class="badge-soft">inactivo</span> }</div>
+                    <div class="muted small">@a.Role</div>
+                    <div class="small mt-1">@a.Description</div>
+                </div>
+            </div>
+            <div class="agent-mood" title="@(a.MoodNote ?? "Estado de ánimo")">
+                <span class="agent-mood-emoji">@AgentMood.Describe(a.Mood).Emoji</span>
+                <div class="agent-mood-bar"><span style="width:@(a.Mood)%;background:@AgentMood.Describe(a.Mood).Color"></span></div>
+                <span class="small muted">@AgentMood.Describe(a.Mood).Label · @a.Mood</span>
+            </div>
+            <div class="agent-card-meta">
+                @if (a.IsBoss) { <span class="badge-pill" style="background:#784bd1">jefe del equipo</span> }
+                <span class="badge-soft">@ProviderLabel(a)</span>
+                <span class="badge-soft">🔧 @a.Tools.Count herramientas</span>
+                @if (a.AllowWrites) { <span class="badge-soft">✎ puede modificar</span> }
+                @if (a.Routines.Count > 0) { <span class="badge-soft" title="@string.Join(", ", a.Routines.Select(r => r.Name))">⏰ @a.Routines.Count(r => r.Enabled)/@a.Routines.Count rutinas</span> }
+                @if (a.CanCollaborate && a.Tools.Contains("consultar_agente")) { <span class="badge-soft">🤝 colabora</span> }
+                <span class="badge-soft">💬 @a.MessageCount</span>
+            </div>
+            @if (a.Routines.Any(r => r.LastRunAt is not null))
+            {
+                var last = a.Routines.Where(r => r.LastRunAt is not null).OrderByDescending(r => r.LastRunAt).First();
+                <div class="agent-last small"><strong>Última rutina</strong> · @last.Name · @last.LastRunAt!.Value.ToLocalTime().ToString("dd/MM HH:mm") @if (last.LastError is not null) { <span class="text-danger">⚠ @last.LastError</span> } else { <span class="muted">@Short(last.LastOutput)</span> }</div>
+            }
+            <div class="agent-card-actions">
+                <button class="btn-primary btn-sm" disabled="@(!a.IsActive)" @onclick="() => _chat = a.Id">💬 Hablar</button>
+                <a class="btn-secondary btn-sm" href="oficina?agente=@a.Id">🏢 Oficina</a>
+                <button class="btn-secondary btn-sm" @onclick="() => Edit(a)">⚙ Configurar</button>
+                @if (_isAdmin || a.CreatedBy == _user) { <button class="btn-danger btn-sm" @onclick="() => DeleteAsync(a)">Eliminar</button> }
+            </div>
+        </div>
+    }
+</div>
+
+@if (_chat is not null)
+{
+    <div class="agent-chat-panel">
+        <AgentChat AgentId="@_chat" Compact="true" OnClose="CloseChat" />
+    </div>
+}
+
+@if (_templates)
+{
+    <div class="sheet-backdrop" @onclick="() => _templates = false"></div>
+    <div class="sheet" style="width:min(900px,96vw)">
+        <div class="sheet-head"><strong>Nuevo agente: elija una plantilla</strong><button class="icon-btn" @onclick="() => _templates = false">✕</button></div>
+        <div class="sheet-body">
+            <div class="tpl-grid">
+                <button type="button" class="tpl-card" @onclick="New">
+                    <span class="tpl-emoji">✨</span><strong>En blanco</strong><span class="small muted">Configure nombre, instrucciones y herramientas desde cero.</span>
+                </button>
+                @foreach (var t in AgentTemplates.All_)
+                {
+                    var tpl = t;
+                    <button type="button" class="tpl-card" style="border-top:4px solid @tpl.Color" @onclick="() => NewFromTemplate(tpl)">
+                        <span class="tpl-emoji">@tpl.Emoji</span>
+                        <strong>@tpl.Name · @tpl.Role</strong>
+                        <span class="small muted">@tpl.Description</span>
+                        <span class="tpl-meta">🔧 @tpl.Tools.Length herramientas @(tpl.AllowWrites ? "· ✎ modifica datos" : "") @(tpl.Routines is { Length: > 0 } ? "· ⏰ rutina incluida" : "")</span>
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@if (_edit is not null)
+{
+    <div class="sheet-backdrop" @onclick="() => _edit = null"></div>
+    <div class="sheet" style="width:min(900px,96vw)">
+        <div class="sheet-head">
+            <strong>@(_edit.Id is null ? "Nuevo agente" : _edit.Name)</strong>
+            <div class="d-flex gap-1 align-items-center">
+                <button type="button" class="btn-ghost btn-sm @(_tab == "general" ? "active" : "")" @onclick='() => _tab = "general"'>General</button>
+                <button type="button" class="btn-ghost btn-sm @(_tab == "tools" ? "active" : "")" @onclick='() => _tab = "tools"'>Herramientas</button>
+                <button type="button" class="btn-ghost btn-sm @(_tab == "routines" ? "active" : "")" @onclick='() => _tab = "routines"'>Proactividad (@_edit.Routines.Count)</button>
+                @if (_edit.Id is not null) { <button type="button" class="btn-ghost btn-sm @(_tab == "memory" ? "active" : "")" @onclick="OpenMemoryAsync">Memoria (@_memories.Count)</button> }
+                <button class="icon-btn" @onclick="() => _edit = null">✕</button>
+            </div>
+        </div>
+        <div class="sheet-body">
+            <EditForm Model="_edit" OnValidSubmit="SaveAsync" FormName="agent">
+                <DataAnnotationsValidator />
+                <div class="@(_tab == "general" ? "" : "d-none")">
+                    <div class="row g-3">
+                        <div class="col-md-4"><label class="form-label">Nombre</label><InputText class="form-control" @bind-Value="_edit.Name" /><ValidationMessage For="() => _edit.Name" /></div>
+                        <div class="col-md-4"><label class="form-label">Rol</label><InputText class="form-control" @bind-Value="_edit.Role" placeholder="Analista de ventas" /></div>
+                        <div class="col-md-4"><label class="form-label">Color</label><div class="d-flex gap-2 align-items-center"><input type="color" class="form-control form-control-color" @bind="_edit.Color" /><InputText class="form-control" @bind-Value="_edit.Color" /></div></div>
+                        <div class="col-12"><label class="form-label">Descripción corta</label><InputText class="form-control" @bind-Value="_edit.Description" placeholder="Qué hace este agente (se muestra en la tarjeta y al saludar)" /></div>
+                        <div class="col-12"><label class="form-label">Instrucciones (system prompt)</label><InputTextArea class="form-control" rows="6" @bind-Value="_edit.Instructions" placeholder="Eres…, tu objetivo es…, responde…" /></div>
+                        <div class="col-md-4">
+                            <label class="form-label">Proveedor</label>
+                            <InputSelect class="form-select" @bind-Value="_edit.Provider"><option value="">Por defecto (@AiProviders.All.First(p => p.Id == _ai!.DefaultProvider).Name)</option>@foreach (var p in AiProviders.All) { <option value="@p.Id">@p.Name</option> }</InputSelect>
+                        </div>
+                        <div class="col-md-4"><label class="form-label">Modelo</label><InputText class="form-control" @bind-Value="_edit.Model" placeholder="@(string.IsNullOrEmpty(_edit.Provider) ? "modelo por defecto" : _edit.Provider == AiProviders.OpenAi ? _ai!.OpenAiModel : _ai!.AnthropicModel)" /></div>
+                        <div class="col-md-4">
+                            <label class="form-label">Esfuerzo (solo Claude 4.6+)</label>
+                            <InputSelect class="form-select" @bind-Value="_edit.Effort"><option value="">Predeterminado</option><option value="low">Bajo (rápido y barato)</option><option value="medium">Medio</option><option value="high">Alto</option></InputSelect>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Avatar</label>
+                            <div class="avatar-picker">
+                                @for (var i = 0; i < 8; i++) { var idx = i; <button type="button" class="@(_edit.Avatar == idx ? "sel" : "")" @onclick="() => _edit.Avatar = idx"><canvas class="agent-sprite" data-avatar="@idx" data-color="@_edit.Color" width="32" height="40"></canvas></button> }
+                            </div>
+                        </div>
+                        <div class="col-md-3"><label class="form-label">Escritorio X</label><InputNumber class="form-control" @bind-Value="_edit.X" /></div>
+                        <div class="col-md-3"><label class="form-label">Escritorio Y</label><InputNumber class="form-control" @bind-Value="_edit.Y" /></div>
+                        <div class="col-12 small muted">Puestos sugeridos: @string.Join(" · ", AgentTemplates.DeskSlots.Select(sl => $"({sl.X},{sl.Y})")). En la oficina también puede moverlo con Shift + arrastrar.</div>
+                        <div class="col-12"><label class="d-block"><InputCheckbox @bind-Value="_edit.IsActive" /> Activo (aparece en la oficina y responde)</label></div>
+                    </div>
+                </div>
+                <div class="@(_tab == "tools" ? "" : "d-none")">
+                    <label class="d-block mb-2"><InputCheckbox @bind-Value="_edit.AllowWrites" /> <strong>Puede modificar datos</strong> (crear, actualizar, agregar notas). Sin esta casilla las herramientas de escritura se ignoran.</label>
+                    <label class="d-block mb-2"><InputCheckbox @bind-Value="_edit.IsBoss" /> <strong>👑 Jefe del equipo</strong>: coordina a los demás agentes, puede consultar a todos y recibe las escalaciones. Solo puede haber uno.</label>
+                    <div class="collab mb-3">
+                        <label class="d-block"><InputCheckbox @bind-Value="_edit.CanCollaborate" /> <strong>🤝 Puede comunicarse con otros agentes</strong> (requiere la herramienta "Consultar a otro agente").</label>
+                        @if (_edit.CanCollaborate && !_edit.IsBoss)
+                        {
+                            <div class="small muted mb-1">Con quién puede hablar (nadie marcado = con todos):</div>
+                            <div class="d-flex flex-wrap gap-2">
+                                @foreach (var o in _agents.Where(x => x.Id != _edit.Id)) { var oid = o.Id!; <label class="small"><input type="checkbox" checked="@_edit.Collaborators.Contains(oid)" @onchange="e => { if ((bool)e.Value!) { if (!_edit.Collaborators.Contains(oid)) _edit.Collaborators.Add(oid); } else _edit.Collaborators.Remove(oid); }" /> @o.Name (@o.Role)</label> }
+                            </div>
+                        }
+                    </div>
+                    <div class="tool-list">
+                        @foreach (var t in AgentTools.Catalog)
+                        {
+                            <label class="tool-opt @(t.Write ? "write" : "")">
+                                <input type="checkbox" checked="@_edit.Tools.Contains(t.Name)" @onchange="e => Toggle(t.Name, (bool)e.Value!)" />
+                                <span><strong>@t.Title</strong> @if (t.Write) { <span class="badge-soft">modifica</span> }<br /><span class="muted small">@t.Description</span></span>
+                            </label>
+                        }
+                    </div>
+                </div>
+                <div class="@(_tab == "routines" ? "" : "d-none")">
+                    <p class="small muted">Las rutinas hacen que el agente trabaje por su cuenta: a la hora indicada ejecuta el encargo con sus herramientas y entrega el resultado como notificación y mensaje en el chat de cada destinatario (y lo comenta en la oficina). Zona horaria: @_ai!.TimeZoneId. Para reaccionar a eventos (p. ej. "cuando se crea un prospecto"), use la acción <a href="automatizaciones">"Consultar a un agente de IA"</a> en Automatizaciones.</p>
+                    @foreach (var r in _edit.Routines)
+                    {
+                        <div class="routine @(r.Enabled ? "" : "off")">
+                            <div class="routine-head">
+                                <label class="d-flex gap-2 align-items-center mb-0"><input type="checkbox" @bind="r.Enabled" /><strong>@(string.IsNullOrWhiteSpace(r.Name) ? "(sin nombre)" : r.Name)</strong></label>
+                                <span class="badge-soft">@RoutineScheduler.Describe(r)</span>
+                                <span class="flex-grow-1"></span>
+                                @if (r.LastRunAt is not null) { <span class="small muted">última: @r.LastRunAt.Value.ToLocalTime().ToString("dd/MM HH:mm") · @r.RunCount ejec.</span> }
+                                <button type="button" class="btn-secondary btn-sm" disabled="@(_running || _edit.Id is null)" title="@(_edit.Id is null ? "Guarde el agente primero" : "Ejecutar ahora")" @onclick="() => RunNowAsync(r)">▶ Ejecutar ahora</button>
+                                <button type="button" class="btn-ghost btn-sm" @onclick="() => ToggleRoutine(r)">@(_routineOpen == r.Id ? "Cerrar" : "Editar")</button>
+                                <button type="button" class="icon-btn tiny" title="Quitar" @onclick="() => _edit.Routines.Remove(r)">✕</button>
+                            </div>
+                            @if (_routineOpen == r.Id)
+                            {
+                                <div class="row g-2 mt-1">
+                                    <div class="col-md-5"><label class="form-label">Nombre</label><input class="form-control form-control-sm" @bind="r.Name" placeholder="Informe matutino del embudo" /></div>
+                                    <div class="col-md-3"><label class="form-label">Frecuencia</label><select class="form-select form-select-sm" @bind="r.Kind">@foreach (var k in RoutineKinds.All) { <option value="@k.Id">@k.Label</option> }</select></div>
+                                    @if (r.Kind == RoutineKinds.Hours) { <div class="col-md-2"><label class="form-label">Cada (h)</label><input type="number" min="1" class="form-control form-control-sm" @bind="r.EveryHours" /></div> }
+                                    @if (r.Kind is RoutineKinds.Daily or RoutineKinds.Weekly) { <div class="col-md-2"><label class="form-label">Hora</label><input type="time" class="form-control form-control-sm" value="@r.TimeOfDay" @onchange="e => SetTime(r, e)" /></div> }
+                                    @if (r.Kind == RoutineKinds.Weekly) { <div class="col-md-2"><label class="form-label">Día</label><select class="form-select form-select-sm" @bind="r.Weekday">@for (var d = 0; d < 7; d++) { <option value="@d">@RoutineScheduler.Days[d]</option> }</select></div> }
+                                    @if (r.Kind is RoutineKinds.Daily or RoutineKinds.Hours) { <div class="col-md-2 d-flex align-items-end"><label class="small"><input type="checkbox" @bind="r.WeekdaysOnly" /> solo lun-vie</label></div> }
+                                    <div class="col-12"><label class="small"><input type="checkbox" @bind="r.SendEmail" /> enviar también el informe por correo a los destinatarios (requiere SMTP configurado)</label></div>
+                                    <div class="col-12"><label class="form-label">Encargo (lo que el agente debe hacer)</label><textarea class="form-control form-control-sm" rows="3" @bind="r.Prompt" placeholder="Revisa las negociaciones abiertas, detecta las que llevan más de 7 días sin cambios y propone un siguiente paso para cada una."></textarea></div>
+                                    <div class="col-12">
+                                        <label class="form-label">Destinatarios (vacío = todos los usuarios activos)</label>
+                                        <div class="d-flex flex-wrap gap-2">
+                                            @foreach (var u in _people) { var name = u; <label class="small"><input type="checkbox" checked="@r.Recipients.Contains(name)" @onchange="e => { if ((bool)e.Value!) { if (!r.Recipients.Contains(name)) r.Recipients.Add(name); } else r.Recipients.Remove(name); }" /> @name</label> }
+                                        </div>
+                                    </div>
+                                    @if (r.LastOutput is not null || r.LastError is not null)
+                                    {
+                                        <div class="col-12"><div class="routine-out small">@if (r.LastError is not null) { <span class="text-danger">⚠ @r.LastError</span> } else { @((MarkupString)Markdown.ToHtml(r.LastOutput)) }</div></div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                    <div class="d-flex flex-wrap gap-2 mt-2">
+                        <button type="button" class="btn-secondary btn-sm" @onclick="() => AddRoutine()">+ Nueva rutina</button>
+                        <button type="button" class="btn-ghost btn-sm" @onclick='() => AddRoutine("Informe matutino", "Haz un resumen ejecutivo del estado del CRM para empezar el día: cifras clave, negociaciones que requieren atención, prospectos nuevos sin atender y tareas vencidas. Máximo 10 líneas.", RoutineKinds.Daily, "08:00")'>Plantilla: informe matutino</button>
+                        <button type="button" class="btn-ghost btn-sm" @onclick='() => AddRoutine("Negociaciones estancadas", "Revisa las negociaciones abiertas y lista las que llevan más de 7 días sin cambios de etapa, con monto, responsable y un siguiente paso sugerido.", RoutineKinds.Weekly, "09:00")'>Plantilla: estancadas (semanal)</button>
+                        <button type="button" class="btn-ghost btn-sm" @onclick='() => AddRoutine("Prospectos sin atender", "Busca prospectos en estado Nuevo creados en las últimas 24 horas y, para cada uno, indica su prioridad y el primer paso recomendado. Si no hay, dilo en una línea.", RoutineKinds.Hours, "", 4)'>Plantilla: prospectos nuevos (cada 4 h)</button>
+                    </div>
+                    @if (_runMsg is not null) { <div class="small mt-2 @(_runOk ? "text-success" : "text-danger")">@_runMsg</div> }
+                </div>
+                <div class="@(_tab == "memory" ? "" : "d-none")">
+                    <p class="small muted">Lo que el agente recuerda entre conversaciones. Él mismo guarda hechos y preferencias con la herramienta "Recordar"; aquí puede revisarlos, añadir instrucciones permanentes o borrar lo obsoleto. Los recuerdos de "equipo" aplican a todos los usuarios.</p>
+                    <div class="d-flex gap-2 mb-2">
+                        <input class="form-control form-control-sm" placeholder="Nuevo recuerdo (p. ej. «Nuestros clientes principales son hoteles»)" @bind="_newMemory" />
+                        <select class="form-select form-select-sm" style="max-width:160px" @bind="_newMemoryScope"><option value="equipo">Equipo</option><option value="usuario">Solo yo</option></select>
+                        <button type="button" class="btn-secondary btn-sm" @onclick="AddMemoryAsync">Añadir</button>
+                    </div>
+                    @if (_memories.Count == 0) { <div class="small muted">Sin recuerdos todavía.</div> }
+                    @foreach (var m in _memories)
+                    {
+                        var mem = m;
+                        <div class="memory-row"><span class="badge-soft">@(m.UserName ?? "equipo")</span><span class="flex-grow-1">@m.Text</span><span class="small muted">@m.CreatedAt.ToLocalTime().ToString("dd/MM")</span><button type="button" class="icon-btn tiny" title="Olvidar" @onclick="() => ForgetAsync(mem)">✕</button></div>
+                    }
+                </div>
+                <div class="sheet-foot mt-3 px-0 pb-0">
+                    <button type="button" class="btn-secondary" @onclick="() => _edit = null">Cancelar</button>
+                    <button type="submit" class="btn-primary">Guardar</button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@code {
+    private List<AiAgent> _agents = new();
+    private AiAgent? _edit;
+    private string? _chat, _routineOpen, _runMsg;
+    private string _tab = "general", _user = "";
+    private Dana.Models.AiSettings? _ai;
+    private List<string> _people = new();
+    private bool _isAdmin, _configured, _running, _runOk, _templates;
+    private List<AgentMemory> _memories = new();
+    private string _newMemory = "", _newMemoryScope = "equipo";
+
+    private async Task OpenMemoryAsync() { _tab = "memory"; _memories = await Agents.GetMemoriesAsync(_edit!.Id!); }
+    private async Task AddMemoryAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newMemory) || _edit?.Id is null) return;
+        await Agents.RememberAsync(_edit, _newMemoryScope == "usuario" ? _user : null, _newMemory.Trim(), _user);
+        _newMemory = ""; _memories = await Agents.GetMemoriesAsync(_edit.Id);
+    }
+    private async Task ForgetAsync(AgentMemory m) { await Agents.ForgetAsync(_edit!, m.Id!); _memories = await Agents.GetMemoriesAsync(_edit.Id!); }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isAdmin = await Me.IsAdminAsync();
+        _user = await Me.NameAsync();
+        _ai = (await Settings.GetAsync()).Ai;
+        _configured = Agents.AnyConfigured(_ai);
+        _people = (await Users.GetAllAsync()).Where(u => u.IsActive).Select(u => u.Name).OrderBy(n => n).ToList();
+        await Agents.EnsureDefaultsAsync();
+        _agents = await Agents.GetAllAsync();
+        var q = System.Web.HttpUtility.ParseQueryString(new Uri(Nav.Uri).Query);
+        if (q["chat"] is { Length: > 0 } c && _agents.Any(a => a.Id == c)) _chat = c;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        try { await JS.InvokeVoidAsync("danaSprites.renderAll"); } catch { }
+    }
+
+    private string ProviderLabel(AiAgent a)
+    {
+        var p = Agents.ResolveProvider(a, _ai!);
+        return (p == AiProviders.OpenAi ? "ChatGPT · " : "Claude · ") + Agents.ResolveModel(a, _ai!, p);
+    }
+    private static string Short(string? t) { t = System.Text.RegularExpressions.Regex.Replace(t ?? "", @"[*#`_>]", "").Trim(); return t.Length > 120 ? t[..120] + "…" : t; }
+
+    private void CloseChat() => _chat = null;
+    private static void SetTime(AgentRoutine r, ChangeEventArgs e) => r.TimeOfDay = string.IsNullOrEmpty(e.Value?.ToString()) ? "08:00" : e.Value!.ToString()![..5];
+    private void ToggleRoutine(AgentRoutine r) => _routineOpen = _routineOpen == r.Id ? null : r.Id;
+    private void NewFromTemplate(AgentTemplates.Template t)
+    {
+        _templates = false; _tab = "general";
+        _edit = AgentTemplates.Create(t, _agents.Count);
+        (_edit.X, _edit.Y) = AgentTemplates.FreeSlot(_agents);
+        if (_agents.Any(x => x.Name.Equals(_edit.Name, StringComparison.OrdinalIgnoreCase))) _edit.Name += " " + (_agents.Count(x => x.Template == t.Id) + 1);
+        if (t.Id == "coordinador" && !_agents.Any(a => a.IsBoss)) _edit.IsBoss = true;
+    }
+    private void New() { _templates = false; _tab = "general"; _edit = new AiAgent { Tools = AgentTools.Catalog.Where(t => !t.Write).Select(t => t.Name).ToList(), X = AgentTemplates.FreeSlot(_agents).X, Y = AgentTemplates.FreeSlot(_agents).Y, Avatar = _agents.Count % 8, Sort = _agents.Count + 1 }; }
+    private void Edit(AiAgent a) { _tab = "general"; _runMsg = null; _memories = new(); var c = Entity.Clone(a); c.Id = a.Id; c.CreatedAt = a.CreatedAt; c.CreatedBy = a.CreatedBy; c.MessageCount = a.MessageCount; _edit = c; }
+    private void Toggle(string tool, bool on) { if (on) { if (!_edit!.Tools.Contains(tool)) _edit.Tools.Add(tool); } else _edit!.Tools.Remove(tool); }
+
+    private void AddRoutine(string name = "", string prompt = "", string kind = RoutineKinds.Daily, string time = "08:00", int hours = 4)
+    {
+        var r = new AgentRoutine { Name = name, Prompt = prompt, Kind = kind, TimeOfDay = string.IsNullOrEmpty(time) ? "08:00" : time, EveryHours = hours };
+        _edit!.Routines.Add(r);
+        _routineOpen = r.Id;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_edit is null) return;
+        _edit.X = Math.Clamp(_edit.X, 1, 26); _edit.Y = Math.Clamp(_edit.Y, 1, 14);
+        _edit.Routines.RemoveAll(r => string.IsNullOrWhiteSpace(r.Name) && string.IsNullOrWhiteSpace(r.Prompt));
+        foreach (var r in _edit.Routines) if (string.IsNullOrWhiteSpace(r.Name)) r.Name = "Rutina";
+        var wasBoss = _edit.IsBoss;
+        await Agents.SaveAsync(_edit, _user);
+        if (wasBoss) await Agents.SetBossAsync(_edit.Id, _user);
+        _edit = null;
+        _agents = await Agents.GetAllAsync();
+    }
+
+    private async Task RunNowAsync(AgentRoutine r)
+    {
+        if (_edit?.Id is null) return;
+        if (string.IsNullOrWhiteSpace(r.Prompt)) { _runMsg = "Escriba primero el encargo de la rutina."; _runOk = false; return; }
+        _running = true; _runMsg = "Ejecutando… el resultado llegará como notificación y mensaje en el chat de los destinatarios."; _runOk = true;
+        // guardar primero para que la rutina exista en el agente
+        await Agents.SaveAsync(_edit, _user);
+        var msg = await Agents.RunRoutineAsync(_edit, r, "manual");
+        _running = false;
+        _runOk = msg.Role != "error";
+        _runMsg = _runOk ? "✔ Rutina ejecutada y entregada." : "✖ " + msg.Text;
+        _agents = await Agents.GetAllAsync();
+    }
+
+    private async Task DeleteAsync(AiAgent a)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar el agente \"{a.Name}\"? Sus conversaciones se conservan.")) return;
+        await Agents.DeleteAsync(a.Id!, _user);
+        if (_chat == a.Id) _chat = null;
+        _agents = await Agents.GetAllAsync();
+    }
+}

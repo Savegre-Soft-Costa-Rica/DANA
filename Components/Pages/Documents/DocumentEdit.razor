@@ -1,0 +1,197 @@
+@page "/documentos/{Id}"
+@inject DocumentService Docs
+@inject CurrentUser Me
+@inject DialogService Dialogs
+@inject NavigationManager Nav
+@inject LeadService Leads
+@inject DealService Deals
+@inject IRepository<Contact> Contacts
+@inject IRepository<Company> Companies
+
+<PageTitle>Dana · @(_d?.Title ?? "Documento")</PageTitle>
+
+@if (_d is null) { <p class="muted">Documento no encontrado.</p> }
+else
+{
+    <PageHeader Title="@_d.Title" Subtitle="@($"{DocumentKinds.Get(_d.Kind).Emoji} {DocumentKinds.Get(_d.Kind).Label} · versión {_d.Version} · {DocumentStatuses.Get(_d.Status).Label}")">
+        <Actions>
+            <a class="btn-secondary" href="documentos">← Documentos</a>
+            <a class="btn-secondary" href="documentos/@_d.Id/word" target="_blank">⬇ Word</a>
+            <a class="btn-secondary" href="documentos/@_d.Id/pdf" target="_blank">⬇ PDF</a>
+            <a class="btn-secondary" href="documentos/@_d.Id/imprimir" target="_blank">🖨 Imprimir</a>
+            <label class="btn-secondary file-btn" title="Reemplazar el contenido con un archivo Word, PDF, Markdown o texto">⬆ Importar<InputFile OnChange="ImportAsync" accept=".docx,.pdf,.md,.txt" /></label>
+            <button class="btn-primary" disabled="@(!_dirty)" @onclick="SaveAsync">Guardar @(_dirty ? "(cambios)" : "")</button>
+        </Actions>
+    </PageHeader>
+
+    <div class="doc-layout">
+        <div class="doc-editor">
+            <div class="row g-2 mb-2">
+                <div class="col-md-5"><label class="form-label">Título</label><input class="form-control" @bind="_d.Title" @bind:after="Touch" /></div>
+                <div class="col-md-3"><label class="form-label">Tipo</label><select class="form-select" @bind="_d.Kind" @bind:after="Touch">@foreach (var k in DocumentKinds.All) { <option value="@k.Id">@k.Emoji @k.Label</option> }</select></div>
+                <div class="col-md-4"><label class="form-label">Estado</label><select class="form-select" @bind="_d.Status" @bind:after="Touch">@foreach (var s in DocumentStatuses.All) { <option value="@s.Id">@s.Label</option> }</select></div>
+                <div class="col-md-3"><label class="form-label">Ligado a</label><select class="form-select" value="@_d.EntityType" @onchange="OnTypeChanged"><option value="">— ninguno —</option><option value="deal">Negociación</option><option value="lead">Prospecto</option><option value="contact">Contacto</option><option value="company">Compañía</option></select></div>
+                <div class="col-md-6"><label class="form-label">Registro</label><select class="form-select" value="@_d.EntityId" @onchange="OnEntityChanged" disabled="@(_d.EntityType is null)"><option value="">— seleccione —</option>@foreach (var (id, title) in _options) { <option value="@id">@title</option> }</select></div>
+                <div class="col-md-3 d-flex align-items-end"><button class="btn-secondary w-100" title="Vuelve a rellenar los marcadores {{…}} que queden en el texto con los datos del registro" @onclick="FillAsync">Rellenar marcadores</button></div>
+            </div>
+            <div class="d-flex gap-1 mb-1 flex-wrap">
+                <button class="btn-ghost btn-sm @(_mode == "edit" ? "active" : "")" @onclick='() => _mode = "edit"'>✏ Editar</button>
+                <button class="btn-ghost btn-sm @(_mode == "split" ? "active" : "")" @onclick='() => _mode = "split"'>⫼ Dividido</button>
+                <button class="btn-ghost btn-sm @(_mode == "preview" ? "active" : "")" @onclick='() => _mode = "preview"'>👁 Vista previa</button>
+                <span class="flex-grow-1"></span>
+                <span class="small muted">Markdown: # título, **negrita**, - lista, | tabla |</span>
+            </div>
+            <div class="doc-panes @_mode">
+                <textarea class="form-control doc-text" @bind="_d.Content" @bind:event="oninput" @bind:after="Touch" spellcheck="true"></textarea>
+                <div class="doc-preview print-page">@((MarkupString)DocumentService.ToHtml(_d.Content))@((MarkupString)DocumentService.SignaturesHtml(_d))</div>
+            </div>
+        </div>
+        <aside class="doc-side">
+            <div class="card mb-3">
+                <div class="card-header">Pedir ayuda a un agente</div>
+                <div class="card-body small">
+                    Abra la burbuja de agentes y pídale, por ejemplo: <em>«Revisa el documento @_d.Id y mejora la cláusula de pagos»</em> o <em>«Actualiza el documento @_d.Id al estado final»</em>. Los agentes leen y modifican documentos con sus herramientas; cada cambio crea una versión.
+                    <div class="mt-2"><code class="small">id: @_d.Id</code></div>
+                </div>
+            </div>
+            <div class="card mb-3">
+                <div class="card-header">Firmas (@_d.Signers.Count(x => x.IsSigned))/@_d.Signers.Count</div>
+                <div class="card-body">
+                    @foreach (var sg in _d.Signers)
+                    {
+                        var signer = sg;
+                        <div class="signer-row">
+                            <div class="flex-grow-1 min-w-0"><strong>@(sg.SignedName ?? sg.Name)</strong> <span class="muted small">@sg.Role</span><br /><span class="small @(sg.IsSigned ? "text-success" : "muted")">@(sg.IsSigned ? "✔ firmado " + sg.SignedAt!.Value.ToLocalTime().ToString("dd/MM HH:mm") : "⏳ pendiente")</span></div>
+                            @if (!sg.IsSigned)
+                            {
+                                <button class="btn-ghost btn-sm" title="Copiar enlace de firma" @onclick="() => CopyLinkAsync(signer)">🔗</button>
+                                @if (sg.Email is not null) { <button class="btn-ghost btn-sm" title="Enviar enlace por correo" @onclick="() => EmailLinkAsync(signer)">✉</button> }
+                                <button class="icon-btn tiny" title="Quitar" @onclick="() => RemoveSignerAsync(signer)">✕</button>
+                            }
+                        </div>
+                    }
+                    <div class="mt-2">
+                        <input class="form-control form-control-sm mb-1" placeholder="Nombre del firmante" @bind="_sName" />
+                        <input class="form-control form-control-sm mb-1" placeholder="Correo (opcional, para enviarle el enlace)" @bind="_sEmail" />
+                        <div class="d-flex gap-1"><input class="form-control form-control-sm" placeholder="Cargo (opcional)" @bind="_sRole" /><button class="btn-secondary btn-sm text-nowrap" @onclick="AddSignerAsync">+ Firmante</button></div>
+                    </div>
+                    @if (_sMsg is not null) { <div class="small mt-2 text-success">@_sMsg</div> }
+                    <div class="small muted mt-2">Cada firmante recibe un enlace público único; firma dibujando su trazo y aceptando. Se registran fecha, hora e IP. Con todas las firmas el documento pasa a "Firmado".</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">Versiones (@_d.Versions.Count)</div>
+                <div class="card-body p-0">
+                    <ul class="list-rows">
+                        @foreach (var v in _d.Versions.OrderByDescending(v => v.Number))
+                        {
+                            var ver = v;
+                            <li><span><strong>v@(v.Number)</strong> <span class="muted small">@v.At.ToLocalTime().ToString("dd/MM HH:mm") · @v.By</span><br /><span class="small">@v.Note</span></span>@if (v.Number != _d.Version) { <button class="btn-ghost btn-sm" @onclick="() => Restore(ver)">Restaurar</button> }</li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        </aside>
+    </div>
+}
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+    private CrmDocument? _d;
+    private bool _dirty;
+    private string _mode = "split";
+    private List<(string Id, string Title)> _options = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _d = await Docs.GetAsync(Id);
+        if (_d?.EntityType is not null) await LoadOptionsAsync(_d.EntityType);
+    }
+
+    private void Touch() => _dirty = true;
+
+    private async Task LoadOptionsAsync(string type)
+    {
+        _options = type switch
+        {
+            "deal" => (await Deals.GetAllAsync()).Select(d => (d.Id!, d.Title)).ToList(),
+            "lead" => (await Leads.GetAllAsync()).Select(l => (l.Id!, l.Title)).ToList(),
+            "contact" => (await Contacts.GetAllAsync()).Select(c => (c.Id!, c.FullName)).ToList(),
+            "company" => (await Companies.GetAllAsync()).Select(k => (k.Id!, k.Title)).ToList(),
+            _ => new()
+        };
+    }
+
+    private async Task OnTypeChanged(ChangeEventArgs e)
+    {
+        var t = e.Value?.ToString();
+        _d!.EntityType = string.IsNullOrEmpty(t) ? null : t; _d.EntityId = null; _d.EntityTitle = null; _dirty = true;
+        if (_d.EntityType is not null) await LoadOptionsAsync(_d.EntityType); else _options = new();
+    }
+
+    private async Task OnEntityChanged(ChangeEventArgs e)
+    {
+        var id = e.Value?.ToString();
+        _d!.EntityId = string.IsNullOrEmpty(id) ? null : id;
+        _d.EntityTitle = _d.EntityId is null ? null : await Docs.EntityTitleAsync(_d.EntityType, _d.EntityId);
+        _dirty = true;
+    }
+
+    private async Task FillAsync()
+    {
+        _d!.Content = await Docs.FillAsync(_d.Content, _d.EntityType, _d.EntityId, await Me.NameAsync());
+        _dirty = true;
+    }
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+    [Inject] private EmailService Email { get; set; } = default!;
+    private string _sName = "", _sEmail = "", _sRole = ""; private string? _sMsg;
+
+    private async Task AddSignerAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_sName) || _d is null) return;
+        if (_dirty) { await SaveAsync(); }
+        var sg = await Docs.RequestSignatureAsync(_d, _sName, _sEmail, _sRole, await Me.NameAsync());
+        _sName = _sEmail = _sRole = "";
+        _sMsg = $"Enlace de firma creado para {sg.Name}. Cópielo con 🔗" + (sg.Email is null ? "." : " o envíelo con ✉.");
+    }
+    private string LinkOf(DocumentSigner sg) => Nav.ToAbsoluteUri($"firmar/{sg.Token}").ToString();
+    private async Task CopyLinkAsync(DocumentSigner sg)
+    {
+        var link = LinkOf(sg);
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", link); _sMsg = "Enlace copiado: " + link; } catch { _sMsg = link; }
+    }
+    private async Task EmailLinkAsync(DocumentSigner sg)
+    {
+        if (_d is null || sg.Email is null) return;
+        var me = await Me.NameAsync();
+        var (sent, error) = await Email.SendAsync(sg.Email, $"Firma requerida: {_d.Title}", $"Hola {sg.Name},\n\n{me} le solicita firmar el documento \"{_d.Title}\". Ábralo y fírmelo en este enlace:\n{LinkOf(sg)}\n\nGracias.", _d.EntityType ?? "document", _d.EntityId ?? _d.Id!, _d.EntityTitle ?? _d.Title, me);
+        _sMsg = error is not null ? "✖ " + error : sent ? $"Correo enviado a {sg.Email}." : "SMTP no configurado: copie el enlace con 🔗 y envíelo manualmente.";
+    }
+    private async Task RemoveSignerAsync(DocumentSigner sg) { if (_d is null) return; await Docs.RemoveSignerAsync(_d, sg, await Me.NameAsync()); }
+
+    private async Task ImportAsync(InputFileChangeEventArgs e)
+    {
+        var f = e.File; if (_d is null || f.Size > 20 * 1024 * 1024) return;
+        try
+        {
+            await using var stream = f.OpenReadStream(20 * 1024 * 1024);
+            using var ms = new MemoryStream(); await stream.CopyToAsync(ms); ms.Position = 0;
+            _d.Content = DocumentService.ImportToMarkdown(f.Name, ms);
+            _dirty = true; _mode = "split"; _sMsg = $"Contenido importado de {f.Name}. Revise y guarde.";
+        }
+        catch (Exception ex) { _sMsg = "✖ " + ex.Message; }
+    }
+
+    private void Restore(DocumentVersion v) { _d!.Content = v.Content; _dirty = true; _mode = "split"; }
+
+    private async Task SaveAsync()
+    {
+        if (_d is null) return;
+        if (string.IsNullOrWhiteSpace(_d.Title)) { await Dialogs.ConfirmAsync("El título es obligatorio.", "Aviso"); return; }
+        var note = await Dialogs.PromptAsync("Nota de la versión (opcional)", "", "¿Qué cambió en esta versión?");
+        await Docs.SaveAsync(_d, await Me.NameAsync(), string.IsNullOrWhiteSpace(note) ? "Edición manual" : note);
+        _d = await Docs.GetAsync(Id);
+        _dirty = false;
+    }
+}

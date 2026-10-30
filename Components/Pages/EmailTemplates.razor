@@ -1,0 +1,71 @@
+@page "/plantillas"
+@inject EmailService Email
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<PageTitle>Dana · Plantillas de correo</PageTitle>
+
+<PageHeader Title="Plantillas de correo" Subtitle="Se usan desde el botón Enviar correo de contactos, prospectos y compañías.">
+    <Actions>
+        <span class="muted small align-self-center">SMTP: @(Email.IsConfigured ? $"configurado ({Email.From})" : "no configurado · los correos solo se registran")</span>
+        <button class="btn-primary" @onclick="() => _edit = new EmailTemplate()">+ Nueva plantilla</button>
+    </Actions>
+</PageHeader>
+
+@if (_edit is not null)
+{
+    <EditForm Model="_edit" OnValidSubmit="SaveAsync" FormName="tpl">
+        <DataAnnotationsValidator />
+        <div class="card mb-3">
+            <div class="card-header">@(_edit.Id is null ? "Nueva plantilla" : _edit.Name)</div>
+            <div class="card-body row g-3">
+                <div class="col-md-4"><label class="form-label">Nombre *</label><InputText class="form-control" @bind-Value="_edit.Name" /><ValidationMessage For="() => _edit.Name" /></div>
+                <div class="col-md-8"><label class="form-label">Asunto *</label><InputText class="form-control" @bind-Value="_edit.Subject" /><ValidationMessage For="() => _edit.Subject" /></div>
+                <div class="col-12"><label class="form-label">Cuerpo</label><InputTextArea class="form-control" rows="8" @bind-Value="_edit.Body" />
+                    <div class="muted small mt-1">Marcadores: {{nombre}}, {{apellido}}, {{compañía}}, {{correo}}, {{titulo}}, {{usuario}}.</div></div>
+            </div>
+            <div class="card-footer d-flex justify-content-end gap-2">
+                <button type="button" class="btn-secondary" @onclick="() => _edit = null">Cancelar</button>
+                <button type="submit" class="btn-primary">Guardar</button>
+            </div>
+        </div>
+    </EditForm>
+}
+
+@if (_items is null) { <p class="muted">Cargando…</p> }
+else if (_items.Count == 0) { <div class="empty-state">Aún no hay plantillas. Cree la primera, por ejemplo "Seguimiento de propuesta".</div> }
+else
+{
+    <div class="widgets">
+        @foreach (var t in _items)
+        {
+            <div class="widget w-6">
+                <div class="widget-title"><span>@t.Name</span>
+                    <span class="d-flex gap-1"><button class="btn-secondary btn-sm" @onclick="() => _edit = t">Editar</button><button class="btn-danger btn-sm" @onclick="() => DeleteAsync(t)">Eliminar</button></span></div>
+                <div class="small"><strong>Asunto:</strong> @t.Subject</div>
+                <div class="small muted" style="white-space:pre-wrap">@(t.Body.Length > 240 ? t.Body[..240] + "…" : t.Body)</div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<EmailTemplate>? _items;
+    private EmailTemplate? _edit;
+
+    protected override async Task OnInitializedAsync() => _items = await Email.GetTemplatesAsync();
+
+    private async Task SaveAsync()
+    {
+        await Email.SaveTemplateAsync(_edit!);
+        _edit = null;
+        _items = await Email.GetTemplatesAsync();
+    }
+
+    private async Task DeleteAsync(EmailTemplate t)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar la plantilla \"{t.Name}\"?")) return;
+        await Email.DeleteTemplateAsync(t.Id!);
+        _items = await Email.GetTemplatesAsync();
+    }
+}

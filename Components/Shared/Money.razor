@@ -1,0 +1,6 @@
+<span class="text-nowrap">@Amount.ToString("N2") <span class="text-muted small">@Currency</span></span>
+
+@code {
+    [Parameter] public decimal Amount { get; set; }
+    [Parameter] public string Currency { get; set; } = "USD";
+}

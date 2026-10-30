@@ -1,0 +1,182 @@
+@page "/usuarios"
+@attribute [Authorize(Policy = "Admin")]
+@using System.Security.Claims
+@inject UserService Users
+@inject PermissionService Perms
+@inject CurrentUser Me
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<PageTitle>Dana · Usuarios</PageTitle>
+
+<PageHeader Title="Usuarios" Subtitle="Cuentas con acceso al CRM. Solo administradores.">
+    <Actions>
+        <span class="text-muted small align-self-center">Los nuevos usuarios se registran desde <code>/cuenta/registro</code></span>
+    </Actions>
+</PageHeader>
+
+@if (_error is not null) { <div class="alert alert-warning">@_error</div> }
+
+@if (_items is null)
+{
+    <p class="text-muted">Cargando…</p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover crm-table align-middle">
+            <thead>
+                <tr>
+                    <th>Usuario</th>
+                    <th>Correo</th>
+                    <th>Acceso</th>
+                    <th>Rol</th>
+                    <th>Estado</th>
+                    <th>Permisos por tablero</th>
+                    <th>Último ingreso</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var u in _items)
+                {
+                    var isMe = u.Id == _myId;
+                    <tr class="@(u.IsActive ? "" : "table-secondary text-muted")">
+                        <td>
+                            <div class="d-flex align-items-center gap-2">
+                                @if (!string.IsNullOrEmpty(u.Picture)) { <img src="@u.Picture" class="nav-avatar" alt="" referrerpolicy="no-referrer" /> }
+                                <span>@u.Name @(isMe ? "(yo)" : "")</span>
+                            </div>
+                        </td>
+                        <td>@u.Email</td>
+                        <td class="small">
+                            @if (u.PasswordHash is not null) { <span class="badge text-bg-light border">Contraseña</span> }
+                            @if (u.HasGoogle) { <span class="badge text-bg-light border">Google</span> }
+                        </td>
+                        <td>
+                            <select class="form-select form-select-sm w-auto" value="@u.Role" disabled="@isMe" @onchange="e => SetRoleAsync(u, e.Value?.ToString() ?? u.Role)">
+                                @foreach (var r in Roles.All) { <option value="@r">@r</option> }
+                            </select>
+                        </td>
+                        <td>
+                            @if (u.IsActive) { <span class="badge text-bg-success">Activo</span> } else { <span class="badge text-bg-secondary">Inactivo</span> }
+                        </td>
+                        <td>
+                            @if (u.Role == Roles.Admin) { <span class="muted small">Administrador: acceso total</span> }
+                            else
+                            {
+                                <div class="perm-grid">
+                                    @foreach (var (key, label) in Boards)
+                                    {
+                                        <label class="small">@label
+                                            <select class="form-select form-select-sm" value="@u.Permissions.GetValueOrDefault(key, AccessLevels.Edit)" @onchange="async e => { u.Permissions[key] = e.Value?.ToString() ?? AccessLevels.Edit; u.UpdatedBy = await Me.NameAsync(); await Users.SavePermissionsAsync(u); }">
+                                                @foreach (var (id, l) in AccessLevels.All) { <option value="@id">@l</option> }
+                                            </select>
+                                        </label>
+                                    }
+                                </div>
+                            }
+                        </td>
+                        <td class="small">@u.LastLoginAt?.ToLocalTime().ToString("g")</td>
+                        <td class="text-end text-nowrap">
+                            @if (!isMe)
+                            {
+                                <button class="btn-secondary btn-sm" @onclick="() => ToggleActiveAsync(u)">@(u.IsActive ? "Desactivar" : "Activar")</button>
+                                <button class="btn-danger btn-sm" @onclick="() => DeleteAsync(u)">Eliminar</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+<div class="page-head mt-4"><div><h3>Equipos</h3><div class="sub">El nivel "Su equipo" permite ver y editar lo asignado a cualquier miembro del mismo equipo.</div></div>
+    <div class="actions"><button class="btn-primary" @onclick="() => _teamEdit = new Team()">+ Nuevo equipo</button></div></div>
+
+@if (_teamEdit is not null)
+{
+    <EditForm Model="_teamEdit" OnValidSubmit="SaveTeamAsync" FormName="team">
+        <DataAnnotationsValidator />
+        <div class="card mb-3"><div class="card-body row g-3">
+            <div class="col-md-4"><label class="form-label">Nombre *</label><InputText class="form-control" @bind-Value="_teamEdit.Name" /><ValidationMessage For="() => _teamEdit.Name" /></div>
+            <div class="col-md-2"><label class="form-label">Color</label><InputText type="color" class="form-control form-control-color" @bind-Value="_teamEdit.Color" /></div>
+            <div class="col-md-6"><label class="form-label">Miembros</label>
+                <div class="d-flex flex-wrap gap-2">
+                    @foreach (var u in _items ?? new())
+                    {
+                        var on = _teamEdit.Members.Contains(u.Name);
+                        <button type="button" class="kind-opt" style="@(on ? "background:var(--primary);border-color:var(--primary);color:#fff" : "")" @onclick="() => { if (on) _teamEdit.Members.Remove(u.Name); else _teamEdit.Members.Add(u.Name); }">@u.Name</button>
+                    }
+                </div></div>
+        </div>
+        <div class="card-footer d-flex justify-content-end gap-2"><button type="button" class="btn-secondary" @onclick="() => _teamEdit = null">Cancelar</button><button type="submit" class="btn-primary">Guardar</button></div></div>
+    </EditForm>
+}
+@if (_teams.Count == 0) { <div class="muted">Aún no hay equipos.</div> }
+<div class="widgets">
+    @foreach (var t in _teams)
+    {
+        <div class="widget w-4">
+            <div class="widget-title"><span><span class="stage-dot" style="background:@t.Color"></span>@t.Name</span>
+                <span class="d-flex gap-1"><button class="btn-secondary btn-sm" @onclick="() => _teamEdit = t">Editar</button><button class="btn-danger btn-sm" @onclick="() => DeleteTeamAsync(t)">Eliminar</button></span></div>
+            <div class="d-flex flex-wrap gap-2">@foreach (var m in t.Members) { <PersonChip Name="@m" /> }@if (t.Members.Count == 0) { <span class="muted small">Sin miembros</span> }</div>
+        </div>
+    }
+</div>
+
+@code {
+    private static readonly (string Key, string Label)[] Boards = [("leads", "Prospectos"), ("deals", "Negociaciones"), ("contacts", "Contactos"), ("companies", "Compañías")];
+    private List<Team> _teams = new();
+    private Team? _teamEdit;
+
+    private async Task SaveTeamAsync()
+    {
+        _teamEdit!.UpdatedBy = await Me.NameAsync();
+        await Perms.SaveTeamAsync(_teamEdit);
+        _teamEdit = null;
+        _teams = await Perms.GetTeamsAsync();
+    }
+
+    private async Task DeleteTeamAsync(Team t)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar el equipo \"{t.Name}\"?")) return;
+        await Perms.DeleteTeamAsync(t.Id!, await Me.NameAsync());
+        _teams = await Perms.GetTeamsAsync();
+    }
+
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<User>? _items;
+    private string? _myId;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _myId = (await AuthState).User.FindFirstValue(ClaimTypes.NameIdentifier);
+        _teams = await Perms.GetTeamsAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => _items = (await Users.GetAllAsync()).OrderBy(u => u.Name).ToList();
+
+    private async Task SetRoleAsync(User u, string role)
+    {
+        _error = await Users.SetRoleAsync(u.Id!, role);
+        await LoadAsync();
+    }
+
+    private async Task ToggleActiveAsync(User u)
+    {
+        _error = await Users.SetActiveAsync(u.Id!, !u.IsActive);
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(User u)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar al usuario {u.Email}?")) return;
+        _error = await Users.DeleteAsync(u.Id!);
+        await LoadAsync();
+    }
+}

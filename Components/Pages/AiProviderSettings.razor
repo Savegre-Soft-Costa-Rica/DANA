@@ -1,0 +1,165 @@
+@page "/configuracion/ia"
+@attribute [Authorize(Policy = "Admin")]
+@using Dana.Services.Ai
+@inject SettingsService Settings
+@inject AgentService Agents
+@inject CurrentUser Me
+
+<PageTitle>Dana · Proveedores de IA</PageTitle>
+
+<PageHeader Title="Proveedores de IA" Subtitle="Claves de API de Claude (Anthropic) y ChatGPT (OpenAI) que usan los agentes. Las claves se guardan cifradas en la base de datos.">
+    <Actions><a class="btn-secondary" href="agentes">🤖 Agentes</a> <a class="btn-secondary" href="oficina">🏢 Oficina</a></Actions>
+</PageHeader>
+
+@if (_s is null) { <p class="muted">Cargando…</p> }
+else
+{
+    <div class="widgets">
+        <div class="widget w-6">
+            <div class="widget-title">Claude · Anthropic @if (_hasAnthropic) { <span class="badge-pill" style="background:#00c875">clave guardada</span> } else { <span class="badge-soft">sin clave</span> }</div>
+            <label class="form-label">Clave de API (sk-ant-…)</label>
+            <div class="d-flex gap-2 mb-2">
+                <input class="form-control" type="password" placeholder="@(_hasAnthropic ? "•••••••• (dejar vacío para conservar)" : "sk-ant-api03-…")" @bind="_anthropicKey" />
+                @if (_hasAnthropic) { <button class="btn-ghost" title="Quitar clave" @onclick="() => { _s.Ai.AnthropicKeyProtected = null; _hasAnthropic = false; }">✕</button> }
+            </div>
+            <div class="small muted mb-3">Obtenga la clave en console.anthropic.com → API keys. Modelos recomendados: claude-opus-5-5 (equilibrio), claude-sonnet-5-5 (rápido), claude-haiku-5-5 (económico).</div>
+            <label class="form-label">Modelo por defecto</label>
+            <div class="d-flex gap-2 mb-2">
+                <input class="form-control" list="anthropic-models" @bind="_s.Ai.AnthropicModel" />
+                <datalist id="anthropic-models">@foreach (var m in _anthropicModels) { <option value="@m"></option> }</datalist>
+                <button class="btn-secondary" disabled="@_loading" @onclick='() => LoadModelsAsync(AiProviders.Anthropic)'>Cargar modelos</button>
+            </div>
+            <button class="btn-ghost btn-sm" disabled="@_loading" @onclick='() => TestAsync(AiProviders.Anthropic)'>▶ Probar conexión</button>
+            @if (_result.TryGetValue(AiProviders.Anthropic, out var ra)) { <div class="small mt-2 @(ra.ok ? "text-success" : "text-danger")">@ra.text</div> }
+        </div>
+        <div class="widget w-6">
+            <div class="widget-title">ChatGPT · OpenAI @if (_hasOpenAi) { <span class="badge-pill" style="background:#00c875">clave guardada</span> } else { <span class="badge-soft">sin clave</span> }</div>
+            <label class="form-label">Clave de API (sk-…)</label>
+            <div class="d-flex gap-2 mb-2">
+                <input class="form-control" type="password" placeholder="@(_hasOpenAi ? "•••••••• (dejar vacío para conservar)" : "sk-proj-…")" @bind="_openAiKey" />
+                @if (_hasOpenAi) { <button class="btn-ghost" title="Quitar clave" @onclick="() => { _s.Ai.OpenAiKeyProtected = null; _hasOpenAi = false; }">✕</button> }
+            </div>
+            <div class="small muted mb-3">Obtenga la clave en platform.openai.com → API keys. Use "Cargar modelos" para ver los disponibles en su cuenta.</div>
+            <label class="form-label">Modelo por defecto</label>
+            <div class="d-flex gap-2 mb-2">
+                <input class="form-control" list="openai-models" @bind="_s.Ai.OpenAiModel" />
+                <datalist id="openai-models">@foreach (var m in _openAiModels) { <option value="@m"></option> }</datalist>
+                <button class="btn-secondary" disabled="@_loading" @onclick='() => LoadModelsAsync(AiProviders.OpenAi)'>Cargar modelos</button>
+            </div>
+            <button class="btn-ghost btn-sm" disabled="@_loading" @onclick='() => TestAsync(AiProviders.OpenAi)'>▶ Probar conexión</button>
+            @if (_result.TryGetValue(AiProviders.OpenAi, out var ro)) { <div class="small mt-2 @(ro.ok ? "text-success" : "text-danger")">@ro.text</div> }
+        </div>
+        <div class="widget w-12">
+            <div class="widget-title">Búsqueda web de los agentes @if (_hasBrave) { <span class="badge-pill" style="background:#00c875">Brave configurado</span> } else { <span class="badge-soft">usa @(_hasOpenAi ? "OpenAI" : _hasAnthropic ? "Anthropic" : "— sin proveedor —")</span> }</div>
+            <div class="row g-3 align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label">Clave de Brave Search API (opcional, recomendada)</label>
+                    <div class="d-flex gap-2"><input class="form-control" type="password" placeholder="@(_hasBrave ? "•••••••• (dejar vacío para conservar)" : "BSA…")" @bind="_braveKey" />@if (_hasBrave) { <button class="btn-ghost" title="Quitar clave" @onclick="() => { _s.Ai.BraveKeyProtected = null; _hasBrave = false; }">✕</button> }</div>
+                </div>
+                <div class="col-md-6 small muted">Las herramientas <code>buscar_web</code> y <code>leer_pagina</code> (p. ej. Leo buscando prospectos) usan Brave si hay clave (api.search.brave.com, plan gratuito disponible); si no, la búsqueda web nativa de OpenAI (Responses API) o de Anthropic con el proveedor configurado.</div>
+            </div>
+        </div>
+        <div class="widget w-12">
+            <div class="widget-title">Opciones generales</div>
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">Proveedor por defecto (agentes sin proveedor fijo)</label>
+                    <InputSelect class="form-select" @bind-Value="_s.Ai.DefaultProvider">@foreach (var p in AiProviders.All) { <option value="@p.Id">@p.Name</option> }</InputSelect>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Máximo de herramientas por respuesta</label>
+                    <InputNumber class="form-control" @bind-Value="_s.Ai.MaxToolCalls" />
+                    <div class="small muted">Limita cuántas consultas al CRM puede encadenar un agente en una sola respuesta (control de costo).</div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Zona horaria de las rutinas</label>
+                    <input class="form-control" list="tz-list" @bind="_s.Ai.TimeZoneId" />
+                    <datalist id="tz-list"><option value="America/Costa_Rica"></option><option value="America/Mexico_City"></option><option value="America/Bogota"></option><option value="America/Lima"></option><option value="America/Santiago"></option><option value="America/Argentina/Buenos_Aires"></option><option value="America/Guatemala"></option><option value="America/Panama"></option><option value="Europe/Madrid"></option><option value="UTC"></option></datalist>
+                    <div class="small muted">Hora local a la que se ejecutan las rutinas proactivas de los agentes.</div>
+                </div>
+                <div class="col-md-12 d-flex align-items-end">
+                    <button class="btn-primary" disabled="@_loading" @onclick="SaveAsync">Guardar</button>
+                    @if (_saved) { <span class="small text-success ms-2">Guardado</span> }
+                </div>
+            </div>
+        </div>
+        <div class="widget w-12">
+            <div class="widget-title">¿Cómo funciona?</div>
+            <ul class="small mb-0">
+                <li>Los <a href="agentes">agentes</a> son asistentes con un rol, instrucciones y un conjunto de herramientas sobre los datos del CRM (buscar, obtener, estadísticas, embudos; y crear, actualizar o anotar si se les permite modificar).</li>
+                <li>Cada agente puede usar Claude o ChatGPT y un modelo concreto; si no se fija, usa el proveedor y modelo por defecto de esta página.</li>
+                <li>Para hablar con ellos vaya a la <a href="oficina">oficina virtual</a> y acérquese a su escritorio, o ábralos desde la lista de agentes.</li>
+                <li>Las claves se cifran con Data Protection; en Docker conserve el volumen <code>/app/keys</code> o no podrán descifrarse tras reiniciar.</li>
+            </ul>
+        </div>
+    </div>
+}
+
+@code {
+    private AppSettings? _s;
+    private string? _anthropicKey, _openAiKey;
+    private bool _hasAnthropic, _hasOpenAi, _hasBrave, _loading, _saved;
+    private string? _braveKey;
+    private List<string> _anthropicModels = new(), _openAiModels = new();
+    private readonly Dictionary<string, (bool ok, string text)> _result = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _s = await Settings.GetAsync();
+        _hasAnthropic = Agents.IsConfigured(_s.Ai, AiProviders.Anthropic);
+        _hasOpenAi = Agents.IsConfigured(_s.Ai, AiProviders.OpenAi);
+        _hasBrave = !string.IsNullOrEmpty(Agents.Unprotect(_s.Ai.BraveKeyProtected));
+    }
+
+    private string? KeyFor(string provider)
+    {
+        var typed = provider == AiProviders.OpenAi ? _openAiKey : _anthropicKey;
+        if (!string.IsNullOrWhiteSpace(typed)) return typed.Trim();
+        return Agents.KeyFor(_s!.Ai, provider);
+    }
+
+    private void ApplyKeys()
+    {
+        if (!string.IsNullOrWhiteSpace(_anthropicKey)) { _s!.Ai.AnthropicKeyProtected = Agents.Protect(_anthropicKey.Trim()); _anthropicKey = null; _hasAnthropic = true; }
+        if (!string.IsNullOrWhiteSpace(_openAiKey)) { _s!.Ai.OpenAiKeyProtected = Agents.Protect(_openAiKey.Trim()); _openAiKey = null; _hasOpenAi = true; }
+        if (!string.IsNullOrWhiteSpace(_braveKey)) { _s!.Ai.BraveKeyProtected = Agents.Protect(_braveKey.Trim()); _braveKey = null; _hasBrave = true; }
+    }
+
+    private async Task SaveAsync()
+    {
+        ApplyKeys();
+        _s!.UpdatedBy = await Me.NameAsync();
+        await Settings.SaveAsync(_s);
+        _saved = true;
+    }
+
+    private async Task LoadModelsAsync(string provider)
+    {
+        var key = KeyFor(provider);
+        if (string.IsNullOrEmpty(key)) { _result[provider] = (false, "Escriba primero la clave de API."); return; }
+        _loading = true;
+        try
+        {
+            var models = await Agents.ListModelsAsync(provider, key);
+            if (provider == AiProviders.OpenAi) _openAiModels = models; else _anthropicModels = models;
+            _result[provider] = (true, $"{models.Count} modelos disponibles: {string.Join(", ", models.Take(8))}{(models.Count > 8 ? "…" : "")}");
+        }
+        catch (Exception ex) { _result[provider] = (false, ex.Message); }
+        finally { _loading = false; }
+    }
+
+    private async Task TestAsync(string provider)
+    {
+        var key = KeyFor(provider);
+        if (string.IsNullOrEmpty(key)) { _result[provider] = (false, "Escriba primero la clave de API."); return; }
+        _loading = true;
+        try
+        {
+            var model = provider == AiProviders.OpenAi ? _s!.Ai.OpenAiModel : _s!.Ai.AnthropicModel;
+            var text = await Agents.TestAsync(provider, key, model);
+            _result[provider] = (true, $"✔ {model}: {text}");
+        }
+        catch (Exception ex) { _result[provider] = (false, "✖ " + ex.Message); }
+        finally { _loading = false; }
+    }
+}

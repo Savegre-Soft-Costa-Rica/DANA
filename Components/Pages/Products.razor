@@ -1,0 +1,291 @@
+@page "/productos"
+@inject QuoteService Quotes
+@inject SettingsService Settings
+@inject AttachmentService Attachments
+@inject CurrentUser Me
+@inject DialogService Dialogs
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Dana · Productos</PageTitle>
+
+<PageHeader Title="Productos y servicios" Subtitle="Catálogo para cotizaciones y para su sitio web (API pública).">
+    <Actions>
+        <button class="btn-secondary" @onclick="() => _catsOpen = true">🏷 Categorías</button>
+        <button class="btn-primary" @onclick="NewAsync">+ Nuevo producto</button>
+    </Actions>
+</PageHeader>
+
+<div class="toolbar">
+    <div class="search"><span class="search-ico">⌕</span><input placeholder="Buscar" @bind="_q" @bind:event="oninput" /></div>
+    <select @bind="_category"><option value="">Todas las categorías</option>@foreach (var c in _categories) { <option value="@c.Name">@c.Name</option> }<option value="__none">Sin categoría</option></select>
+    <select @bind="_tag"><option value="">Todas las etiquetas</option>@foreach (var t in AllTags) { <option value="@t">@t</option> }</select>
+    <button class="tool @(_showInactive ? "on" : "")" @onclick="() => _showInactive = !_showInactive">Ver inactivos</button>
+    <span class="ms-auto d-flex gap-1">
+        <button class="tool @(_view == "tiles" ? "on" : "")" title="Mosaico" @onclick='() => _view = "tiles"'>▦ Mosaico</button>
+        <button class="tool @(_view == "list" ? "on" : "")" title="Lista" @onclick='() => _view = "list"'>☰ Lista</button>
+    </span>
+</div>
+
+@if (_items is null) { <p class="muted">Cargando…</p> }
+else if (Filtered.Count == 0) { <div class="empty-state">@(_items.Count == 0 ? "Aún no hay productos. Cree el primero para usarlo en cotizaciones y en su sitio web." : "Ningún producto coincide con el filtro.")</div> }
+else if (_view == "tiles")
+{
+    <div class="tiles">
+        @foreach (var p in Filtered)
+        {
+            var cat = _categories.FirstOrDefault(c => c.Name == p.Category);
+            <div class="tile @(p.IsActive ? "" : "inactive")" @onclick="() => _edit = Clone(p)">
+                <div class="tile-img">
+                    @if (p.MainImageId is not null) { <img src="catalog/images/@p.MainImageId" alt="@p.Name" loading="lazy" /> } else { <span class="tile-noimg">📦</span> }
+                    @if (!p.IsPublic) { <span class="tile-badge">privado</span> }
+                    @if (!p.IsActive) { <span class="tile-badge off">inactivo</span> }
+                </div>
+                <div class="tile-body">
+                    <div class="tile-name">@p.Name</div>
+                    <div class="tile-price">@p.Price.ToString("N2") @p.Currency <small class="muted">/ @p.Unit</small></div>
+                    @if (cat is not null) { <span class="badge-pill" style="background:@cat.Color">@cat.Name</span> }
+                    <div class="tags" @onclick:stopPropagation>
+                        @foreach (var t in p.Tags) { <span class="tag">@t <button class="tag-x" title="Quitar" @onclick="() => RemoveTagAsync(p, t)">×</button></span> }
+                        <input class="tag-input" placeholder="+ etiqueta" @onkeydown="e => AddTagKeyAsync(e, p)" @onchange="e => AddTagAsync(p, e.Value?.ToString())" />
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover crm-table align-middle">
+            <thead><tr><th style="width:56px"></th><th>Producto</th><th>SKU</th><th>Categoría</th><th>Etiquetas</th><th class="text-end">Precio</th><th class="text-end">Imp.</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var p in Filtered)
+                {
+                    var cat = _categories.FirstOrDefault(c => c.Name == p.Category);
+                    <tr class="@(p.IsActive ? "" : "text-muted")">
+                        <td>@if (p.MainImageId is not null) { <img class="thumb" src="catalog/images/@p.MainImageId" alt="" /> } else { <span class="thumb noimg">📦</span> }</td>
+                        <td><strong>@p.Name</strong>@if (!string.IsNullOrEmpty(p.Description)) { <div class="small muted text-truncate" style="max-width:320px">@p.Description</div> }</td>
+                        <td>@p.Sku</td>
+                        <td>@if (cat is not null) { <span class="badge-pill" style="background:@cat.Color">@cat.Name</span> } else { @p.Category }</td>
+                        <td><div class="tags">
+                            @foreach (var t in p.Tags) { <span class="tag">@t <button class="tag-x" @onclick="() => RemoveTagAsync(p, t)">×</button></span> }
+                            <input class="tag-input" placeholder="+" @onkeydown="e => AddTagKeyAsync(e, p)" @onchange="e => AddTagAsync(p, e.Value?.ToString())" />
+                        </div></td>
+                        <td class="text-end">@p.Price.ToString("N2") @p.Currency<div class="small muted">/ @p.Unit</div></td>
+                        <td class="text-end">@p.TaxRate %</td>
+                        <td>@(p.IsActive ? "Activo" : "Inactivo") @(p.IsPublic ? "" : "· privado")</td>
+                        <td class="text-end text-nowrap"><button class="btn-secondary btn-sm" @onclick="() => _edit = Clone(p)">Editar</button> <button class="btn-danger btn-sm" @onclick="() => DeleteAsync(p)">Eliminar</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@* ---------- Editor de producto ---------- *@
+@if (_edit is not null)
+{
+    <div class="sheet-backdrop" @onclick="() => _edit = null"></div>
+    <div class="sheet" style="width:min(820px,96vw)">
+        <div class="sheet-head"><strong>@(_edit.Id is null ? "Nuevo producto" : _edit.Name)</strong><button class="icon-btn" @onclick="() => _edit = null">✕</button></div>
+        <div class="sheet-body">
+            <EditForm Model="_edit" OnValidSubmit="SaveAsync" FormName="prod">
+                <DataAnnotationsValidator />
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <div class="row g-2">
+                            <div class="col-md-8"><label class="form-label">Nombre *</label><InputText class="form-control" @bind-Value="_edit.Name" /><ValidationMessage For="() => _edit.Name" /></div>
+                            <div class="col-md-4"><label class="form-label">SKU</label><InputText class="form-control" @bind-Value="_edit.Sku" /></div>
+                            <div class="col-md-6"><label class="form-label">Categoría</label>
+                                <InputSelect class="form-select" @bind-Value="_edit.Category"><option value="">— Sin categoría —</option>@foreach (var c in _categories) { <option value="@c.Name">@c.Name</option> }</InputSelect></div>
+                            <div class="col-md-3"><label class="form-label">Unidad</label><InputText class="form-control" @bind-Value="_edit.Unit" /></div>
+                            <div class="col-md-3"><label class="form-label">Stock (-1 = sin control)</label><InputNumber class="form-control" @bind-Value="_edit.Stock" /></div>
+                            <div class="col-md-4"><label class="form-label">Precio</label><InputNumber class="form-control" @bind-Value="_edit.Price" /></div>
+                            <div class="col-md-4"><label class="form-label">Moneda</label><InputSelect class="form-select" @bind-Value="_edit.Currency">@foreach (var c in Catalogs.Currencies) { <option value="@c">@c</option> }</InputSelect></div>
+                            <div class="col-md-4"><label class="form-label">Impuesto %</label><InputNumber class="form-control" @bind-Value="_edit.TaxRate" /></div>
+                            <div class="col-12"><label class="form-label">Descripción</label><InputTextArea class="form-control" rows="3" @bind-Value="_edit.Description" /></div>
+                            <div class="col-12"><label class="form-label">Etiquetas</label>
+                                <div class="tags big">
+                                    @foreach (var t in _edit.Tags) { <span class="tag">@t <button type="button" class="tag-x" @onclick="() => _edit.Tags.Remove(t)">×</button></span> }
+                                    <input class="tag-input" placeholder="Escriba y pulse Enter" @onkeydown="OnEditTagKey" @oninput="e => _editTag = e.Value?.ToString() ?? string.Empty" value="@_editTag" />
+                                </div>
+                                @if (AllTags.Count > 0) { <div class="small muted mt-1">Existentes: @foreach (var t in AllTags.Where(t => !_edit.Tags.Contains(t)).Take(12)) { <button type="button" class="tag ghost" @onclick="() => _edit.Tags.Add(t)">@t</button> }</div> }
+                            </div>
+                            <div class="col-6"><div class="form-check"><InputCheckbox class="form-check-input" id="pa" @bind-Value="_edit.IsActive" /><label class="form-check-label" for="pa">Activo (disponible para cotizar)</label></div></div>
+                            <div class="col-6"><div class="form-check"><InputCheckbox class="form-check-input" id="pp" @bind-Value="_edit.IsPublic" /><label class="form-check-label" for="pp">Publicado en el catálogo (API / web)</label></div></div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Imágenes</label>
+                        <div class="img-grid">
+                            @foreach (var id in _edit.ImageIds)
+                            {
+                                <div class="img-item @(id == _edit.MainImageId ? "main" : "")">
+                                    <img src="catalog/images/@id" alt="" />
+                                    <div class="img-actions">
+                                        @if (id != _edit.MainImageId) { <button type="button" class="icon-btn tiny" title="Principal" @onclick="() => { _edit.ImageIds.Remove(id); _edit.ImageIds.Insert(0, id); }">★</button> }
+                                        <button type="button" class="icon-btn tiny" title="Quitar" @onclick="() => RemoveImageAsync(id)">✕</button>
+                                    </div>
+                                </div>
+                            }
+                            <label class="img-add"><InputFile OnChange="OnImagesAsync" accept="image/*" multiple />@(_uploading ? "Subiendo…" : "+ Agregar")</label>
+                        </div>
+                        <div class="small muted">La primera es la principal. Máx. 15 MB por imagen. @(_edit.Id is null ? "Las imágenes se guardan al crear el producto." : "")</div>
+                        @if (_uploadError is not null) { <div class="text-danger small">@_uploadError</div> }
+                    </div>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mt-3">
+                    <span class="muted small">@(_edit.Id is null ? "" : $"Id: {_edit.Id}")</span>
+                    <span class="d-flex gap-2"><button type="button" class="btn-secondary" @onclick="() => _edit = null">Cancelar</button><button type="submit" class="btn-primary" disabled="@_uploading">Guardar</button></span>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@* ---------- Categorías ---------- *@
+@if (_catsOpen)
+{
+    <div class="sheet-backdrop" @onclick="() => _catsOpen = false"></div>
+    <div class="sheet">
+        <div class="sheet-head"><strong>Categorías de productos</strong><button class="icon-btn" @onclick="() => _catsOpen = false">✕</button></div>
+        <div class="sheet-body">
+            @foreach (var c in _categories)
+            {
+                <div class="label-row">
+                    <input type="color" class="form-control form-control-color" value="@c.Color" @onchange="async e => { c.Color = e.Value?.ToString() ?? c.Color; await Quotes.SaveCategoryAsync(c, await Me.NameAsync()); }" />
+                    <input class="form-control" value="@c.Name" @onchange="async e => { var n = e.Value?.ToString(); if (!string.IsNullOrWhiteSpace(n)) { c.Name = n.Trim(); await Quotes.SaveCategoryAsync(c, await Me.NameAsync()); await LoadAsync(); } }" />
+                    <span class="muted small text-nowrap">@_items?.Count(p => p.Category == c.Name) prod.</span>
+                    <button class="icon-btn" title="Eliminar" @onclick="() => DeleteCategoryAsync(c)">✕</button>
+                </div>
+            }
+            <div class="label-row">
+                <input class="form-control" placeholder="Nueva categoría" @bind="_newCat" @onkeydown="@(async e => { if (e.Key == "Enter") await AddCategoryAsync(); })" />
+                <button class="btn-secondary btn-sm" @onclick="AddCategoryAsync" disabled="@string.IsNullOrWhiteSpace(_newCat)">Agregar</button>
+            </div>
+        </div>
+        <div class="sheet-foot"><button class="btn-primary" @onclick="() => _catsOpen = false">Listo</button></div>
+    </div>
+}
+
+@code {
+    private List<Product>? _items;
+    private List<ProductCategory> _categories = new();
+    private Product? _edit;
+    private string _q = "", _category = "", _tag = "", _view = "tiles", _editTag = "", _newCat = "";
+    private bool _showInactive, _catsOpen, _uploading;
+    private string? _uploadError;
+
+    private List<string> AllTags => (_items ?? []).SelectMany(p => p.Tags).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(t => t).ToList();
+
+    private List<Product> Filtered => (_items ?? [])
+        .Where(p => _showInactive || p.IsActive)
+        .Where(p => string.IsNullOrEmpty(_category) || (_category == "__none" ? string.IsNullOrEmpty(p.Category) : p.Category == _category))
+        .Where(p => string.IsNullOrEmpty(_tag) || p.Tags.Contains(_tag, StringComparer.OrdinalIgnoreCase))
+        .Where(p => string.IsNullOrWhiteSpace(_q) || $"{p.Name} {p.Sku} {p.Category} {p.Description} {string.Join(' ', p.Tags)}".Contains(_q, StringComparison.OrdinalIgnoreCase))
+        .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _view = await JS.InvokeAsync<string?>("localStorage.getItem", "dana.products.view") ?? "tiles"; } catch { }
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _categories = await Quotes.GetCategoriesAsync();
+        _items = (await Quotes.GetProductsAsync()).OrderBy(p => p.Category).ThenBy(p => p.Name).ToList();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try { await JS.InvokeVoidAsync("localStorage.setItem", "dana.products.view", _view); } catch { }
+    }
+
+    private static Product Clone(Product p) => Entity.Clone(p) is var c ? Restore(c, p) : p;
+    private static Product Restore(Product c, Product p) { c.Id = p.Id; c.CreatedAt = p.CreatedAt; c.CreatedBy = p.CreatedBy; return c; }
+
+    private async Task NewAsync() { var s = await Settings.GetAsync(); _edit = new Product { Currency = s.BaseCurrency, TaxRate = s.DefaultTaxRate, Category = string.IsNullOrEmpty(_category) || _category == "__none" ? null : _category }; }
+
+    private async Task SaveAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(_editTag)) { _edit!.Tags.Add(_editTag.Trim()); _editTag = ""; }
+        _edit!.Tags = _edit.Tags.Select(t => t.Trim()).Where(t => t != "").Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (string.IsNullOrEmpty(_edit.Category)) _edit.Category = null;
+        await Quotes.SaveProductAsync(_edit, await Me.NameAsync());
+        // vincular imágenes subidas antes de tener Id
+        foreach (var id in _edit.ImageIds)
+        {
+            var a = await Attachments.GetAsync(id);
+            if (a is not null && a.EntityId != _edit.Id) { a.EntityId = _edit.Id!; await Attachments.UpdateAsync(a); }
+        }
+        _edit = null;
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(Product p)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar \"{p.Name}\"? Irá a la papelera.")) return;
+        await Quotes.DeleteProductAsync(p.Id!, await Me.NameAsync());
+        await LoadAsync();
+    }
+
+    // ----- etiquetas rápidas -----
+    private async Task AddTagKeyAsync(KeyboardEventArgs e, Product p) { if (e.Key == "Enter") { /* onchange hace el trabajo */ } }
+    private async Task AddTagAsync(Product p, string? value)
+    {
+        var t = value?.Trim();
+        if (string.IsNullOrEmpty(t) || p.Tags.Contains(t, StringComparer.OrdinalIgnoreCase)) return;
+        p.Tags.Add(t);
+        await Quotes.SaveProductAsync(p, await Me.NameAsync());
+    }
+    private async Task RemoveTagAsync(Product p, string t) { p.Tags.Remove(t); await Quotes.SaveProductAsync(p, await Me.NameAsync()); }
+    private void OnEditTagKey(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or "," && !string.IsNullOrWhiteSpace(_editTag)) { if (!_edit!.Tags.Contains(_editTag.Trim(), StringComparer.OrdinalIgnoreCase)) _edit.Tags.Add(_editTag.Trim()); _editTag = ""; }
+    }
+
+    // ----- imágenes -----
+    private async Task OnImagesAsync(InputFileChangeEventArgs e)
+    {
+        _uploading = true; _uploadError = null;
+        try
+        {
+            foreach (var f in e.GetMultipleFiles(10))
+            {
+                if (!f.ContentType.StartsWith("image/")) { _uploadError = $"{f.Name} no es una imagen."; continue; }
+                if (f.Size > AttachmentService.MaxSize) { _uploadError = $"{f.Name} supera los 15 MB."; continue; }
+                await using var stream = f.OpenReadStream(AttachmentService.MaxSize);
+                var a = await Attachments.SaveAsync(stream, f.Name, f.ContentType, f.Size, "product", _edit!.Id ?? "pending", null, await Me.NameAsync());
+                _edit.ImageIds.Add(a.Id!);
+            }
+        }
+        catch (Exception ex) { _uploadError = ex.Message; }
+        finally { _uploading = false; }
+    }
+
+    private async Task RemoveImageAsync(string id)
+    {
+        _edit!.ImageIds.Remove(id);
+        var a = await Attachments.GetAsync(id);
+        if (a is not null) await Attachments.DeleteAsync(a);
+    }
+
+    // ----- categorías -----
+    private async Task AddCategoryAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newCat)) return;
+        var palette = Dana.Components.Shared.BoardColumn<Product>.LabelPalette;
+        await Quotes.SaveCategoryAsync(new ProductCategory { Name = _newCat.Trim(), Color = palette[_categories.Count % palette.Length], Sort = _categories.Count * 10 }, await Me.NameAsync());
+        _newCat = "";
+        await LoadAsync();
+    }
+
+    private async Task DeleteCategoryAsync(ProductCategory c)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar la categoría \"{c.Name}\"? Los productos quedarán sin categoría.")) return;
+        await Quotes.DeleteCategoryAsync(c, await Me.NameAsync());
+        await LoadAsync();
+    }
+}

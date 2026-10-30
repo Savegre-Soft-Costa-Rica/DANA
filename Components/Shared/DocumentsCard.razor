@@ -1,0 +1,51 @@
+@inject DocumentService Docs
+@inject CurrentUser Me
+@inject NavigationManager Nav
+
+<div class="card mt-3">
+    <div class="card-header"><span>Documentos <span class="muted">(@_docs.Count)</span></span>
+        <span class="d-flex gap-1"><select class="form-select form-select-sm" style="width:auto" @bind="_tpl"><option value="">En blanco</option>@foreach (var t in _templates) { <option value="@t.Id">@t.Title</option> }</select><button class="btn-secondary btn-sm" @onclick="NewAsync">+ Documento</button><label class="btn-secondary btn-sm file-btn" title="Importar Word o PDF">⬆<InputFile OnChange="ImportAsync" accept=".docx,.pdf,.md,.txt" /></label></span>
+    </div>
+    <div class="card-body">
+        @if (_docs.Count == 0) { <div class="muted">Sin documentos. Cree uno desde una plantilla o pídaselo a un agente (Elena, Mía…).</div> }
+        <ul class="list-rows">
+            @foreach (var d in _docs)
+            {
+                var st = DocumentStatuses.Get(d.Status); var k = DocumentKinds.Get(d.Kind);
+                <li><span>@k.Emoji <a href="documentos/@d.Id"><strong>@d.Title</strong></a> <Badge Text="@st.Label" Color="@st.Color" /> <span class="muted small">v@(d.Version)</span></span><span class="small muted">@d.UpdatedAt.ToLocalTime().ToString("dd/MM") <a class="ms-1" href="documentos/@d.Id/word" target="_blank" title="Word">W</a> <a href="documentos/@d.Id/pdf" target="_blank" title="PDF">PDF</a> <a href="documentos/@d.Id/imprimir" target="_blank" title="Imprimir">🖨</a></span></li>
+            }
+        </ul>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string EntityType { get; set; } = "";
+    [Parameter] public string EntityId { get; set; } = "";
+    private List<CrmDocument> _docs = new();
+    private string _tpl = "";
+    private List<DocumentService.Template> _templates = new();
+
+    protected override async Task OnParametersSetAsync() { if (EntityId.Length > 0) _docs = await Docs.GetForAsync(EntityType, EntityId); _templates = await Docs.GetAllTemplatesAsync(); }
+
+    private async Task ImportAsync(InputFileChangeEventArgs e)
+    {
+        var me = await Me.NameAsync(); var f = e.File;
+        await using var stream = f.OpenReadStream(20 * 1024 * 1024);
+        using var ms = new MemoryStream(); await stream.CopyToAsync(ms); ms.Position = 0;
+        try
+        {
+            var d = await Docs.CreateAsync(new CrmDocument { Title = Path.GetFileNameWithoutExtension(f.Name), Kind = "otro", EntityType = EntityType, EntityId = EntityId, Content = DocumentService.ImportToMarkdown(f.Name, ms), Notes = "Importado de " + f.Name }, me);
+            Nav.NavigateTo($"documentos/{d.Id}");
+        }
+        catch { }
+    }
+
+    private async Task NewAsync()
+    {
+        var me = await Me.NameAsync();
+        var t = _templates.FirstOrDefault(x => x.Id == _tpl);
+        var d = new CrmDocument { Title = t?.Title ?? "Nuevo documento", Kind = t?.Kind ?? "otro", EntityType = EntityType, EntityId = EntityId, Content = t is null ? "# Título\n\nEscriba aquí…" : await Docs.FillAsync(t.Body, EntityType, EntityId, me) };
+        await Docs.CreateAsync(d, me);
+        Nav.NavigateTo($"documentos/{d.Id}");
+    }
+}

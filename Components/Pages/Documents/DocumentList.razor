@@ -1,0 +1,155 @@
+@page "/documentos"
+@inject DocumentService Docs
+@inject CurrentUser Me
+@inject DialogService Dialogs
+@inject NavigationManager Nav
+
+<PageTitle>Dana · Documentos</PageTitle>
+
+<PageHeader Title="Documentos" Subtitle="Contratos, acuerdos de confidencialidad, propuestas, cartas y actas: creados desde plantillas, por los agentes o desde cero; con versiones y exportación a Word.">
+    <Actions><label class="btn-secondary file-btn" title="Importar un Word o PDF existente como documento editable">⬆ Importar Word / PDF<InputFile OnChange="ImportAsync" accept=".docx,.pdf,.md,.txt" multiple /></label><button class="btn-secondary" @onclick="OpenTemplatesAsync">📐 Plantillas</button><button class="btn-primary" @onclick="OpenNewAsync">+ Nuevo documento</button></Actions>
+</PageHeader>
+
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+    <input class="form-control" style="max-width:280px" placeholder="Buscar…" @bind="_q" @bind:event="oninput" />
+    <select class="form-select" style="max-width:220px" @bind="_kind"><option value="">Todos los tipos</option>@foreach (var k in DocumentKinds.All) { <option value="@k.Id">@k.Emoji @k.Label</option> }</select>
+    <select class="form-select" style="max-width:180px" @bind="_status"><option value="">Todos los estados</option>@foreach (var s in DocumentStatuses.All) { <option value="@s.Id">@s.Label</option> }</select>
+    <span class="muted small">@Filtered.Count() documento(s)</span>
+</div>
+
+@if (_docs.Count == 0) { <div class="onboarding">Aún no hay documentos. Cree uno desde una plantilla o pídaselo a un agente (p. ej. a Elena: «prepara un NDA para Magic Globos»).</div> }
+else
+{
+    <div class="card">
+        <table class="table mb-0">
+            <thead><tr><th>Documento</th><th>Tipo</th><th>Ligado a</th><th>Estado</th><th>Versión</th><th>Actualizado</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var d in Filtered)
+                {
+                    var st = DocumentStatuses.Get(d.Status); var k = DocumentKinds.Get(d.Kind);
+                    <tr>
+                        <td><a href="documentos/@d.Id"><strong>@d.Title</strong></a><div class="small muted">@d.Author</div></td>
+                        <td>@k.Emoji @k.Label</td>
+                        <td>@if (d.EntityType is not null && d.EntityId is not null) { <a href="@CrmEntities.LinkOf(d.EntityType, d.EntityId)">@d.EntityTitle</a> } else { <span class="muted">—</span> }</td>
+                        <td><Badge Text="@st.Label" Color="@st.Color" /></td>
+                        <td>v@(d.Version)</td>
+                        <td class="small muted">@d.UpdatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+                        <td class="text-end text-nowrap"><a class="btn-secondary btn-sm" href="documentos/@d.Id/word" target="_blank">Word</a> <a class="btn-secondary btn-sm" href="documentos/@d.Id/pdf" target="_blank">PDF</a> <a class="btn-secondary btn-sm" href="documentos/@d.Id/imprimir" target="_blank">🖨</a> <button class="btn-danger btn-sm" @onclick="() => DeleteAsync(d)">Eliminar</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (_new)
+{
+    <div class="sheet-backdrop" @onclick="() => _new = false"></div>
+    <div class="sheet" style="width:min(760px,96vw)">
+        <div class="sheet-head"><strong>Nuevo documento</strong><button class="icon-btn" @onclick="() => _new = false">✕</button></div>
+        <div class="sheet-body">
+            <div class="tpl-grid">
+                <button type="button" class="tpl-card" @onclick='() => CreateAsync(null)'><span class="tpl-emoji">✨</span><strong>En blanco</strong><span class="small muted">Empiece a escribir desde cero.</span></button>
+                @foreach (var t in _allTemplates)
+                {
+                    var tpl = t; var k = DocumentKinds.Get(t.Kind); var custom = DocumentService.FindTemplate(t.Id) is null;
+                    <button type="button" class="tpl-card" @onclick="() => CreateAsync(tpl)"><span class="tpl-emoji">@k.Emoji</span><strong>@t.Title @if (custom) { <span class="badge-soft">propia</span> }</strong><span class="small muted">@t.Description.Replace("{{empresa}}", "su empresa")</span></button>
+                }
+            </div>
+            <div class="small muted mt-3">Los marcadores de la plantilla (empresa, contraparte, contacto, monto, fecha…) se rellenan al ligar el documento a un prospecto, contacto, compañía o negociación desde el editor.</div>
+        </div>
+    </div>
+}
+
+@if (_tplOpen)
+{
+    <div class="sheet-backdrop" @onclick="() => _tplOpen = false"></div>
+    <div class="sheet" style="width:min(900px,96vw)">
+        <div class="sheet-head"><strong>Plantillas de documentos</strong><button class="icon-btn" @onclick="() => _tplOpen = false">✕</button></div>
+        <div class="sheet-body">
+            @if (_tplEdit is null)
+            {
+                <p class="small muted">Las plantillas predefinidas no se editan, pero puede duplicarlas y adaptarlas. Marcadores disponibles: <code>{{empresa}}</code> <code>{{empresa_id}}</code> <code>{{empresa_direccion}}</code> <code>{{contraparte}}</code> <code>{{contacto}}</code> <code>{{asunto}}</code> <code>{{monto}}</code> <code>{{fecha}}</code> <code>{{autor}}</code> <code>{{pais}}</code> <code>{{ciudad}}</code> <code>{{forma_pago}}</code>.</p>
+                <div class="d-flex gap-2 mb-3"><button class="btn-primary btn-sm" @onclick="NewTemplate">+ Nueva plantilla</button></div>
+                <table class="table">
+                    <thead><tr><th>Plantilla</th><th>Tipo</th><th>Origen</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var t in _allTemplates)
+                        {
+                            var tpl = t; var builtin = DocumentService.FindTemplate(t.Id) is not null;
+                            <tr><td><strong>@t.Title</strong><div class="small muted">@t.Description.Replace("{{empresa}}", "su empresa")</div></td><td>@DocumentKinds.Get(t.Kind).Label</td><td>@(builtin ? "Predefinida" : "Propia")</td>
+                                <td class="text-end text-nowrap">@if (builtin) { <button class="btn-secondary btn-sm" @onclick="() => DuplicateTemplate(tpl)">Duplicar</button> } else { <button class="btn-secondary btn-sm" @onclick="() => EditTemplateAsync(tpl.Id)">Editar</button> <button class="btn-danger btn-sm" @onclick="() => DeleteTemplateAsync(tpl)">Eliminar</button> }</td></tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div class="row g-2">
+                    <div class="col-md-6"><label class="form-label">Título</label><input class="form-control" @bind="_tplEdit.Title" /></div>
+                    <div class="col-md-3"><label class="form-label">Tipo</label><select class="form-select" @bind="_tplEdit.Kind">@foreach (var k in DocumentKinds.All) { <option value="@k.Id">@k.Emoji @k.Label</option> }</select></div>
+                    <div class="col-md-3"><label class="form-label">Descripción</label><input class="form-control" @bind="_tplEdit.Description" /></div>
+                    <div class="col-12"><label class="form-label">Contenido (Markdown con marcadores)</label><textarea class="form-control doc-text" rows="16" @bind="_tplEdit.Body"></textarea></div>
+                </div>
+                <div class="sheet-foot mt-3 px-0 pb-0"><button class="btn-secondary" @onclick="() => _tplEdit = null">Cancelar</button><button class="btn-primary" disabled="@(string.IsNullOrWhiteSpace(_tplEdit.Title))" @onclick="SaveTemplateAsync">Guardar plantilla</button></div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private List<CrmDocument> _docs = new();
+    private List<DocumentService.Template> _allTemplates = new();
+    private bool _tplOpen; private DocumentTemplateEntity? _tplEdit;
+
+    private async Task OpenNewAsync() { _allTemplates = await Docs.GetAllTemplatesAsync(); _new = true; }
+    private async Task OpenTemplatesAsync() { _allTemplates = await Docs.GetAllTemplatesAsync(); _tplEdit = null; _tplOpen = true; }
+    private void NewTemplate() => _tplEdit = new DocumentTemplateEntity { Kind = "contrato", Body = "# TÍTULO\n\n**Fecha:** {{fecha}}\n\n## Partes\n**{{empresa}}** y **{{contraparte}}** ({{contacto}}).\n\n## 1. Objeto\n{{asunto}}\n" };
+    private void DuplicateTemplate(DocumentService.Template t) => _tplEdit = new DocumentTemplateEntity { Title = t.Title + " (copia)", Kind = t.Kind, Description = t.Description, Body = t.Body };
+    private async Task EditTemplateAsync(string id) => _tplEdit = await Docs.GetCustomTemplateAsync(id);
+    private async Task SaveTemplateAsync() { await Docs.SaveTemplateAsync(_tplEdit!, await Me.NameAsync()); _tplEdit = null; _allTemplates = await Docs.GetAllTemplatesAsync(); }
+    private async Task DeleteTemplateAsync(DocumentService.Template t)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar la plantilla \"{t.Title}\"?")) return;
+        await Docs.DeleteTemplateAsync(t.Id, await Me.NameAsync()); _allTemplates = await Docs.GetAllTemplatesAsync();
+    }
+    private string _q = "", _kind = "", _status = "";
+    private bool _new;
+    private IEnumerable<CrmDocument> Filtered => _docs.Where(d => (_kind == "" || d.Kind == _kind) && (_status == "" || d.Status == _status) && (string.IsNullOrWhiteSpace(_q) || (d.Title + " " + d.EntityTitle + " " + d.Content).Contains(_q.Trim(), StringComparison.OrdinalIgnoreCase)));
+
+    protected override async Task OnInitializedAsync() => _docs = await Docs.GetAllAsync();
+
+    private async Task CreateAsync(DocumentService.Template? t)
+    {
+        var me = await Me.NameAsync();
+        var d = new CrmDocument { Title = t?.Title ?? "Nuevo documento", Kind = t?.Kind ?? "otro", Content = t is null ? "# Título\n\nEscriba aquí…" : await Docs.FillAsync(t.Body, null, null, me) };
+        await Docs.CreateAsync(d, me);
+        Nav.NavigateTo($"documentos/{d.Id}");
+    }
+
+    private string? _importMsg;
+    private async Task ImportAsync(InputFileChangeEventArgs e)
+    {
+        var me = await Me.NameAsync();
+        foreach (var f in e.GetMultipleFiles(10))
+        {
+            try
+            {
+                await using var stream = f.OpenReadStream(20 * 1024 * 1024);
+                using var ms = new MemoryStream(); await stream.CopyToAsync(ms); ms.Position = 0;
+                var content = DocumentService.ImportToMarkdown(f.Name, ms);
+                var kind = DocumentKinds.All.Select(k => k.Id).FirstOrDefault(k => f.Name.Contains(k, StringComparison.OrdinalIgnoreCase)) ?? (f.Name.Contains("nda", StringComparison.OrdinalIgnoreCase) || f.Name.Contains("confidencial", StringComparison.OrdinalIgnoreCase) ? "nda" : "otro");
+                await Docs.CreateAsync(new CrmDocument { Title = Path.GetFileNameWithoutExtension(f.Name), Kind = kind, Content = content, Notes = "Importado de " + f.Name }, me);
+            }
+            catch (Exception ex) { await Dialogs.ConfirmAsync($"{f.Name}: {ex.Message}", "No se pudo importar"); }
+        }
+        _docs = await Docs.GetAllAsync();
+    }
+
+    private async Task DeleteAsync(CrmDocument d)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Enviar \"{d.Title}\" a la papelera?")) return;
+        await Docs.DeleteAsync(d.Id!, await Me.NameAsync());
+        _docs = await Docs.GetAllAsync();
+    }
+}

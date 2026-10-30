@@ -1,0 +1,21 @@
+@page "/cuenta/acceso-denegado"
+@attribute [AllowAnonymous]
+@layout EmptyLayout
+
+<PageTitle>Dana · Acceso denegado</PageTitle>
+
+<div class="auth-box">
+    <h4>Acceso denegado</h4>
+    <p class="text-muted">@(string.IsNullOrEmpty(Error) ? "Su cuenta no tiene permiso para esta sección." : Error)</p>
+    <div class="d-flex gap-2 justify-content-center">
+        <a class="btn btn-outline-secondary" href="/">Ir al inicio</a>
+        <form method="post" action="cuenta/logout">
+            <AntiforgeryToken />
+            <button type="submit" class="btn btn-primary">Cambiar de cuenta</button>
+        </form>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
+}

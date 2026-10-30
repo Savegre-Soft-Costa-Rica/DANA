@@ -1,0 +1,121 @@
+@inject TaskService Tasks
+@inject UserService Users
+@inject CurrentUser Me
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<div class="card mt-3">
+    <div class="card-header">
+        <span>Actividades <span class="muted">(@(_items?.Count(t => !t.IsDone) ?? 0) pendientes)</span></span>
+        <button class="btn-secondary btn-sm" @onclick="() => { _adding = !_adding; _draft = NewDraft(); }">+ Actividad</button>
+    </div>
+    <div class="card-body">
+        @if (_adding)
+        {
+            <div class="task-form">
+                <div class="kind-picker">
+                    @foreach (var k in TaskKinds.All)
+                    {
+                        <button class="kind-opt @(_draft.Kind == k.Id ? "selected" : "")" style="@(_draft.Kind == k.Id ? $"background:{k.Color};border-color:{k.Color};color:#fff" : "")" @onclick="() => _draft.Kind = k.Id">@k.Icon @k.Name</button>
+                    }
+                </div>
+                <input class="form-control" placeholder="Título (ej. Llamar para confirmar propuesta)" @bind="_draft.Title" @bind:event="oninput" @onkeydown="@(async e => { if (e.Key == "Enter") await SaveAsync(); })" />
+                <div class="task-form-row">
+                    <input type="datetime-local" class="form-control" value="@(_draft.DueAt?.ToLocalTime().ToString("yyyy-MM-ddTHH:mm"))" @onchange="e => _draft.DueAt = DateTime.TryParse(e.Value?.ToString(), out var d) ? d.ToUniversalTime() : null" />
+                    <select class="form-select" @bind="_draft.DurationMinutes">
+                        <option value="">Duración</option>
+                        <option value="15">15 min</option><option value="30">30 min</option><option value="60">1 h</option><option value="120">2 h</option>
+                    </select>
+                    <select class="form-select" @bind="_draft.AssignedTo">
+                        <option value="">Sin asignar</option>
+                        @foreach (var p in _people) { <option value="@p">@p</option> }
+                    </select>
+                </div>
+                <textarea class="form-control" rows="2" placeholder="Notas (opcional)" @bind="_draft.Notes"></textarea>
+                <div class="d-flex gap-2 justify-content-end">
+                    <button class="btn-secondary btn-sm" @onclick="() => _adding = false">Cancelar</button>
+                    <button class="btn-primary btn-sm" @onclick="SaveAsync" disabled="@string.IsNullOrWhiteSpace(_draft.Title)">Guardar</button>
+                </div>
+            </div>
+        }
+
+        @if (_items is null) { <div class="muted">Cargando…</div> }
+        else if (_items.Count == 0 && !_adding) { <div class="muted">Sin actividades. Programe una llamada, reunión o tarea.</div> }
+        else
+        {
+            <ul class="task-list">
+                @foreach (var t in _items)
+                {
+                    var k = TaskKinds.Get(t.Kind);
+                    <li class="@(t.IsDone ? "done" : "") @(t.IsOverdue ? "overdue" : "")">
+                        <input type="checkbox" class="cell-check" checked="@t.IsDone" @onchange="() => ToggleAsync(t)" title="@(t.IsDone ? "Marcar pendiente" : "Marcar hecha")" />
+                        <span class="task-kind" style="background:@k.Color" title="@k.Name">@k.Icon</span>
+                        <div class="task-main">
+                            <div class="task-title">@t.Title</div>
+                            <div class="task-meta">
+                                @if (t.DueAt is not null) { <span>@t.DueAt.Value.ToLocalTime().ToString("ddd dd MMM, HH:mm")</span> }
+                                @if (t.DurationMinutes is not null) { <span>· @t.DurationMinutes min</span> }
+                                @if (!string.IsNullOrEmpty(t.AssignedTo)) { <span>· <PersonChip Name="@t.AssignedTo" /></span> }
+                                @if (t.IsOverdue) { <span class="text-danger">· vencida</span> }
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(t.Notes)) { <div class="task-notes">@t.Notes</div> }
+                        </div>
+                        <button class="icon-btn tiny" title="Eliminar" @onclick="() => DeleteAsync(t)">✕</button>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string EntityType { get; set; } = "";
+    [Parameter] public string? EntityId { get; set; }
+    [Parameter] public string EntityTitle { get; set; } = "";
+
+    private List<TaskItem>? _items;
+    private List<string> _people = new();
+    private bool _adding;
+    private TaskItem _draft = new();
+    private string? _loadedFor;
+    private string _me = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _people = (await Users.GetAllAsync()).Where(u => u.IsActive).Select(u => u.Name).OrderBy(n => n).ToList();
+        _me = await Me.NameAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (EntityId is null) { _items = new(); return; }
+        if (_loadedFor == EntityId) return;
+        _loadedFor = EntityId;
+        _items = await Tasks.GetForEntityAsync(EntityType, EntityId);
+    }
+
+    private TaskItem NewDraft() => new() { Kind = TaskKinds.Call, AssignedTo = _me, DueAt = DateTime.UtcNow.Date.AddDays(1).AddHours(9 - TimeZoneInfo.Local.GetUtcOffset(DateTime.Now).TotalHours) };
+
+    private async Task SaveAsync()
+    {
+        if (EntityId is null || string.IsNullOrWhiteSpace(_draft.Title)) return;
+        _draft.EntityType = EntityType; _draft.EntityId = EntityId; _draft.EntityTitle = EntityTitle;
+        if (string.IsNullOrEmpty(_draft.AssignedTo)) _draft.AssignedTo = null;
+        await Tasks.SaveAsync(_draft, _me);
+        _items = await Tasks.GetForEntityAsync(EntityType, EntityId);
+        _adding = false;
+    }
+
+    private async Task ToggleAsync(TaskItem t)
+    {
+        var updated = await Tasks.ToggleDoneAsync(t.Id!, _me);
+        if (updated is not null) { var i = _items!.IndexOf(t); _items[i] = updated; }
+    }
+
+    private async Task DeleteAsync(TaskItem t)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar \"{t.Title}\"?")) return;
+        await Tasks.DeleteAsync(t.Id!);
+        _items!.Remove(t);
+    }
+}

@@ -1,0 +1,159 @@
+@using System.Globalization
+
+@if (Data is null || Data.Series.Count == 0 || Data.Labels.Count == 0)
+{
+    <div class="chart-empty">Sin datos para este periodo.</div>
+}
+else
+{
+    var n = Data.Labels.Count;
+    var max = Math.Max(0.0001m, Data.Series.SelectMany(s => s.Values).DefaultIfEmpty(0).Max());
+    <div class="chart" @onmouseleave="() => _hover = -1">
+        @if (Type == WidgetTypes.Donut)
+        {
+            var s = Data.Series[0];
+            var total = Math.Max(0.0001m, s.Values.Sum());
+            double acc = 0;
+            <div class="donut-wrap">
+                <svg viewBox="0 0 120 120" class="donut">
+                    @for (var i = 0; i < n; i++)
+                    {
+                        var frac = (double)(s.Values[i] / total);
+                        var start = acc; acc += frac;
+                        var (x1, y1) = Pt(start); var (x2, y2) = Pt(acc);
+                        var large = frac > .5 ? 1 : 0;
+                        var idx = i;
+                        <path d="M @F(x1) @F(y1) A 48 48 0 @large 1 @F(x2) @F(y2)" fill="none" stroke="@ColorAt(s, i)" stroke-width="@(_hover == i ? 22 : 18)" stroke-linecap="butt" class="donut-seg" @onmouseenter="() => _hover = idx" />
+                    }
+                    @Txt(60, 56, "middle", "donut-total", Fmt(_hover >= 0 ? s.Values[_hover] : total))
+                    @Txt(60, 72, "middle", "donut-label", _hover >= 0 ? Data.Labels[_hover] : "Total")
+                </svg>
+                <ul class="legend-list">
+                    @for (var i = 0; i < n; i++)
+                    {
+                        var idx = i;
+                        <li class="@(_hover == i ? "on" : "")" @onmouseenter="() => _hover = idx"><i style="background:@ColorAt(s, i)"></i><span class="lg-label">@Data.Labels[i]</span><b>@Fmt(s.Values[i])</b><small>@Pct(s.Values[i], total)</small></li>
+                    }
+                </ul>
+            </div>
+        }
+        else if (Type == WidgetTypes.Funnel)
+        {
+            var s = Data.Series[0];
+            <div class="funnel-chart">
+                @for (var i = 0; i < n; i++)
+                {
+                    var pct = (double)(s.Values[i] / max);
+                    var idx = i;
+                    <div class="fc-row @(_hover == i ? "on" : "")" @onmouseenter="() => _hover = idx">
+                        <span class="fc-label">@Data.Labels[i]</span>
+                        <div class="fc-bar"><div style="width:@F(Math.Max(2, pct * 100))%;background:@ColorAt(s, i)"></div></div>
+                        <b class="fc-val">@Fmt(s.Values[i])</b>
+                    </div>
+                }
+            </div>
+        }
+        else if (Type == WidgetTypes.Line)
+        {
+            const double w = 600, h = 220, pl = 48, pr = 12, pt = 12, pb = 28;
+            double X(int i) => pl + (n == 1 ? (w - pl - pr) / 2 : i * (w - pl - pr) / (n - 1));
+            double Y(decimal v) => pt + (h - pt - pb) * (1 - (double)(v / max));
+            <svg viewBox="0 0 @w @h" class="line-chart" preserveAspectRatio="none">
+                @foreach (var t in Ticks(max))
+                {
+                    <line x1="@pl" x2="@(w - pr)" y1="@F(Y(t))" y2="@F(Y(t))" class="grid" />
+                    @Txt(pl - 6, Y(t) + 4, "end", "tick", Short(t))
+                }
+                @foreach (var s in Data.Series)
+                {
+                    var pts = string.Join(" ", Enumerable.Range(0, n).Select(i => $"{F(X(i))},{F(Y(s.Values[i]))}"));
+                    <polyline points="@pts" fill="none" stroke="@s.Color" stroke-width="2" stroke-linejoin="round" />
+                    @for (var i = 0; i < n; i++)
+                    {
+                        <circle cx="@F(X(i))" cy="@F(Y(s.Values[i]))" r="@(_hover == i ? 5 : 3.5)" fill="@s.Color" stroke="#fff" stroke-width="2" />
+                    }
+                }
+                @for (var i = 0; i < n; i++)
+                {
+                    var idx = i;
+                    var step = n == 1 ? w : (w - pl - pr) / Math.Max(1, n - 1);
+                    <rect x="@F(X(i) - step / 2)" y="0" width="@F(step)" height="@h" fill="transparent" @onmouseenter="() => _hover = idx" />
+                    @if (i % Math.Max(1, n / 8) == 0 || n <= 8) { @Txt(X(i), h - 8, "middle", "tick", Data.Labels[i]) }
+                }
+                @if (_hover >= 0 && _hover < n) { <line x1="@F(X(_hover))" x2="@F(X(_hover))" y1="@pt" y2="@(h - pb)" class="crosshair" /> }
+            </svg>
+        }
+        else
+        {
+            // Barras (agrupadas por serie)
+            const double w = 600, h = 220, pl = 48, pr = 12, pt = 12, pb = 28;
+            var groupW = (w - pl - pr) / n;
+            var barW = Math.Max(4, Math.Min(36, (groupW - 8) / Data.Series.Count - 2));
+            double Y(decimal v) => pt + (h - pt - pb) * (1 - (double)(v / max));
+            <svg viewBox="0 0 @w @h" class="bar-chart" preserveAspectRatio="none">
+                @foreach (var t in Ticks(max))
+                {
+                    <line x1="@pl" x2="@(w - pr)" y1="@F(Y(t))" y2="@F(Y(t))" class="grid" />
+                    @Txt(pl - 6, Y(t) + 4, "end", "tick", Short(t))
+                }
+                @for (var i = 0; i < n; i++)
+                {
+                    var idx = i;
+                    var gx = pl + i * groupW;
+                    <rect x="@F(gx)" y="0" width="@F(groupW)" height="@h" fill="@(_hover == i ? "rgba(0,0,0,.04)" : "transparent")" @onmouseenter="() => _hover = idx" />
+                    @for (var si = 0; si < Data.Series.Count; si++)
+                    {
+                        var s = Data.Series[si];
+                        var x = gx + (groupW - (barW + 2) * Data.Series.Count) / 2 + si * (barW + 2);
+                        var y = Y(s.Values[i]);
+                        var bh = Math.Max(0, h - pb - y);
+                        <rect x="@F(x)" y="@F(y)" width="@F(barW)" height="@F(bh)" rx="3" fill="@ColorAt(s, i)" />
+                    }
+                    @if (n <= 12 || i % Math.Max(1, n / 12) == 0)
+                    {
+                        @Txt(gx + groupW / 2, h - 8, "middle", "tick", Trunc(Data.Labels[i], n > 6 ? 9 : 16))
+                    }
+                }
+            </svg>
+        }
+
+        @if (_hover >= 0 && _hover < n && Type is not (WidgetTypes.Donut))
+        {
+            <div class="chart-tip">
+                <strong>@Data.Labels[_hover]</strong>
+                @foreach (var s in Data.Series) { <div><i style="background:@ColorAt(s, _hover)"></i>@s.Name: <b>@Fmt(s.Values[_hover])</b></div> }
+            </div>
+        }
+        @if (Data.Series.Count > 1)
+        {
+            <div class="legend">
+                @foreach (var s in Data.Series) { <span><i style="background:@s.Color"></i>@s.Name</span> }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public ChartData? Data { get; set; }
+    [Parameter] public string Type { get; set; } = WidgetTypes.Bar;
+    private int _hover = -1;
+
+    private static MarkupString Txt(double x, double y, string anchor, string cls, string content) =>
+        new($"<text x=\"{F(x)}\" y=\"{F(y)}\" text-anchor=\"{anchor}\" class=\"{cls}\">{System.Net.WebUtility.HtmlEncode(content)}</text>");
+
+    private static string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+    private string Fmt(decimal v) => Data?.Format == "N1" ? v.ToString("N1") : Data?.Format == "N2" ? v.ToString("N2") : v.ToString("N0");
+    private static string Pct(decimal v, decimal total) => total == 0 ? "" : (100 * v / total).ToString("N0") + " %";
+    private static string Short(decimal v) => v >= 1_000_000 ? (v / 1_000_000m).ToString("0.#") + "M" : v >= 1000 ? (v / 1000m).ToString("0.#") + "k" : v.ToString("0.#");
+    private static string Trunc(string s, int n) => s.Length <= n ? s : s[..(n - 1)] + "…";
+    private static string ColorAt(ChartSeries s, int i) => s.Colors is not null && i < s.Colors.Count ? s.Colors[i] : s.Color;
+    private static (double, double) Pt(double frac) { var a = frac * 2 * Math.PI - Math.PI / 2; return (60 + 48 * Math.Cos(a), 60 + 48 * Math.Sin(a)); }
+
+    private static IEnumerable<decimal> Ticks(decimal max)
+    {
+        var raw = max / 4;
+        var mag = (decimal)Math.Pow(10, Math.Floor(Math.Log10((double)Math.Max(raw, 0.0001m))));
+        var step = raw / mag <= 1 ? mag : raw / mag <= 2 ? 2 * mag : raw / mag <= 5 ? 5 * mag : 10 * mag;
+        for (var t = 0m; t <= max; t += step) yield return t;
+    }
+}
