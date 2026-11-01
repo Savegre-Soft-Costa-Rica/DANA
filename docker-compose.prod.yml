@@ -32,8 +32,13 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
-    ports:
-      - "${DANA_PORT:-8080}:8080"
+    # Sin 'ports' al host: el proxy (Coolify/Traefik) llega al contenedor por la red interna
+    # en el puerto 8080 (ese es el 'Port' del dominio en Coolify). Así no se ocupa ningún
+    # puerto del servidor. Para acceso directo por IP sin proxy, publique un puerto libre, p.ej.:
+    #   ports:
+    #     - "${DANA_PORT:-9000}:8080"
+    expose:
+      - "8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       TZ: ${TZ:-America/Costa_Rica}
