@@ -1,0 +1,173 @@
+@page "/configuracion/integraciones"
+@attribute [Authorize(Policy = "Admin")]
+@using Dana.Services.Integrations
+@inject SettingsService Settings
+@inject IntegrationService Conn
+@inject CurrentUser Me
+
+<PageTitle>Dana · Integraciones externas</PageTitle>
+
+<PageHeader Title="Integraciones externas (Savegre)" Subtitle="Conecte Dana con sus servicios de Savegre indicando la URL de producción y la clave. Todo es opcional: sin configurar (o desactivado) la integración no hace nada. Las claves se guardan cifradas (Data Protection).">
+    <Actions><a class="btn-secondary" href="configuracion">← Configuración</a></Actions>
+</PageHeader>
+
+@if (_s is null)
+{
+    <p class="muted">Cargando…</p>
+}
+else
+{
+    <div class="widgets">
+        <div class="widget w-6">
+            <div class="widget-title">Senda · Facturación electrónica @Badge(_s.Integrations.Senda.Enabled, _hasSendaKey)</div>
+            <div class="small muted mb-2">Emite comprobantes electrónicos de Hacienda (Costa Rica). El emisor, el certificado <code>.p12</code> y la sesión de Hacienda se configuran <strong>dentro de Senda</strong>; Dana solo envía los comprobantes.</div>
+            <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" id="senda-on" @bind="_s.Integrations.Senda.Enabled" />
+                <label class="form-check-label" for="senda-on">Activar la conexión con Senda</label>
+            </div>
+            <label class="form-label">URL base</label>
+            <input class="form-control mb-2" placeholder="https://senda.suempresa.com" @bind="_s.Integrations.Senda.BaseUrl" />
+            <label class="form-label">Clave de API (o token de servicio)</label>
+            <div class="d-flex gap-2 mb-2">
+                <input class="form-control" type="password" placeholder="@KeyPh(_hasSendaKey)" @bind="_sendaKey" />
+                @if (_hasSendaKey) { <button class="btn-ghost" title="Quitar clave" @onclick="() => { _s.Integrations.Senda.ApiKeyProtected = null; _hasSendaKey = false; }">✕</button> }
+            </div>
+            <div class="small muted mt-2 mb-1"><strong>Datos fiscales del emisor</strong> (Hacienda los exige en cada comprobante)</div>
+            <div class="row g-2 mb-2">
+                <div class="col-6"><label class="form-label">Cédula del emisor</label><input class="form-control" placeholder="3101123456" @bind="_s.Integrations.Senda.CedulaEmisor" /></div>
+                <div class="col-6"><label class="form-label">Código de actividad</label><input class="form-control" placeholder="8549.0" @bind="_s.Integrations.Senda.CodigoActividad" /></div>
+                <div class="col-7"><label class="form-label">Nombre / razón social</label><input class="form-control" placeholder="(por defecto, el de la empresa)" @bind="_s.Integrations.Senda.EmisorNombre" /></div>
+                <div class="col-5">
+                    <label class="form-label">Tipo de identificación</label>
+                    <select class="form-select" @bind="_s.Integrations.Senda.EmisorTipoId">
+                        <option value="01">01 · Física</option>
+                        <option value="02">02 · Jurídica</option>
+                        <option value="03">03 · DIMEX</option>
+                        <option value="04">04 · NITE</option>
+                    </select>
+                </div>
+                <div class="col-12"><label class="form-label">Correo del emisor</label><input class="form-control" type="email" placeholder="facturas@empresa.cr" @bind="_s.Integrations.Senda.EmisorEmail" /></div>
+                <div class="col-4"><label class="form-label">Provincia</label><input class="form-control" placeholder="1" @bind="_s.Integrations.Senda.Provincia" /></div>
+                <div class="col-4"><label class="form-label">Cantón</label><input class="form-control" placeholder="01" @bind="_s.Integrations.Senda.Canton" /></div>
+                <div class="col-4"><label class="form-label">Distrito</label><input class="form-control" placeholder="01" @bind="_s.Integrations.Senda.Distrito" /></div>
+                <div class="col-12"><label class="form-label">Otras señas</label><input class="form-control" placeholder="Dirección exacta" @bind="_s.Integrations.Senda.OtrasSenas" /></div>
+            </div>
+            <button class="btn-ghost btn-sm" disabled="@_loading" @onclick='() => TestAsync("senda")'>▶ Probar conexión</button>
+            @if (_result.TryGetValue("senda", out var rs)) { <div class="small mt-2 @(rs.Ok ? "text-success" : "text-danger")">@rs.Message</div> }
+        </div>
+
+        <div class="widget w-6">
+            <div class="widget-title">Wapi · WhatsApp @Badge(_s.Integrations.Wapi.Enabled, _hasWapiKey)</div>
+            <div class="small muted mb-2">Middleware de la WhatsApp Cloud API: enviar mensajes y plantillas desde Dana y recibir conversaciones como prospectos. Las credenciales de Meta viven <strong>dentro de Wapi</strong>.</div>
+            <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" id="wapi-on" @bind="_s.Integrations.Wapi.Enabled" />
+                <label class="form-check-label" for="wapi-on">Activar la conexión con Wapi</label>
+            </div>
+            <label class="form-label">URL base</label>
+            <input class="form-control mb-2" placeholder="https://wapi.suempresa.com" @bind="_s.Integrations.Wapi.BaseUrl" />
+            <label class="form-label">Clave de API del tenant (X-Api-Key)</label>
+            <div class="d-flex gap-2 mb-2">
+                <input class="form-control" type="password" placeholder="@KeyPh(_hasWapiKey)" @bind="_wapiKey" />
+                @if (_hasWapiKey) { <button class="btn-ghost" title="Quitar clave" @onclick="() => { _s.Integrations.Wapi.ApiKeyProtected = null; _hasWapiKey = false; }">✕</button> }
+            </div>
+            <label class="form-label">Id de la cuenta de WhatsApp (accountId)</label>
+            <input class="form-control mb-2" placeholder="p. ej. 01JABCDEF…" @bind="_s.Integrations.Wapi.AccountId" />
+            <button class="btn-ghost btn-sm" disabled="@_loading" @onclick='() => TestAsync("wapi")'>▶ Probar conexión</button>
+            @if (_result.TryGetValue("wapi", out var rw)) { <div class="small mt-2 @(rw.Ok ? "text-success" : "text-danger")">@rw.Message</div> }
+        </div>
+
+        <div class="widget w-6">
+            <div class="widget-title">Wan · Teléfono con IA @Badge(_s.Integrations.Wan.Enabled, _hasWanKey)</div>
+            <div class="small muted mb-2">Bot telefónico (SIP + ElevenLabs): lanzar llamadas o campañas y registrar recados y transcripciones como actividades. Las cuentas SIP y claves de voz viven <strong>dentro de Wan</strong>.</div>
+            <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" id="wan-on" @bind="_s.Integrations.Wan.Enabled" />
+                <label class="form-check-label" for="wan-on">Activar la conexión con Wan</label>
+            </div>
+            <label class="form-label">URL base</label>
+            <input class="form-control mb-2" placeholder="https://wan.suempresa.com" @bind="_s.Integrations.Wan.BaseUrl" />
+            <label class="form-label">Token de servicio (JWT)</label>
+            <div class="d-flex gap-2 mb-2">
+                <input class="form-control" type="password" placeholder="@KeyPh(_hasWanKey)" @bind="_wanKey" />
+                @if (_hasWanKey) { <button class="btn-ghost" title="Quitar token" @onclick="() => { _s.Integrations.Wan.TokenProtected = null; _hasWanKey = false; }">✕</button> }
+            </div>
+            <button class="btn-ghost btn-sm" disabled="@_loading" @onclick='() => TestAsync("wan")'>▶ Probar conexión</button>
+            @if (_result.TryGetValue("wan", out var rn)) { <div class="small mt-2 @(rn.Ok ? "text-success" : "text-danger")">@rn.Message</div> }
+        </div>
+
+        <div class="widget w-12 d-flex align-items-center">
+            <button class="btn-primary" disabled="@_loading" @onclick="SaveAsync">Guardar</button>
+            @if (_saved) { <span class="small text-success ms-2">Guardado</span> }
+        </div>
+
+        <div class="widget w-12">
+            <div class="widget-title">¿Cómo funciona?</div>
+            <ul class="small mb-0">
+                <li><strong>Probar conexión</strong> consulta el endpoint <code>/health</code> del servicio con la URL de arriba; no necesita guardar antes.</li>
+                <li>Cada integración es independiente y opcional: desactívela o deje la URL vacía y Dana se comporta como si no existiera.</li>
+                <li>Las claves se cifran con Data Protection; en Docker conserve el volumen <code>/app/keys</code> o no podrán descifrarse tras reiniciar.</li>
+                <li>Esta primera fase deja lista la <em>conexión</em>. Los flujos (emitir facturas con Senda, enviar WhatsApp con Wapi, lanzar llamadas con Wan) se habilitan sobre esta base.</li>
+            </ul>
+        </div>
+    </div>
+}
+
+@code {
+    private AppSettings? _s;
+    private string? _sendaKey, _wapiKey, _wanKey;
+    private bool _hasSendaKey, _hasWapiKey, _hasWanKey, _loading, _saved;
+    private readonly Dictionary<string, IntegrationTestResult> _result = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _s = await Settings.GetAsync();
+        _hasSendaKey = !string.IsNullOrEmpty(Conn.Unprotect(_s.Integrations.Senda.ApiKeyProtected));
+        _hasWapiKey = !string.IsNullOrEmpty(Conn.Unprotect(_s.Integrations.Wapi.ApiKeyProtected));
+        _hasWanKey = !string.IsNullOrEmpty(Conn.Unprotect(_s.Integrations.Wan.TokenProtected));
+    }
+
+    private static MarkupString Badge(bool enabled, bool hasKey)
+    {
+        if (!enabled) return new("<span class=\"badge-soft\">desactivado</span>");
+        if (hasKey) return new("<span class=\"badge-pill\" style=\"background:#00c875\">conectado</span>");
+        return new("<span class=\"badge-soft\">activo · falta clave</span>");
+    }
+
+    private static string KeyPh(bool has) => has ? "•••••••• (dejar vacío para conservar)" : "Pegue la clave";
+
+    private async Task TestAsync(string which)
+    {
+        _saved = false;
+        _loading = true;
+        try
+        {
+            var url = which switch
+            {
+                "senda" => _s!.Integrations.Senda.BaseUrl,
+                "wapi" => _s!.Integrations.Wapi.BaseUrl,
+                _ => _s!.Integrations.Wan.BaseUrl,
+            };
+            _result[which] = await Conn.PingHealthAsync(url);
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task SaveAsync()
+    {
+        _loading = true;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(_sendaKey)) { _s!.Integrations.Senda.ApiKeyProtected = Conn.Protect(_sendaKey.Trim()); _sendaKey = null; _hasSendaKey = true; }
+            if (!string.IsNullOrWhiteSpace(_wapiKey)) { _s!.Integrations.Wapi.ApiKeyProtected = Conn.Protect(_wapiKey.Trim()); _wapiKey = null; _hasWapiKey = true; }
+            if (!string.IsNullOrWhiteSpace(_wanKey)) { _s!.Integrations.Wan.TokenProtected = Conn.Protect(_wanKey.Trim()); _wanKey = null; _hasWanKey = true; }
+
+            _s!.Integrations.Senda.BaseUrl = _s.Integrations.Senda.BaseUrl?.Trim();
+            _s.Integrations.Wapi.BaseUrl = _s.Integrations.Wapi.BaseUrl?.Trim();
+            _s.Integrations.Wan.BaseUrl = _s.Integrations.Wan.BaseUrl?.Trim();
+
+            _s.UpdatedBy = await Me.NameAsync();
+            await Settings.SaveAsync(_s);
+            _saved = true;
+        }
+        finally { _loading = false; }
+    }
+}

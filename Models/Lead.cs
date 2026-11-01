@@ -24,10 +24,28 @@ public class Lead : Entity
     public string? AssignedTo { get; set; }
     public string? Comments { get; set; }
 
+    /// <summary>Contactos adicionales del prospecto (además del principal de los campos de arriba).</summary>
+    public List<LeadContact> Contacts { get; set; } = new();
+
     // Rellenado al convertir el prospecto
     public string? ConvertedContactId { get; set; }
     public string? ConvertedCompanyId { get; set; }
     public string? ConvertedDealId { get; set; }
 
     public string FullName => string.Join(" ", new[] { Name, LastName }.Where(s => !string.IsNullOrWhiteSpace(s)));
+}
+
+/// <summary>Un contacto adicional dentro de un prospecto.</summary>
+public class LeadContact
+{
+    public string? Name { get; set; }
+    public string? LastName { get; set; }
+    public string? Position { get; set; }
+    public string? Phone { get; set; }
+    [EmailAddress(ErrorMessage = "Correo inválido")]
+    public string? Email { get; set; }
+
+    public string FullName => string.Join(" ", new[] { Name, LastName }.Where(s => !string.IsNullOrWhiteSpace(s)));
+    public bool IsEmpty => string.IsNullOrWhiteSpace(Name) && string.IsNullOrWhiteSpace(LastName)
+        && string.IsNullOrWhiteSpace(Phone) && string.IsNullOrWhiteSpace(Email) && string.IsNullOrWhiteSpace(Position);
 }

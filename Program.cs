@@ -3,6 +3,7 @@ using Dana.Components;
 using Dana.Data;
 using Dana.Models;
 using Dana.Services;
+using Dana.Services.Integrations;
 using Dana.Services.Invoicing;
 using Dana.Services.Messaging;
 using Dana.Services.Telegram;
@@ -42,7 +43,11 @@ builder.Services.AddSingleton(builder.Configuration.GetSection(EmailOptions.Sect
 builder.Services.AddSingleton<EmailService>();
 builder.Services.AddSingleton(builder.Configuration.GetSection(TwilioOptions.Section).Get<TwilioOptions>() ?? new TwilioOptions());
 builder.Services.AddSingleton<TwilioMessagingService>();
-builder.Services.AddSingleton<IElectronicInvoiceProvider, NotConfiguredInvoiceProvider>();
+// Integraciones externas opcionales (Savegre): Senda, Wapi y Wan. Configurables desde /configuracion/integraciones.
+builder.Services.AddHttpClient("integrations", c => c.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddSingleton<IntegrationService>();
+// Facturación electrónica: adaptador a Senda; sin conexión configurada se comporta como "no configurado".
+builder.Services.AddSingleton<IElectronicInvoiceProvider, SendaInvoiceProvider>();
 builder.Services.AddSingleton<InvoiceService>();
 // Telegram: bot con long polling (sin URL pública). Sin token no se inicia.
 builder.Services.AddSingleton(builder.Configuration.GetSection(TelegramOptions.Section).Get<TelegramOptions>() ?? new TelegramOptions());

@@ -20,6 +20,7 @@ public class AppSettings : Entity
     public int QuoteValidDays { get; set; } = 15;
     public decimal DefaultTaxRate { get; set; } = 13m;
     public AiSettings Ai { get; set; } = new();
+    public IntegrationSettings Integrations { get; set; } = new();
 
     public string? QuoteTerms { get; set; } = "Precios sujetos a cambio sin previo aviso. Validez de la oferta según fecha indicada.";
 

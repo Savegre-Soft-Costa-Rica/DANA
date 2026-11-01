@@ -105,6 +105,25 @@ public class LeadService
             lead.ConvertedContactId = contact.Id;
             await _activities.LogAsync("contact", contact.Id!, contact.FullName, ActivityKinds.Created, $"Creado al convertir el prospecto \"{lead.Title}\"", author);
             await _automations.TriggerAsync(new AutomationEvent("contacts", TriggerTypes.Created, contact, author));
+
+            // Contactos adicionales del prospecto
+            foreach (var extra in lead.Contacts.Where(c => !c.IsEmpty))
+            {
+                var extraContact = await _contacts.InsertAsync(new Contact
+                {
+                    Name = string.IsNullOrWhiteSpace(extra.Name) ? (extra.Email ?? lead.Title) : extra.Name!,
+                    LastName = extra.LastName,
+                    Position = extra.Position,
+                    Phone = extra.Phone,
+                    Email = extra.Email,
+                    Source = lead.Source,
+                    Type = "Cliente",
+                    CompanyId = company?.Id,
+                    AssignedTo = lead.AssignedTo
+                });
+                await _activities.LogAsync("contact", extraContact.Id!, extraContact.FullName, ActivityKinds.Created, $"Creado al convertir el prospecto \"{lead.Title}\"", author);
+                await _automations.TriggerAsync(new AutomationEvent("contacts", TriggerTypes.Created, extraContact, author));
+            }
         }
 
         if (options.CreateDeal)

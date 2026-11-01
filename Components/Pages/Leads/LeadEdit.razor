@@ -8,6 +8,7 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject DialogService Dialogs
+@inject BoardConfigService Configs
 
 <PageTitle>Dana · @(IsNew ? "Nuevo prospecto" : _model.Title)</PageTitle>
 
@@ -60,7 +61,7 @@
             <p class="small muted">Se crearán las entidades seleccionadas con los datos del prospecto y éste pasará a estado <em>Convertido</em>.</p>
             <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="cvContact" @bind="_cvContact" />
-                <label class="form-check-label" for="cvContact">Crear <strong>Contacto</strong> (@(_model.FullName is { Length: > 0 } ? _model.FullName : _model.Title))</label>
+                <label class="form-check-label" for="cvContact">Crear <strong>Contacto</strong> (@(_model.FullName is { Length: > 0 } ? _model.FullName : _model.Title))@(_model.Contacts.Count(c => !c.IsEmpty) is int n && n > 0 ? $" y {n} contacto(s) adicional(es)" : "")</label>
             </div>
             <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="cvCompany" @bind="_cvCompany" disabled="@string.IsNullOrWhiteSpace(_model.CompanyName)" />
@@ -145,6 +146,98 @@
                         </InputSelect>
                     </div>
                     <div class="col-12"><label class="form-label">Comentarios</label><InputTextArea class="form-control" rows="3" @bind-Value="_model.Comments" /></div>
+
+                    @* ----- Campos personalizados (compartidos con el tablero de prospectos) ----- *@
+                    @foreach (var col in _customCols)
+                    {
+                        <div class="@(col.Type == ColumnType.LongText ? "col-12" : "col-md-4")">
+                            <label class="form-label d-flex justify-content-between align-items-center">
+                                <span>@col.Title</span>
+                                @if (_isAdmin)
+                                {
+                                    <button type="button" class="small" style="border:0;background:none;color:var(--danger,#e2445c);cursor:pointer;padding:0" title="Eliminar campo" @onclick="() => DeleteFieldAsync(col)">✕</button>
+                                }
+                            </label>
+                            @switch (col.Type)
+                            {
+                                case ColumnType.LongText:
+                                    <textarea class="form-control" rows="2" value="@col.EditText(_model)" @onchange="e => OnCustomText(col, e)"></textarea>
+                                    break;
+                                case ColumnType.Number:
+                                case ColumnType.Money:
+                                    <input type="number" step="any" class="form-control" value="@col.EditText(_model)" @onchange="e => OnCustomText(col, e)" />
+                                    break;
+                                case ColumnType.Date:
+                                    <input type="date" class="form-control" value="@col.EditText(_model)" @onchange="e => OnCustomText(col, e)" />
+                                    break;
+                                case ColumnType.Checkbox:
+                                    <div><input type="checkbox" class="form-check-input" checked="@(col.GetValue(_model) is true)" @onchange="e => OnCustomCheck(col, e)" /></div>
+                                    break;
+                                case ColumnType.Status:
+                                case ColumnType.Select:
+                                case ColumnType.Person:
+                                    <select class="form-select" value="@(col.GetValue(_model)?.ToString())" @onchange="e => OnCustomSelect(col, e)">
+                                        <option value="">—</option>
+                                        @foreach (var o in col.Options) { <option value="@o.Value">@o.Label</option> }
+                                    </select>
+                                    break;
+                                default:
+                                    <input type="@(col.Type == ColumnType.Email ? "email" : col.Type == ColumnType.Phone ? "tel" : "text")" class="form-control" value="@col.EditText(_model)" @onchange="e => OnCustomText(col, e)" />
+                                    break;
+                            }
+                        </div>
+                    }
+
+                    @if (_isAdmin)
+                    {
+                        <div class="col-12">
+                            @if (!_addFieldOpen)
+                            {
+                                <button type="button" class="btn-secondary btn-sm" @onclick="() => _addFieldOpen = true">+ Agregar campo</button>
+                            }
+                            else
+                            {
+                                <div class="d-flex gap-2 align-items-end flex-wrap p-2" style="background:var(--surface-head);border-radius:8px">
+                                    <div>
+                                        <label class="form-label small">Nombre del campo</label>
+                                        <input class="form-control form-control-sm" style="min-width:180px" @bind="_newFieldTitle" @bind:event="oninput" placeholder="Ej. RUC, Cantón…" />
+                                    </div>
+                                    <div>
+                                        <label class="form-label small">Tipo</label>
+                                        <select class="form-select form-select-sm" @bind="_newFieldType">
+                                            @foreach (var (type, label) in ColumnTypes.Creatable) { <option value="@type">@label</option> }
+                                        </select>
+                                    </div>
+                                    <button type="button" class="btn-primary btn-sm" @onclick="AddFieldAsync" disabled="@string.IsNullOrWhiteSpace(_newFieldTitle)">Agregar</button>
+                                    <button type="button" class="btn-secondary btn-sm" @onclick="() => _addFieldOpen = false">Cancelar</button>
+                                </div>
+                                <div class="small muted mt-1">Los campos personalizados también aparecen como columnas en el tablero de prospectos.</div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                @* ----- Contactos adicionales ----- *@
+                <div class="mt-4">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <strong>Contactos adicionales @(_model.Contacts.Count > 0 ? $"({_model.Contacts.Count})" : "")</strong>
+                        <button type="button" class="btn-secondary btn-sm" @onclick="() => _model.Contacts.Add(new LeadContact())">+ Agregar contacto</button>
+                    </div>
+                    @if (_model.Contacts.Count == 0)
+                    {
+                        <p class="muted small mb-0">Sin contactos adicionales. El contacto principal son los campos de arriba; agregue más personas de la misma cuenta aquí.</p>
+                    }
+                    @foreach (var c in _model.Contacts)
+                    {
+                        <div class="row g-2 align-items-end mb-2 pb-2 border-bottom">
+                            <div class="col-md-3"><label class="form-label small">Nombre</label><InputText class="form-control form-control-sm" @bind-Value="c.Name" /></div>
+                            <div class="col-md-2"><label class="form-label small">Apellido</label><InputText class="form-control form-control-sm" @bind-Value="c.LastName" /></div>
+                            <div class="col-md-2"><label class="form-label small">Cargo</label><InputText class="form-control form-control-sm" @bind-Value="c.Position" /></div>
+                            <div class="col-md-2"><label class="form-label small">Teléfono</label><InputText class="form-control form-control-sm" @bind-Value="c.Phone" /></div>
+                            <div class="col-md-2"><label class="form-label small">Correo</label><InputText class="form-control form-control-sm" @bind-Value="c.Email" /></div>
+                            <div class="col-md-1 text-end"><button type="button" class="btn-danger btn-sm" title="Quitar" @onclick="() => _model.Contacts.Remove(c)">✕</button></div>
+                        </div>
+                    }
                 </div>
             </div>
             <div class="card-footer d-flex justify-content-between align-items-center">
@@ -182,6 +275,14 @@
     private List<Pipeline> _pipelines = new();
     private List<string> _people = new();
     private bool _loading = true;
+
+    // Campos personalizados (compartidos con el tablero "leads")
+    private BoardConfig _config = new();
+    private List<BoardColumn<Lead>> _customCols = new();
+    private bool _isAdmin;
+    private bool _addFieldOpen;
+    private string _newFieldTitle = "";
+    private ColumnType _newFieldType = ColumnType.Text;
     private bool _busy, _saved;
     private bool _showConvert;
     private bool _cvContact = true, _cvCompany = true, _cvDeal = true;
@@ -193,6 +294,9 @@
         _loading = true;
         _pipelines = await Pipelines.GetAllAsync();
         _people = (await Users.GetAllAsync()).Where(u => u.IsActive).Select(u => u.Name).OrderBy(n => n).ToList();
+        _isAdmin = await Me.IsAdminAsync();
+        _config = await Configs.GetAsync("leads");
+        RebuildCustomCols();
         _cvPipelineId ??= (_pipelines.FirstOrDefault(p => p.IsDefault) ?? _pipelines.FirstOrDefault())?.Id;
         if (IsNew)
         {
@@ -256,5 +360,49 @@
         _model.IsArchived = !_model.IsArchived;
         await Leads.SaveAsync(_model, await Me.NameAsync());
         if (Embedded) { await Drawer.NotifyChangedAsync(); await Drawer.CloseAsync(); }
+    }
+
+    // ----- campos personalizados -----
+    private void RebuildCustomCols() =>
+        _customCols = _config.CustomColumns.Select(d => BoardColumn<Lead>.FromCustom(d, _people)).ToList();
+
+    private void OnCustomText(BoardColumn<Lead> col, ChangeEventArgs e) => col.SetFromText(_model, e.Value?.ToString() ?? "");
+    private void OnCustomSelect(BoardColumn<Lead> col, ChangeEventArgs e) => col.SetValue?.Invoke(_model, e.Value?.ToString());
+    private void OnCustomCheck(BoardColumn<Lead> col, ChangeEventArgs e) => col.SetValue?.Invoke(_model, e.Value is true);
+
+    private async Task AddFieldAsync()
+    {
+        if (!_isAdmin || string.IsNullOrWhiteSpace(_newFieldTitle)) return;
+        var def = new CustomColumnDef
+        {
+            Title = _newFieldTitle.Trim(),
+            Type = _newFieldType.ToString(),
+            Width = _newFieldType is ColumnType.LongText ? 220 : 150
+        };
+        if (_newFieldType is ColumnType.Status or ColumnType.Select)
+            def.Options =
+            [
+                new StatusOptionDef { Value = "op1", Label = "Opción 1", Color = "#00c875" },
+                new StatusOptionDef { Value = "op2", Label = "Opción 2", Color = "#fdab3d" },
+                new StatusOptionDef { Value = "op3", Label = "Opción 3", Color = "#e2445c" },
+            ];
+        _config.CustomColumns.Add(def);
+        await Configs.SaveAsync(_config);
+        RebuildCustomCols();
+        _newFieldTitle = "";
+        _newFieldType = ColumnType.Text;
+        _addFieldOpen = false;
+    }
+
+    private async Task DeleteFieldAsync(BoardColumn<Lead> col)
+    {
+        if (!_isAdmin || col.CustomId is null) return;
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar el campo \"{col.Title}\"? Los valores guardados dejarán de mostrarse.")) return;
+        _config.CustomColumns.RemoveAll(d => d.Id == col.CustomId);
+        _config.HiddenColumns.Remove(col.Key);
+        _config.ColumnOrder.Remove(col.Key);
+        _config.LabelOverrides.Remove(col.Key);
+        await Configs.SaveAsync(_config);
+        RebuildCustomCols();
     }
 }

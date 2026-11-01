@@ -28,6 +28,8 @@ public class AgentTools
             new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "contact", "company", "deal", "task", "product" } }, texto = new { type = "string", description = "Texto a buscar (nombre, correo, empresa…). Vacío = los más recientes." }, limite = new { type = "integer", description = "Máximo de resultados (1-50)", @default = 10 } }, required = new[] { "tipo" } }),
         new("obtener", "Obtener registro", "Devuelve todos los campos de un registro por su id, incluidas sus últimas actividades y tareas.",
             new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "contact", "company", "deal", "task", "product" } }, id = new { type = "string" } }, required = new[] { "tipo", "id" } }),
+        new("campos", "Campos disponibles", "Lista los campos de un tipo de registro (lead, contact, company o deal): los campos estándar y los campos personalizados ya definidos (con su título y tipo). Úsala ANTES de enriquecer un registro para ver qué campos existen y reutilizarlos en vez de crear duplicados; los campos personalizados se escriben con el objeto 'custom' en crear/actualizar.",
+            new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "contact", "company", "deal" } } }, required = new[] { "tipo" } }),
         new("estadisticas", "Estadísticas", "Resumen numérico del CRM: prospectos por estado, negociaciones abiertas/ganadas/perdidas y montos (moneda base), tareas pendientes y vencidas.",
             new { type = "object", properties = new { }, required = Array.Empty<string>() }),
         new("resumen_embudo", "Resumen de embudo", "Negociaciones de un embudo agrupadas por etapa, con cantidad y monto por etapa. Sin pipelineId usa el embudo por defecto.",
@@ -36,9 +38,9 @@ public class AgentTools
             new { type = "object", properties = new { }, required = Array.Empty<string>() }),
         new("listar_usuarios", "Listar usuarios", "Lista los usuarios del sistema (nombre y rol) para asignar responsables.",
             new { type = "object", properties = new { }, required = Array.Empty<string>() }),
-        new("crear", "Crear registro", "Crea un registro. Campos por tipo — lead: title*, name, lastName, companyName, email, phone, source, status(NEW|IN_PROCESS|QUALIFIED|JUNK), opportunity, currency, assignedTo, comments. contact: name*, lastName, email, phone, position, companyId, type, comments. company: title*, industry, email, phone, web, address, comments. deal: title*, amount, currency, pipelineId, stageId, contactId, companyId, probability, expectedCloseDate(YYYY-MM-DD), assignedTo, comments. task: title*, kind(call|meeting|email|task), dueAt(ISO), assignedTo, notes, entityType, entityId. product: name*, sku, description, category, tags(lista), unit, price, currency, taxRate, stock(-1 = sin control), isActive, isPublic.",
+        new("crear", "Crear registro", "Crea un registro. Campos por tipo — lead: title*, name, lastName, companyName, email, phone, source, status(NEW|IN_PROCESS|QUALIFIED|JUNK), opportunity, currency, assignedTo, comments. contact: name*, lastName, email, phone, position, companyId, type, comments. company: title*, industry, email, phone, web, address, comments. deal: title*, amount, currency, pipelineId, stageId, contactId, companyId, probability, expectedCloseDate(YYYY-MM-DD), assignedTo, comments. task: title*, kind(call|meeting|email|task), dueAt(ISO), assignedTo, notes, entityType, entityId. product: name*, sku, description, category, tags(lista), unit, price, currency, taxRate, stock(-1 = sin control), isActive, isPublic. Para datos extra que no encajen en los campos estándar (lead/contact/company/deal) añade un objeto 'custom' con el título del campo como clave (ver la herramienta actualizar).",
             new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "contact", "company", "deal", "task", "product" } }, datos = new { type = "object", description = "Campos del registro", additionalProperties = true } }, required = new[] { "tipo", "datos" } }, Write: true),
-        new("actualizar", "Actualizar registro", "Modifica campos de un registro existente (mismos campos que en 'crear'; para mover una negociación de etapa use stageId; para marcar una tarea use isDone=true; para productos: price, stock, category, tags, isActive, isPublic).",
+        new("actualizar", "Actualizar registro", "Modifica campos de un registro existente (mismos campos que en 'crear'; para mover una negociación de etapa use stageId; para marcar una tarea use isDone=true; para productos: price, stock, category, tags, isActive, isPublic). IMPORTANTE: los datos que tengan campo estándar (correo→email, teléfono→phone, sitio web→web, dirección→address, industria→industry, nº de empleados→employees, RUC/cédula→taxId, etc.) van SIEMPRE en su campo estándar, NO en 'custom'; consulta la lista con la herramienta 'campos' si dudas. Usa el objeto 'custom' SOLO para datos que de verdad no tienen campo estándar (p. ej. año de fundación, horario de atención, certificaciones), con el TÍTULO del campo como clave: datos:{\"custom\":{\"Año de fundación\":\"2007\"}}. Los campos personalizados que ya existan se reutilizan por su título; los que no existan se crean como campo nuevo del tablero. Solo lead, contact, company y deal admiten campos personalizados.",
             new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "contact", "company", "deal", "task", "product" } }, id = new { type = "string" }, datos = new { type = "object", additionalProperties = true } }, required = new[] { "tipo", "id", "datos" } }, Write: true),
         new("agregar_nota", "Agregar nota", "Añade una actualización/nota a la línea de tiempo de un prospecto, contacto, compañía o negociación.",
             new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "contact", "company", "deal" } }, id = new { type = "string" }, texto = new { type = "string" } }, required = new[] { "tipo", "id", "texto" } }, Write: true),
@@ -101,14 +103,15 @@ public class AgentTools
     private readonly SettingsService _settings;
     private readonly QuoteService _quotes;
     private readonly IRepository<Quote> _quoteRepo;
+    private readonly BoardConfigService _boards;
     private readonly IServiceProvider _sp;
 
     public AgentTools(LeadService leads, DealService deals, IRepository<Contact> contacts, IRepository<Company> companies, IRepository<Lead> leadRepo, IRepository<Deal> dealRepo,
-        IRepository<Product> products, PipelineService pipelines, TaskService tasks, ActivityService activities, UserService users, SettingsService settings, QuoteService quotes, IRepository<Quote> quoteRepo, IServiceProvider sp)
+        IRepository<Product> products, PipelineService pipelines, TaskService tasks, ActivityService activities, UserService users, SettingsService settings, QuoteService quotes, IRepository<Quote> quoteRepo, BoardConfigService boards, IServiceProvider sp)
     {
         _quoteRepo = quoteRepo;
         _leads = leads; _deals = deals; _contacts = contacts; _companies = companies; _leadRepo = leadRepo; _dealRepo = dealRepo;
-        _products = products; _pipelines = pipelines; _tasks = tasks; _activities = activities; _users = users; _settings = settings; _quotes = quotes; _sp = sp;
+        _products = products; _pipelines = pipelines; _tasks = tasks; _activities = activities; _users = users; _settings = settings; _quotes = quotes; _boards = boards; _sp = sp;
     }
 
     public Task<ToolResult> ExecuteAsync(string name, JsonElement input, string author, bool allowWrites) => ExecuteAsync(name, input, new ToolContext(author, allowWrites));
@@ -152,6 +155,7 @@ public class AgentTools
                 "leer_pagina" => await _sp.GetRequiredService<WebSearchService>().ReadAsync(Str(input, "url")),
                 "buscar" => await SearchAsync(Str(input, "tipo"), Str(input, "texto"), Int(input, "limite", 10)),
                 "obtener" => await GetAsync(Str(input, "tipo"), Str(input, "id")),
+                "campos" => await FieldsAsync(Str(input, "tipo")),
                 "estadisticas" => await StatsAsync(),
                 "resumen_embudo" => await PipelineSummaryAsync(Str(input, "pipelineId")),
                 "listar_embudos" => await ListPipelinesAsync(),
@@ -280,30 +284,34 @@ public class AgentTools
                 Apply(l, datos);
                 if (string.IsNullOrWhiteSpace(l.Title)) l.Title = string.Join(" ", new[] { l.FullName, l.CompanyName }.Where(x => !string.IsNullOrWhiteSpace(x)));
                 if (string.IsNullOrWhiteSpace(l.Title)) throw new ArgumentException("title es obligatorio");
+                var lcf = await ApplyCustomAsync(l, "lead", datos);
                 await _leads.SaveAsync(l, author);
-                return Ser(new { ok = true, id = l.Id, enlace = CrmEntities.LinkOf(l) });
+                return Ser(new { ok = true, id = l.Id, enlace = CrmEntities.LinkOf(l), camposPersonalizados = lcf });
             }
             case "contact":
             {
                 var c = new Contact { CreatedBy = author }; Apply(c, datos);
                 if (string.IsNullOrWhiteSpace(c.Name)) throw new ArgumentException("name es obligatorio");
+                var ccf = await ApplyCustomAsync(c, "contact", datos);
                 await _contacts.InsertAsync(c);
-                return Ser(new { ok = true, id = c.Id, enlace = CrmEntities.LinkOf(c) });
+                return Ser(new { ok = true, id = c.Id, enlace = CrmEntities.LinkOf(c), camposPersonalizados = ccf });
             }
             case "company":
             {
                 var k = new Company { CreatedBy = author }; Apply(k, datos);
                 if (string.IsNullOrWhiteSpace(k.Title)) throw new ArgumentException("title es obligatorio");
+                var kcf = await ApplyCustomAsync(k, "company", datos);
                 await _companies.InsertAsync(k);
-                return Ser(new { ok = true, id = k.Id, enlace = CrmEntities.LinkOf(k) });
+                return Ser(new { ok = true, id = k.Id, enlace = CrmEntities.LinkOf(k), camposPersonalizados = kcf });
             }
             case "deal":
             {
                 var d = new Deal { CreatedBy = author }; Apply(d, datos);
                 if (string.IsNullOrWhiteSpace(d.Title)) throw new ArgumentException("title es obligatorio");
                 if (string.IsNullOrWhiteSpace(d.PipelineId)) d.PipelineId = (await _pipelines.GetDefaultAsync()).Id!;
+                var dcf = await ApplyCustomAsync(d, "deal", datos);
                 await _deals.SaveAsync(d, author);
-                return Ser(new { ok = true, id = d.Id, enlace = CrmEntities.LinkOf(d) });
+                return Ser(new { ok = true, id = d.Id, enlace = CrmEntities.LinkOf(d), camposPersonalizados = dcf });
             }
             case "product":
             {
@@ -329,10 +337,10 @@ public class AgentTools
     {
         switch (tipo)
         {
-            case "lead": { var l = await _leads.GetAsync(id) ?? throw new ArgumentException("Prospecto no encontrado"); Apply(l, datos); await _leads.SaveAsync(l, author); return Ser(new { ok = true, id, enlace = CrmEntities.LinkOf(l) }); }
-            case "contact": { var c = await _contacts.GetByIdAsync(id) ?? throw new ArgumentException("Contacto no encontrado"); Apply(c, datos); c.UpdatedBy = author; await _contacts.UpdateAsync(c); return Ser(new { ok = true, id }); }
-            case "company": { var k = await _companies.GetByIdAsync(id) ?? throw new ArgumentException("Compañía no encontrada"); Apply(k, datos); k.UpdatedBy = author; await _companies.UpdateAsync(k); return Ser(new { ok = true, id }); }
-            case "deal": { var d = await _deals.GetAsync(id) ?? throw new ArgumentException("Negociación no encontrada"); Apply(d, datos); await _deals.SaveAsync(d, author); return Ser(new { ok = true, id, enlace = CrmEntities.LinkOf(d) }); }
+            case "lead": { var l = await _leads.GetAsync(id) ?? throw new ArgumentException("Prospecto no encontrado"); Apply(l, datos); var cf = await ApplyCustomAsync(l, "lead", datos); await _leads.SaveAsync(l, author); return Ser(new { ok = true, id, enlace = CrmEntities.LinkOf(l), camposPersonalizados = cf }); }
+            case "contact": { var c = await _contacts.GetByIdAsync(id) ?? throw new ArgumentException("Contacto no encontrado"); Apply(c, datos); var cf = await ApplyCustomAsync(c, "contact", datos); c.UpdatedBy = author; await _contacts.UpdateAsync(c); return Ser(new { ok = true, id, camposPersonalizados = cf }); }
+            case "company": { var k = await _companies.GetByIdAsync(id) ?? throw new ArgumentException("Compañía no encontrada"); Apply(k, datos); var cf = await ApplyCustomAsync(k, "company", datos); k.UpdatedBy = author; await _companies.UpdateAsync(k); return Ser(new { ok = true, id, camposPersonalizados = cf }); }
+            case "deal": { var d = await _deals.GetAsync(id) ?? throw new ArgumentException("Negociación no encontrada"); Apply(d, datos); var cf = await ApplyCustomAsync(d, "deal", datos); await _deals.SaveAsync(d, author); return Ser(new { ok = true, id, enlace = CrmEntities.LinkOf(d), camposPersonalizados = cf }); }
             case "task": { var t = await _tasks.GetAsync(id) ?? throw new ArgumentException("Tarea no encontrada"); Apply(t, datos); await _tasks.SaveAsync(t, author); return Ser(new { ok = true, id }); }
             case "product": { var p = await _products.GetByIdAsync(id) ?? throw new ArgumentException("Producto no encontrado"); Apply(p, datos); p.UpdatedBy = author; await _products.UpdateAsync(p); return Ser(new { ok = true, id, enlace = "productos" }); }
             default: throw new ArgumentException("Tipo no válido: " + tipo);
@@ -345,6 +353,158 @@ public class AgentTools
         if (title is null) throw new ArgumentException("Registro no encontrado");
         await _activities.LogAsync(tipo, id, title, ActivityKinds.Note, texto, author);
         return Ser(new { ok = true });
+    }
+
+    // ---------- campos personalizados ----------
+    /// <summary>Clave de tablero (BoardConfig) para cada tipo que admite columnas personalizadas.</summary>
+    private static string? BoardKeyOf(string tipo) => tipo switch { "lead" => "leads", "contact" => "contacts", "company" => "companies", "deal" => "deals", _ => null };
+
+    /// <summary>Campos estándar escribibles por tipo (los que acepta crear/actualizar fuera de 'custom').</summary>
+    private static string[] StandardFields(string tipo) => tipo switch
+    {
+        "lead" => new[] { "title", "name", "lastName", "companyName", "position", "email", "phone", "source", "status", "opportunity", "currency", "assignedTo", "comments" },
+        "contact" => new[] { "name", "lastName", "email", "phone", "position", "companyId", "type", "assignedTo", "comments" },
+        "company" => new[] { "title", "industry", "email", "phone", "web", "address", "taxId", "type", "annualRevenue", "employees", "assignedTo", "comments" },
+        "deal" => new[] { "title", "amount", "currency", "pipelineId", "stageId", "contactId", "companyId", "probability", "expectedCloseDate", "assignedTo", "comments" },
+        _ => Array.Empty<string>()
+    };
+
+    private async Task<string> FieldsAsync(string tipo)
+    {
+        var board = BoardKeyOf(tipo) ?? throw new ArgumentException("Tipo no válido (solo lead, contact, company o deal): " + tipo);
+        var cfg = await _boards.GetAsync(board);
+        return Ser(new
+        {
+            tipo,
+            camposEstandar = StandardFields(tipo),
+            camposPersonalizados = cfg.CustomColumns.Select(c => new { c.Id, titulo = c.Title, tipo = c.Type, opciones = c.Options.Count == 0 ? null : c.Options.Select(o => o.Label) }),
+            nota = "Para escribir un campo personalizado, usa el objeto 'custom' en crear/actualizar con el título del campo como clave. Los títulos que no existan se crearán como campo nuevo del tablero."
+        });
+    }
+
+    /// <summary>Aplica el objeto 'custom' de los datos a Entity.Custom, reutilizando columnas por título/id y creando las que falten. Devuelve el detalle o null.</summary>
+    private async Task<object?> ApplyCustomAsync(Entity entity, string tipo, JsonElement datos)
+    {
+        if (datos.ValueKind != JsonValueKind.Object || !datos.TryGetProperty("custom", out var custom) || custom.ValueKind != JsonValueKind.Object) return null;
+        var board = BoardKeyOf(tipo);
+        if (board is null) return null;
+        var cfg = await _boards.GetAsync(board);
+        var escritos = new List<string>();
+        var aEstandar = new List<string>();
+        var creados = new List<string>();
+        var ignorados = new List<string>();
+        var boardChanged = false;
+        foreach (var p in custom.EnumerateObject())
+        {
+            var key = p.Name.Trim();
+            if (key.Length == 0) continue;
+
+            // 1) Si la clave corresponde a un campo ESTÁNDAR (p. ej. "Correo", "Teléfono", "Sitio web"),
+            //    se escribe en ese campo del registro en vez de crear un campo personalizado duplicado.
+            var std = MapToStandard(tipo, key);
+            if (std is not null)
+            {
+                Apply(entity, JsonSerializer.SerializeToElement(new Dictionary<string, JsonElement> { [std] = p.Value }));
+                aEstandar.Add($"{key} → {std}");
+                continue;
+            }
+
+            // 2) Campo personalizado ya existente (por id o título): se reutiliza.
+            var def = cfg.CustomColumns.FirstOrDefault(c => c.Id == key || c.Title.Equals(key, StringComparison.OrdinalIgnoreCase));
+            if (def is null)
+            {
+                // 3) No existe: se crea como campo nuevo del tablero (salvo que el valor venga vacío).
+                var preview = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : p.Value.GetRawText();
+                if (string.IsNullOrWhiteSpace(preview)) { ignorados.Add(key); continue; }
+                def = new CustomColumnDef { Title = key, Type = (preview!.Length > 80 ? "LongText" : "Text"), Width = preview.Length > 80 ? 220 : 150 };
+                cfg.CustomColumns.Add(def);
+                creados.Add(def.Title);
+                boardChanged = true;
+            }
+            var serialized = SerializeCustomValue(def, p.Value);
+            if (serialized is null) entity.Custom.Remove(def.Id);
+            else entity.Custom[def.Id] = serialized;
+            escritos.Add(def.Title);
+        }
+        if (boardChanged) await _boards.SaveAsync(cfg);
+        if (escritos.Count == 0 && aEstandar.Count == 0 && ignorados.Count == 0) return null;
+        return new
+        {
+            escritos = escritos.Count == 0 ? null : escritos,
+            campoEstandar = aEstandar.Count == 0 ? null : aEstandar,
+            creados = creados.Count == 0 ? null : creados,
+            ignorados = ignorados.Count == 0 ? null : ignorados,
+            aviso = aEstandar.Count > 0 ? "Algunos datos se guardaron en campos estándar del registro en vez de crear campos personalizados." : null
+        };
+    }
+
+    /// <summary>Normaliza un texto para comparar nombres de campo: minúsculas, sin acentos ni signos.</summary>
+    private static string Normalize(string s)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var ch in s.Trim().ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD))
+        {
+            var cat = CharUnicodeInfo.GetUnicodeCategory(ch);
+            if (cat == System.Globalization.UnicodeCategory.NonSpacingMark) continue;
+            if (char.IsLetterOrDigit(ch)) sb.Append(ch);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Mapea una clave de 'custom' a un campo estándar del tipo, si corresponde (incluye sinónimos en español). Devuelve el nombre del campo o null.</summary>
+    private static string? MapToStandard(string tipo, string key)
+    {
+        var n = Normalize(key);
+        if (n.Length == 0) return null;
+        var fields = StandardFields(tipo);
+        // coincidencia directa con el nombre del campo (email, phone, web…)
+        var direct = fields.FirstOrDefault(f => Normalize(f) == n);
+        if (direct is not null) return direct;
+        // sinónimos → campo canónico
+        var canonical = n switch
+        {
+            "correo" or "correoelectronico" or "email" or "mail" or "ecorreo" or "correodecontacto" => "email",
+            "telefono" or "tel" or "celular" or "movil" or "numerodetelefono" or "numero" or "telefonodecontacto" or "whatsapp" => "phone",
+            "sitioweb" or "web" or "paginaweb" or "pagina" or "url" or "website" or "sitio" => "web",
+            "direccion" or "domicilio" or "ubicacion" or "address" or "direccionfisica" => "address",
+            "industria" or "sector" or "rubro" or "giro" or "actividad" or "industry" => "industry",
+            "empresa" or "compania" or "nombredelaempresa" or "razonsocial" or "companyname" => "companyName",
+            "cargo" or "puesto" or "posicion" or "position" => "position",
+            "ruc" or "cedulajuridica" or "nit" or "taxid" or "identificacionfiscal" or "cedula" or "rfc" => "taxId",
+            "ingresos" or "ingresosanuales" or "facturacion" or "annualrevenue" or "ventasanuales" => "annualRevenue",
+            "empleados" or "numerodeempleados" or "employees" or "colaboradores" or "personal" => "employees",
+            "comentarios" or "notas" or "observaciones" or "comments" => "comments",
+            "origen" or "fuente" or "source" => "source",
+            "moneda" or "currency" => "currency",
+            "nombre" or "titulo" or "title" => fields.Contains("title") ? "title" : null,
+            _ => null
+        };
+        return canonical is not null && fields.Contains(canonical) ? canonical : null;
+    }
+
+    /// <summary>Serializa un valor JSON al texto que guarda Entity.Custom, según el tipo de columna (igual que el tablero).</summary>
+    private static string? SerializeCustomValue(CustomColumnDef def, JsonElement v)
+    {
+        if (v.ValueKind == JsonValueKind.Null) return null;
+        var raw = v.ValueKind == JsonValueKind.String ? (v.GetString() ?? "") : v.GetRawText();
+        switch (def.Type)
+        {
+            case "Number":
+            case "Money":
+                if (v.ValueKind == JsonValueKind.Number) return v.GetDecimal().ToString(CultureInfo.InvariantCulture);
+                return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var d) ? d.ToString(CultureInfo.InvariantCulture) : null;
+            case "Date":
+                return DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt) ? dt.ToString("yyyy-MM-dd") : null;
+            case "Checkbox":
+                var b = v.ValueKind == JsonValueKind.True || (v.ValueKind == JsonValueKind.String && bool.TryParse(raw, out var bb) && bb);
+                return b ? "true" : "false";
+            case "Status":
+            case "Select":
+                var opt = def.Options.FirstOrDefault(o => o.Value.Equals(raw, StringComparison.OrdinalIgnoreCase) || o.Label.Equals(raw, StringComparison.OrdinalIgnoreCase));
+                return opt?.Value ?? (string.IsNullOrWhiteSpace(raw) ? null : raw);
+            default:
+                return string.IsNullOrWhiteSpace(raw) ? null : raw;
+        }
     }
 
     // ---------- cotizaciones ----------
