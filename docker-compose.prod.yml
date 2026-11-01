@@ -2,7 +2,7 @@
 # Producción: app + MongoDB, sin puertos de la base expuestos, datos en volúmenes.
 #   cp .env.example .env   (edite las variables)
 #   docker compose -f docker-compose.prod.yml up -d --build
-#   App: http://servidor:8080  → ponga delante un proxy con HTTPS (Caddy, Nginx, Traefik).
+#   App: http://servidor:9000  → ponga delante un proxy con HTTPS (Caddy, Nginx, Traefik).
 # ---------------------------------------------------------------------------
 services:
   mongo:
@@ -33,7 +33,7 @@ services:
       mongo:
         condition: service_healthy
     ports:
-      - "${DANA_PORT:-8080}:8080"
+      - "${DANA_PORT:-9000}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       TZ: ${TZ:-America/Costa_Rica}
