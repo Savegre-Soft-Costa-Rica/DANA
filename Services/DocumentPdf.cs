@@ -16,7 +16,22 @@ public partial class DocumentService
         private readonly string _dir;
         public EmbeddedFontResolver(string dir) { _dir = dir; }
         public byte[]? GetFont(string faceName) { var f = Path.Combine(_dir, faceName); return File.Exists(f) ? File.ReadAllBytes(f) : null; }
-        public FontResolverInfo? ResolveTypeface(string familyName, bool bold, bool italic) => new FontResolverInfo(bold ? "DejaVuSans-Bold.ttf" : "DejaVuSans.ttf");
+        public FontResolverInfo? ResolveTypeface(string familyName, bool bold, bool italic)
+        {
+            var fam = familyName.ToLowerInvariant();
+            if (fam.Contains("cormorant"))
+            {
+                var cormorant = Path.Combine(_dir, "CormorantGaramond-Regular.ttf");
+                if (File.Exists(cormorant))
+                {
+                    if (italic) return new FontResolverInfo("CormorantGaramond-Italic.ttf");
+                    if (fam.Contains("semibold")) return new FontResolverInfo("CormorantGaramond-SemiBold.ttf");
+                    return new FontResolverInfo(bold ? "CormorantGaramond-Bold.ttf" : "CormorantGaramond-Regular.ttf");
+                }
+                // sin la fuente serif disponible: recae en la sans embebida
+            }
+            return new FontResolverInfo(bold ? "DejaVuSans-Bold.ttf" : "DejaVuSans.ttf");
+        }
     }
     private static readonly object FontLock = new();
     private static bool _fontsReady;
@@ -33,81 +48,148 @@ public partial class DocumentService
         }
     }
 
-    /// <summary>Genera el PDF del documento (membrete, Markdown básico, tablas y bloque de firmas).</summary>
+    // ---------- Paleta y tipografía de marca (estilo Savegre: serif, mucho blanco, acento azul) ----------
+    private static readonly XColor Ink = XColors.Black;
+    private static readonly XColor Zinc = XColor.FromArgb(0x71, 0x71, 0x7A);
+    private static readonly XColor Accent = XColor.FromArgb(0x3B, 0x82, 0xF6);
+    private static readonly XColor Hair = XColor.FromArgb(0xE4, 0xE4, 0xE7);
+    private static readonly string[] MesesEs = { "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre" };
+    private static string FechaEs(DateTime dt) => $"{dt.Day:D2} de {MesesEs[dt.Month - 1]} de {dt.Year}";
+
+    /// <summary>Genera el PDF del documento con el estilo de marca Savegre: portada, cabecera/pie y Markdown en serif.</summary>
     public async Task<byte[]> ToPdfAsync(CrmDocument d, string webRoot)
     {
         EnsureFonts(webRoot);
         var s = await _settings.GetAsync();
         var pdf = new PdfDocument(); pdf.Info.Title = d.Title; pdf.Info.Author = s.CompanyName;
-        var w = new PdfWriterCtx(pdf, s.CompanyName, d.Title);
-        w.Text(s.CompanyName, 14, true, XColor.FromArgb(0, 115, 234));
-        w.Text(string.Join(" · ", new[] { s.Address, s.Phone, s.Email, s.Web }.Where(x => !string.IsNullOrWhiteSpace(x))!), 8, false, XColors.Gray);
-        w.Rule(); w.Space(8);
+        var kind = DocumentKinds.Get(d.Kind).Label;
+        var headerRight = $"{kind} · {d.CreatedAt.ToLocalTime():yyyy}".ToUpperInvariant();
+        var footer = $"{s.CompanyName} · Documento confidencial".ToUpperInvariant();
+        var w = new PdfWriterCtx(pdf, footer, s.CompanyName, headerRight);
+
+        // ----- Portada -----
+        w.Space(64);
+        w.Text(s.CompanyName + ".", 30, semibold: true);
+        w.Text("Construimos software que escala.", 13.5, color: Zinc, italic: true);
+        w.Space(28);
+        w.Text(d.Title, 26, semibold: true);
+        w.Space(28);
+        w.Meta("Cliente", string.IsNullOrWhiteSpace(d.EntityTitle) ? "—" : d.EntityTitle!);
+        w.Meta("Fecha", FechaEs(d.CreatedAt.ToLocalTime()));
+        w.Meta("Preparado por", d.Author ?? d.CreatedBy ?? s.CompanyName);
+        w.Meta("Versión", d.Version.ToString());
+        w.Space(20);
+        var loc = string.Join(" · ", new[] { s.Address, "Documento confidencial" }.Where(x => !string.IsNullOrWhiteSpace(x))!);
+        w.LabelRule(loc.ToUpperInvariant());
+
+        // ----- Cuerpo (en página nueva, con cabecera corrida) -----
+        w.StartBody();
         var lines = d.Content.Replace("\r", "").Split('\n'); var i = 0;
         while (i < lines.Length)
         {
             var t = lines[i].TrimEnd();
             if (t.Length == 0) { w.Space(5); i++; continue; }
             var h = HeadingRx().Match(t);
-            if (h.Success) { var lv = h.Groups[1].Value.Length; w.Space(lv == 1 ? 6 : 8); w.Text(Strip(h.Groups[2].Value), lv == 1 ? 16 : lv == 2 ? 12.5 : 11, true, null, lv == 1 ? XStringAlignment.Center : XStringAlignment.Near); w.Space(3); i++; continue; }
+            if (h.Success) { var lv = h.Groups[1].Value.Length; w.Space(lv == 1 ? 12 : 8); w.Text(Strip(h.Groups[2].Value), lv == 1 ? 19 : lv == 2 ? 15 : 12.5, semibold: true); w.Space(3); i++; continue; }
             if (t.TrimStart().StartsWith("|") && i + 1 < lines.Length && TableSepRx().IsMatch(lines[i + 1]))
             {
                 var rows = new List<string[]> { Cells(t).Select(Strip).ToArray() }; i += 2;
                 while (i < lines.Length && lines[i].TrimStart().StartsWith("|")) { rows.Add(Cells(lines[i]).Select(Strip).ToArray()); i++; }
                 w.Table(rows); continue;
             }
-            var ul = UlRx().Match(t); if (ul.Success) { w.Text("•  " + Strip(ul.Groups[1].Value), 10.5, false, null, XStringAlignment.Near, 18); i++; continue; }
-            var ol = OlRx().Match(t); if (ol.Success) { w.Text(ol.Groups[1].Value + ".  " + Strip(ol.Groups[2].Value), 10.5, false, null, XStringAlignment.Near, 18); i++; continue; }
-            w.Text(Strip(t), 10.5); i++;
+            var ul = UlRx().Match(t); if (ul.Success) { w.Text("•  " + Strip(ul.Groups[1].Value), 12, indent: 18); i++; continue; }
+            var ol = OlRx().Match(t); if (ol.Success) { w.Text(ol.Groups[1].Value + ".  " + Strip(ol.Groups[2].Value), 12, indent: 18); i++; continue; }
+            w.Text(Strip(t), 12); i++;
         }
         if (d.Signers.Count > 0)
         {
-            w.Space(14); w.Rule(); w.Text("Firmas", 12.5, true); w.Space(4);
+            w.Space(16); w.Text("Firmas", 15, semibold: true); w.Space(6);
             foreach (var sg in d.Signers)
             {
                 if (sg.IsSigned && sg.SignatureImage is not null && sg.SignatureImage.StartsWith("data:image/png;base64,"))
                 {
                     try { w.Image(Convert.FromBase64String(sg.SignatureImage["data:image/png;base64,".Length..]), 150, 45); } catch { }
                 }
-                w.Text(sg.IsSigned ? $"{sg.SignedName ?? sg.Name}{(sg.Role is null ? "" : " · " + sg.Role)}" : $"{sg.Name}{(sg.Role is null ? "" : " · " + sg.Role)} · pendiente de firma", 10, sg.IsSigned);
-                if (sg.IsSigned) w.Text($"Firmado el {sg.SignedAt!.Value.ToLocalTime():dd/MM/yyyy HH:mm}{(sg.Ip is null ? "" : " · IP " + sg.Ip)}", 8, false, XColors.Gray);
-                w.Space(8);
+                w.Text(sg.IsSigned ? $"{sg.SignedName ?? sg.Name}{(sg.Role is null ? "" : " · " + sg.Role)}" : $"{sg.Name}{(sg.Role is null ? "" : " · " + sg.Role)} · pendiente de firma", 12, semibold: sg.IsSigned);
+                if (sg.IsSigned) w.Text($"Firmado el {sg.SignedAt!.Value.ToLocalTime():dd/MM/yyyy HH:mm}{(sg.Ip is null ? "" : " · IP " + sg.Ip)}", 8.5, color: Zinc);
+                w.Space(10);
             }
         }
         w.Finish();
         using var ms = new MemoryStream(); pdf.Save(ms, false); return ms.ToArray();
     }
 
-    /// <summary>Motor de maquetación mínimo: párrafos con ajuste de línea, tablas, imágenes, salto de página y pie con numeración.</summary>
+    /// <summary>Motor de maquetación con estilo Savegre: portada, cabecera/pie corridos, serif, tablas minimalistas.</summary>
     private sealed class PdfWriterCtx
     {
-        private readonly PdfDocument _pdf; private readonly string _company, _title;
+        private readonly PdfDocument _pdf; private readonly string _footer, _company, _headerRight;
         private PdfPage _page = null!; private XGraphics _gfx = null!; private double _y; private int _pageNo;
-        private const double Margin = 56, Width = 595 - 2 * Margin, Bottom = 842 - 60;
-        public PdfWriterCtx(PdfDocument pdf, string company, string title) { _pdf = pdf; _company = company; _title = title; NewPage(); }
+        private bool _headerOn;
+        private const string Serif = "Cormorant Garamond", SerifSemi = "Cormorant Garamond SemiBold";
+        private const double PageW = 595, PageH = 842, Margin = 64, Width = PageW - 2 * Margin, Bottom = PageH - 78;
+        private static readonly XStringFormat Left = new() { Alignment = XStringAlignment.Near, LineAlignment = XLineAlignment.Near };
+        private static readonly XStringFormat Right = new() { Alignment = XStringAlignment.Far, LineAlignment = XLineAlignment.Near };
+
+        public PdfWriterCtx(PdfDocument pdf, string footer, string company, string headerRight)
+        { _pdf = pdf; _footer = footer; _company = company; _headerRight = headerRight; NewPage(); }
+
+        /// <summary>Cierra la portada y empieza el cuerpo en una página nueva con cabecera corrida.</summary>
+        public void StartBody() { _headerOn = true; NewPage(); }
+
         private void NewPage()
         {
             if (_gfx is not null) Footer();
-            _page = _pdf.AddPage(); _page.Size = PdfSharp.PageSize.A4; _gfx = XGraphics.FromPdfPage(_page); _y = Margin; _pageNo++;
+            _page = _pdf.AddPage(); _page.Size = PdfSharp.PageSize.A4; _gfx = XGraphics.FromPdfPage(_page); _pageNo++;
+            _y = Margin;
+            if (_headerOn) { Header(); _y = Margin + 18; }
+        }
+        private void Header()
+        {
+            _gfx.DrawString(_company + ".", new XFont(SerifSemi, 11), new XSolidBrush(Ink), new XRect(Margin, Margin - 24, Width, 14), Left);
+            _gfx.DrawString(_headerRight, new XFont(Serif, 7.8), new XSolidBrush(Zinc), new XRect(Margin, Margin - 23, Width, 14), Right);
+            _gfx.DrawLine(new XPen(Accent, 1.2), Margin, Margin - 6, Margin + Width, Margin - 6);
         }
         private void Footer()
         {
-            var f = new XFont("DejaVuSans", 7.5);
-            _gfx.DrawString($"{_company} · {_title} · página {_pageNo}", f, XBrushes.Gray, new XRect(Margin, 842 - 36, Width, 12), XStringFormats.Center);
+            var y = PageH - 44; var f = new XFont(Serif, 7.8); var br = new XSolidBrush(Zinc);
+            _gfx.DrawLine(new XPen(Hair, 0.8), Margin, y - 6, Margin + Width, y - 6);
+            _gfx.DrawString(_footer, f, br, new XRect(Margin, y, Width, 12), Left);
+            _gfx.DrawString(_pageNo.ToString(), f, br, new XRect(Margin, y, Width, 12), Right);
         }
         public void Finish() => Footer();
+
         private void Need(double h) { if (_y + h > Bottom) NewPage(); }
         public void Space(double h) { _y += h; }
-        public void Rule() { Need(6); _gfx.DrawLine(new XPen(XColor.FromArgb(0, 115, 234), 1.5), Margin, _y, Margin + Width, _y); _y += 6; }
-        public void Text(string text, double size = 10.5, bool bold = false, XColor? color = null, XStringAlignment align = XStringAlignment.Near, double indent = 0)
+
+        /// <summary>Etiqueta de metadato (mayúsculas, zinc) + valor en serif.</summary>
+        public void Meta(string label, string value)
         {
-            var font = new XFont("DejaVuSans", size, bold ? XFontStyleEx.Bold : XFontStyleEx.Regular);
-            var brush = new XSolidBrush(color ?? XColors.Black);
-            var lineH = size * 1.45; var maxW = Width - indent;
+            Space(2);
+            Text(label.ToUpperInvariant(), 8.5, color: Zinc);
+            _y -= 3;
+            Text(value, 14, semibold: true);
+            Space(5);
+        }
+        /// <summary>Línea fina superior + texto en mayúsculas zinc (p. ej. la línea de confidencialidad).</summary>
+        public void LabelRule(string text)
+        {
+            Need(22);
+            _gfx.DrawLine(new XPen(Hair, 0.8), Margin, _y, Margin + Width, _y);
+            _y += 8;
+            Text(text, 7.8, color: Zinc);
+        }
+
+        public void Text(string text, double size = 12, bool bold = false, XColor? color = null, XStringAlignment align = XStringAlignment.Near, double indent = 0, bool italic = false, bool semibold = false)
+        {
+            var fam = italic ? Serif : semibold ? SerifSemi : Serif;
+            var style = bold ? XFontStyleEx.Bold : italic ? XFontStyleEx.Italic : XFontStyleEx.Regular;
+            var font = new XFont(fam, size, style);
+            var brush = new XSolidBrush(color ?? Ink);
+            var lineH = size * 1.4; var maxW = Width - indent;
+            var fmt = align == XStringAlignment.Near ? Left : new XStringFormat { Alignment = align, LineAlignment = XLineAlignment.Near };
             foreach (var line in Wrap(text, font, maxW))
             {
                 Need(lineH);
-                var fmt = new XStringFormat { Alignment = align, LineAlignment = XLineAlignment.Near };
                 _gfx.DrawString(line, font, brush, new XRect(Margin + indent, _y, maxW, lineH), fmt);
                 _y += lineH;
             }
@@ -124,25 +206,26 @@ public partial class DocumentService
             if (cur.Length > 0) yield return cur.ToString();
             if (words.Length == 0) yield return "";
         }
+        /// <summary>Tabla minimalista: sin recuadros, solo líneas finas bajo cada fila; encabezado en zinc.</summary>
         public void Table(List<string[]> rows)
         {
             var cols = rows.Max(r => r.Length); if (cols == 0) return;
-            var colW = Width / cols; var font = new XFont("DejaVuSans", 9); var bold = new XFont("DejaVuSans", 9, XFontStyleEx.Bold);
+            var colW = Width / cols; var font = new XFont(Serif, 11); var head = new XFont(SerifSemi, 10);
+            Space(2);
             for (var r = 0; r < rows.Count; r++)
             {
-                var cells = rows[r]; var f = r == 0 ? bold : font;
-                var wrapped = Enumerable.Range(0, cols).Select(c => Wrap(c < cells.Length ? cells[c] : "", f, colW - 8).ToList()).ToList();
-                var rowH = wrapped.Max(l => l.Count) * 12.5 + 8;
+                var cells = rows[r]; var isHead = r == 0; var f = isHead ? head : font;
+                var brush = new XSolidBrush(isHead ? Zinc : Ink);
+                var wrapped = Enumerable.Range(0, cols).Select(c => Wrap(c < cells.Length ? cells[c] : "", f, colW - 10).ToList()).ToList();
+                var rowH = wrapped.Max(l => l.Count) * 14 + 8;
                 Need(rowH);
-                if (r == 0) _gfx.DrawRectangle(new XSolidBrush(XColor.FromArgb(241, 245, 249)), Margin, _y, Width, rowH);
                 for (var c = 0; c < cols; c++)
-                {
-                    _gfx.DrawRectangle(new XPen(XColor.FromArgb(203, 213, 225), 0.6), Margin + c * colW, _y, colW, rowH);
-                    for (var l = 0; l < wrapped[c].Count; l++) _gfx.DrawString(wrapped[c][l], f, XBrushes.Black, new XRect(Margin + c * colW + 4, _y + 4 + l * 12.5, colW - 8, 12.5), XStringFormats.TopLeft);
-                }
+                    for (var l = 0; l < wrapped[c].Count; l++)
+                        _gfx.DrawString(wrapped[c][l], f, brush, new XRect(Margin + c * colW + 2, _y + 4 + l * 14, colW - 10, 14), Left);
+                _gfx.DrawLine(new XPen(isHead ? Ink : Hair, isHead ? 0.9 : 0.6), Margin, _y + rowH, Margin + Width, _y + rowH);
                 _y += rowH;
             }
-            _y += 6;
+            _y += 8;
         }
         public void Image(byte[] png, double w, double h)
         {

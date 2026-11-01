@@ -761,6 +761,9 @@ kbd { background: var(--bg); color: var(--text); border: 1px solid var(--border)
 /* documentos */
 .doc-layout { display: grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: start; }
 @media (max-width: 1000px) { .doc-layout { grid-template-columns: 1fr; } }
+.doc-wysiwyg-wrap { height: calc(100vh - 340px); min-height: 460px; display: flex; }
+.doc-wysiwyg { flex: 1; min-width: 0; }
+@media (max-width: 1000px) { .doc-wysiwyg-wrap { height: auto; min-height: 520px; } }
 .doc-panes { display: grid; gap: 10px; min-height: 520px; }
 .doc-panes.split { grid-template-columns: 1fr 1fr; } .doc-panes.edit .doc-preview { display: none; } .doc-panes.preview .doc-text { display: none; }
 .doc-text { min-height: 520px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .86rem; line-height: 1.5; resize: vertical; }

@@ -1,4 +1,5 @@
 @page "/documentos/{Id}"
+@implements IAsyncDisposable
 @inject DocumentService Docs
 @inject CurrentUser Me
 @inject DialogService Dialogs
@@ -34,16 +35,8 @@ else
                 <div class="col-md-6"><label class="form-label">Registro</label><select class="form-select" value="@_d.EntityId" @onchange="OnEntityChanged" disabled="@(_d.EntityType is null)"><option value="">— seleccione —</option>@foreach (var (id, title) in _options) { <option value="@id">@title</option> }</select></div>
                 <div class="col-md-3 d-flex align-items-end"><button class="btn-secondary w-100" title="Vuelve a rellenar los marcadores {{…}} que queden en el texto con los datos del registro" @onclick="FillAsync">Rellenar marcadores</button></div>
             </div>
-            <div class="d-flex gap-1 mb-1 flex-wrap">
-                <button class="btn-ghost btn-sm @(_mode == "edit" ? "active" : "")" @onclick='() => _mode = "edit"'>✏ Editar</button>
-                <button class="btn-ghost btn-sm @(_mode == "split" ? "active" : "")" @onclick='() => _mode = "split"'>⫼ Dividido</button>
-                <button class="btn-ghost btn-sm @(_mode == "preview" ? "active" : "")" @onclick='() => _mode = "preview"'>👁 Vista previa</button>
-                <span class="flex-grow-1"></span>
-                <span class="small muted">Markdown: # título, **negrita**, - lista, | tabla |</span>
-            </div>
-            <div class="doc-panes @_mode">
-                <textarea class="form-control doc-text" @bind="_d.Content" @bind:event="oninput" @bind:after="Touch" spellcheck="true"></textarea>
-                <div class="doc-preview print-page">@((MarkupString)DocumentService.ToHtml(_d.Content))@((MarkupString)DocumentService.SignaturesHtml(_d))</div>
+            <div class="doc-wysiwyg-wrap">
+                <div id="docWysiwyg" class="doc-wysiwyg"></div>
             </div>
         </div>
         <aside class="doc-side">
@@ -99,8 +92,10 @@ else
     [Parameter] public string Id { get; set; } = "";
     private CrmDocument? _d;
     private bool _dirty;
-    private string _mode = "split";
     private List<(string Id, string Title)> _options = new();
+    private IJSObjectReference? _mod;
+    private DotNetObjectReference<DocumentEdit>? _self;
+    private bool _editorReady;
 
     protected override async Task OnInitializedAsync()
     {
@@ -108,7 +103,39 @@ else
         if (_d?.EntityType is not null) await LoadOptionsAsync(_d.EntityType);
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _d is not null)
+        {
+            _self = DotNetObjectReference.Create(this);
+            _mod = await JS.InvokeAsync<IJSObjectReference>("import", "./js/docEditor.js");
+            await _mod.InvokeVoidAsync("init", "docWysiwyg", _d.Content, _self);
+            _editorReady = true;
+        }
+    }
+
+    /// <summary>El editor WYSIWYG avisa que hay cambios sin firmar (habilita el botón Guardar).</summary>
+    [JSInvokable]
+    public void OnEditorDirty()
+    {
+        if (_d is null || _dirty) return;
+        _dirty = true;
+        InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Empuja al editor un contenido cambiado desde C# (importar, restaurar versión, rellenar marcadores).</summary>
+    private async Task PushToEditorAsync()
+    {
+        if (_editorReady && _mod is not null && _d is not null) await _mod.InvokeVoidAsync("setMarkdown", "docWysiwyg", _d.Content);
+    }
+
     private void Touch() => _dirty = true;
+
+    public async ValueTask DisposeAsync()
+    {
+        try { if (_mod is not null) { await _mod.InvokeVoidAsync("destroy", "docWysiwyg"); await _mod.DisposeAsync(); } } catch { }
+        _self?.Dispose();
+    }
 
     private async Task LoadOptionsAsync(string type)
     {
@@ -141,6 +168,7 @@ else
     {
         _d!.Content = await Docs.FillAsync(_d.Content, _d.EntityType, _d.EntityId, await Me.NameAsync());
         _dirty = true;
+        await PushToEditorAsync();
     }
 
     [Inject] private IJSRuntime JS { get; set; } = default!;
@@ -178,16 +206,21 @@ else
             await using var stream = f.OpenReadStream(20 * 1024 * 1024);
             using var ms = new MemoryStream(); await stream.CopyToAsync(ms); ms.Position = 0;
             _d.Content = DocumentService.ImportToMarkdown(f.Name, ms);
-            _dirty = true; _mode = "split"; _sMsg = $"Contenido importado de {f.Name}. Revise y guarde.";
+            _dirty = true; _sMsg = $"Contenido importado de {f.Name}. Revise y guarde.";
+            await PushToEditorAsync();
         }
         catch (Exception ex) { _sMsg = "✖ " + ex.Message; }
     }
 
-    private void Restore(DocumentVersion v) { _d!.Content = v.Content; _dirty = true; _mode = "split"; }
+    private async Task Restore(DocumentVersion v) { _d!.Content = v.Content; _dirty = true; await PushToEditorAsync(); }
 
     private async Task SaveAsync()
     {
         if (_d is null) return;
+        if (_editorReady && _mod is not null)
+        {
+            try { var md = await _mod.InvokeAsync<string?>("getMarkdown", "docWysiwyg"); if (md is not null) _d.Content = md; } catch { }
+        }
         if (string.IsNullOrWhiteSpace(_d.Title)) { await Dialogs.ConfirmAsync("El título es obligatorio.", "Aviso"); return; }
         var note = await Dialogs.PromptAsync("Nota de la versión (opcional)", "", "¿Qué cambió en esta versión?");
         await Docs.SaveAsync(_d, await Me.NameAsync(), string.IsNullOrWhiteSpace(note) ? "Edición manual" : note);
