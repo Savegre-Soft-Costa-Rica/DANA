@@ -205,6 +205,11 @@ if (!app.Environment.IsDevelopment())
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 if (!string.Equals(builder.Configuration["DisableHttpsRedirect"], "true", StringComparison.OrdinalIgnoreCase)) app.UseHttpsRedirection();
 
+// Sirve los archivos físicos de wwwroot (incluye /_framework/blazor.web.js) antes de la
+// autenticación. MapStaticAssets por sí solo no estaba sirviendo el framework en el contenedor,
+// lo que hacía que blazor.web.js diera 404 y Blazor no arrancara.
+app.UseStaticFiles();
+
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();
