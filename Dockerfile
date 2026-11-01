@@ -6,7 +6,9 @@
 # ---------------------------------------------------------------------------
 
 # ---- 1) Restaurar dependencias (capa cacheable) ----
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS restore
+# SDK pineado a la versión que genera correctamente los static assets del framework de Blazor
+# (el tag flotante :10.0 producía un manifiesto sin /_framework → blazor.web.js 404).
+FROM mcr.microsoft.com/dotnet/sdk:10.0.403 AS restore
 WORKDIR /src
 COPY Dana.csproj ./
 RUN dotnet restore Dana.csproj
@@ -15,6 +17,8 @@ RUN dotnet restore Dana.csproj
 FROM restore AS build
 COPY . .
 RUN dotnet publish Dana.csproj -c Release -o /app/publish --no-restore /p:UseAppHost=false
+# Diagnóstico: deja en el log de build qué archivos del framework quedaron publicados.
+RUN echo "=== wwwroot/_framework ===" && ls -la /app/publish/wwwroot/_framework/ 2>&1 | head -20 || echo "NO existe wwwroot/_framework"
 
 # ---- 3) Pruebas (opcional: docker build --target test .) ----
 FROM build AS test
