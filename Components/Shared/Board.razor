@@ -74,7 +74,7 @@
                                         <td class="col-name">
                                             @if (IsEditing(item, NameColumn))
                                             {
-                                                <input class="cell-editor" @ref="_editorRef" value="@_editText" @oninput="e => _editText = e.Value?.ToString() ?? string.Empty" @onkeydown="OnEditorKey" @onblur="CommitEditAsync" />
+                                                <input class="cell-editor" @ref="_editorRef" value="@_editText" @oninput="e => { _editText = e.Value?.ToString() ?? string.Empty; _render = false; }" @onkeydown="OnEditorKey" @onblur="CommitEditAsync" />
                                             }
                                             else
                                             {
@@ -95,11 +95,11 @@
                                                 {
                                                     @if (c.Type == ColumnType.LongText)
                                                     {
-                                                        <textarea class="cell-editor" @ref="_editorRef" value="@_editText" @oninput="e => _editText = e.Value?.ToString() ?? string.Empty" @onkeydown="OnEditorKey" @onblur="CommitEditAsync" @onclick:stopPropagation></textarea>
+                                                        <textarea class="cell-editor" @ref="_editorRef" value="@_editText" @oninput="e => { _editText = e.Value?.ToString() ?? string.Empty; _render = false; }" @onkeydown="OnEditorKey" @onblur="CommitEditAsync" @onclick:stopPropagation></textarea>
                                                     }
                                                     else
                                                     {
-                                                        <input class="cell-editor" type="@EditorInputType(c)" step="any" @ref="_editorRef" value="@_editText" @oninput="e => _editText = e.Value?.ToString() ?? string.Empty" @onkeydown="OnEditorKey" @onblur="CommitEditAsync" @onclick:stopPropagation />
+                                                        <input class="cell-editor" type="@EditorInputType(c)" step="any" @ref="_editorRef" value="@_editText" @oninput="e => { _editText = e.Value?.ToString() ?? string.Empty; _render = false; }" @onkeydown="OnEditorKey" @onblur="CommitEditAsync" @onclick:stopPropagation />
                                                     }
                                                 }
                                                 else
@@ -192,7 +192,7 @@
                                     <tr class="add-row">
                                         <td class="col-sel"></td>
                                         <td colspan="@(DataColumns.Count + 2)">
-                                            <input class="add-input" placeholder="+ Agregar elemento" value="@GetNewTitle(g)" @oninput="e => _newTitles[g.Key] = e.Value?.ToString() ?? string.Empty" @onkeydown="e => AddKeyAsync(e, g)" />
+                                            <input class="add-input" placeholder="+ Agregar elemento" value="@GetNewTitle(g)" @oninput="e => { _newTitles[g.Key] = e.Value?.ToString() ?? string.Empty; _render = false; }" @onkeydown="e => AddKeyAsync(e, g)" />
                                         </td>
                                     </tr>
                                 }
@@ -297,7 +297,7 @@ else
                         @if (_kanbanAddGroup == g.Key)
                         {
                             <input class="cell-editor" placeholder="Título del elemento" value="@GetNewTitle(g)" @ref="_editorRef"
-                                   @oninput="e => _newTitles[g.Key] = e.Value?.ToString() ?? string.Empty"
+                                   @oninput="e => { _newTitles[g.Key] = e.Value?.ToString() ?? string.Empty; _render = false; }"
                                    @onkeydown="e => AddKeyAsync(e, g)" @onblur="() => _kanbanAddGroup = null" />
                         }
                         else
@@ -442,6 +442,12 @@ else
     private string _editText = "";
     private ElementReference _editorRef;
     private bool _focusPending;
+
+    // Al escribir en un editor/alta (oninput) ponemos _render = false para NO re-renderizar y, así,
+    // no reenviar el atributo value, que con la latencia de Blazor Server borraba caracteres.
+    // Cualquier otro evento (clic, blur, recarga del padre) re-renderiza normalmente.
+    private bool _render = true;
+    protected override bool ShouldRender() { var r = _render; _render = true; return r; }
 
     private TItem? _popItem;
     private BoardColumn<TItem>? _popColumn;

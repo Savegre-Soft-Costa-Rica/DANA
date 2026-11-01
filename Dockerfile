@@ -21,8 +21,6 @@ RUN dotnet restore Dana.csproj
 FROM restore AS build
 COPY . .
 RUN dotnet publish Dana.csproj -c Release -o /app/publish /p:UseAppHost=false
-# Diagnóstico temporal: confirma en el log que el framework quedó publicado.
-RUN echo "=== wwwroot/_framework ===" && ls -la /app/publish/wwwroot/_framework/ 2>&1 | head -20 || echo "NO existe wwwroot/_framework"
 
 # ---- 3) Pruebas (opcional: docker build --target test .) ----
 FROM build AS test

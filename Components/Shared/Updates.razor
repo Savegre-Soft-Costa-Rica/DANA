@@ -126,16 +126,24 @@
 
     private string Link => EntityType switch { "lead" => $"leads/{EntityId}", "contact" => $"contacts/{EntityId}", "company" => $"companies/{EntityId}", _ => $"deals/{EntityId}" };
 
+    // Evita el re-render por cada tecla: así Blazor no reenvía el value del textarea y no se pierden
+    // caracteres al escribir (Blazor Server + latencia). Solo re-renderiza cuando cambia el menú de menciones.
+    private bool _render = true;
+    protected override bool ShouldRender() { var r = _render; _render = true; return r; }
+
     private void OnInput(ChangeEventArgs e)
     {
         _text = e.Value?.ToString() ?? "";
+        var wasOpen = _mentionOpen;
+        var oldQuery = _mentionQuery;
+        _mentionOpen = false;
         var at = _text.LastIndexOf('@');
         if (at >= 0 && (at == 0 || char.IsWhiteSpace(_text[at - 1])))
         {
             var q = _text[(at + 1)..];
-            if (!q.Contains('\n') && q.Length <= 30) { _mentionOpen = true; _mentionQuery = q; return; }
+            if (!q.Contains('\n') && q.Length <= 30) { _mentionOpen = true; _mentionQuery = q; }
         }
-        _mentionOpen = false;
+        _render = _mentionOpen != wasOpen || (_mentionOpen && _mentionQuery != oldQuery);
     }
 
     private void PickMention(string name)
