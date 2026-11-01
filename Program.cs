@@ -373,6 +373,29 @@ app.MapGet("/health", async (MongoContext mongo) =>
     catch (Exception ex) { return Results.Json(new { status = "degraded", mongo = ex.Message }, statusCode: 503); }
 }).AllowAnonymous();
 
+// TEMPORAL: diagnóstico de static assets en el contenedor. Quitar tras depurar.
+app.MapGet("/diag/framework", (IWebHostEnvironment env) =>
+{
+    var web = env.WebRootPath ?? "(null)";
+    var fwDir = Path.Combine(web, "_framework");
+    string[] files = Directory.Exists(fwDir)
+        ? Directory.GetFiles(fwDir).Select(Path.GetFileName).OrderBy(f => f).ToArray()!
+        : [];
+    var manifest = Path.Combine(env.ContentRootPath, "Dana.staticwebassets.endpoints.json");
+    bool manifestExists = File.Exists(manifest);
+    bool manifestHasBlazor = manifestExists && File.ReadAllText(manifest).Contains("blazor.web.js");
+    return Results.Ok(new
+    {
+        contentRoot = env.ContentRootPath,
+        webRoot = web,
+        frameworkDirExists = Directory.Exists(fwDir),
+        frameworkFileCount = files.Length,
+        frameworkFiles = files,
+        manifestExists,
+        manifestHasBlazor,
+    });
+}).AllowAnonymous();
+
 RestApi.Map(app);
 
 app.MapStaticAssets().AllowAnonymous();
