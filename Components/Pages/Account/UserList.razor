@@ -1,5 +1,6 @@
 @page "/usuarios"
 @attribute [Authorize(Policy = "Admin")]
+@using System.ComponentModel.DataAnnotations
 @using System.Security.Claims
 @inject UserService Users
 @inject PermissionService Perms
@@ -11,11 +12,52 @@
 
 <PageHeader Title="Usuarios" Subtitle="Cuentas con acceso al CRM. Solo administradores.">
     <Actions>
-        <span class="text-muted small align-self-center">Los nuevos usuarios se registran desde <code>/cuenta/registro</code></span>
+        <button class="btn-primary" @onclick="() => { _newUser = new(); _error = null; }">+ Nuevo usuario</button>
     </Actions>
 </PageHeader>
 
 @if (_error is not null) { <div class="alert alert-warning">@_error</div> }
+
+@if (_newUser is not null)
+{
+    <EditForm Model="_newUser" OnValidSubmit="CreateUserAsync" FormName="newuser">
+        <DataAnnotationsValidator />
+        <div class="card mb-3"><div class="card-body row g-3">
+            <div class="col-md-3"><label class="form-label">Nombre *</label><InputText class="form-control" @bind-Value="_newUser.Name" autocomplete="off" /><ValidationMessage For="() => _newUser.Name" /></div>
+            <div class="col-md-3"><label class="form-label">Correo *</label><InputText class="form-control" type="email" @bind-Value="_newUser.Email" autocomplete="off" /><ValidationMessage For="() => _newUser.Email" /></div>
+            <div class="col-md-3"><label class="form-label">Contraseña *</label><InputText class="form-control" type="password" @bind-Value="_newUser.Password" autocomplete="new-password" /><ValidationMessage For="() => _newUser.Password" /></div>
+            <div class="col-md-3"><label class="form-label">Rol</label>
+                <select class="form-select" value="@_newUser.Role" @onchange="e => _newUser.Role = e.Value?.ToString() ?? Roles.User">
+                    @foreach (var r in Roles.All) { <option value="@r">@r</option> }
+                </select>
+            </div>
+            @if (_newUser.Role == Roles.Admin)
+            {
+                <div class="col-12"><span class="muted small">Administrador: acceso total a todos los tableros.</span></div>
+            }
+            else
+            {
+                <div class="col-12">
+                    <label class="form-label">Permisos por tablero</label>
+                    <div class="perm-grid">
+                        @foreach (var (key, label) in Boards)
+                        {
+                            <label class="small">@label
+                                <select class="form-select form-select-sm" value="@_newUser.Permissions.GetValueOrDefault(key, AccessLevels.Edit)" @onchange="e => _newUser.Permissions[key] = e.Value?.ToString() ?? AccessLevels.Edit">
+                                    @foreach (var (id, l) in AccessLevels.All) { <option value="@id">@l</option> }
+                                </select>
+                            </label>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+        <div class="card-footer d-flex justify-content-end gap-2">
+            <button type="button" class="btn-secondary" @onclick="() => { _newUser = null; _error = null; }">Cancelar</button>
+            <button type="submit" class="btn-primary">Crear usuario</button>
+        </div></div>
+    </EditForm>
+}
 
 @if (_items is null)
 {
@@ -151,6 +193,29 @@ else
     private List<User>? _items;
     private string? _myId;
     private string? _error;
+    private NewUserModel? _newUser;
+
+    private async Task CreateUserAsync()
+    {
+        var (user, error) = await Users.CreateByAdminAsync(
+            _newUser!.Email, _newUser.Name, _newUser.Password, _newUser.Role, _newUser.Permissions);
+        if (user is null) { _error = error; return; }
+        _newUser = null;
+        _error = null;
+        await LoadAsync();
+    }
+
+    private sealed class NewUserModel
+    {
+        [Required(ErrorMessage = "Ingrese el nombre")]
+        public string Name { get; set; } = "";
+        [Required(ErrorMessage = "Ingrese el correo"), EmailAddress(ErrorMessage = "Correo inválido")]
+        public string Email { get; set; } = "";
+        [Required(ErrorMessage = "Ingrese una contraseña"), MinLength(8, ErrorMessage = "Mínimo 8 caracteres")]
+        public string Password { get; set; } = "";
+        public string Role { get; set; } = Roles.User;
+        public Dictionary<string, string> Permissions { get; set; } = new();
+    }
 
     protected override async Task OnInitializedAsync()
     {

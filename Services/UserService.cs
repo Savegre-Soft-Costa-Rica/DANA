@@ -56,6 +56,38 @@ public class UserService
         return (user, null);
     }
 
+    /// <summary>Alta de usuario hecha por un administrador: define rol y permisos, no inicia sesión
+    /// y no depende de <see cref="AuthOptions.AllowRegistration"/>.</summary>
+    public async Task<(User? User, string? Error)> CreateByAdminAsync(
+        string email, string name, string password, string role, Dictionary<string, string>? permissions)
+    {
+        var e = Normalize(email);
+        if (string.IsNullOrWhiteSpace(e)) return (null, "Ingrese un correo.");
+        if (string.IsNullOrWhiteSpace(password) || password.Length < 8)
+            return (null, "La contraseña debe tener al menos 8 caracteres.");
+        if (!Roles.All.Contains(role)) role = Roles.User;
+        if (await FindByEmailAsync(e) is not null)
+            return (null, "Ya existe una cuenta con ese correo.");
+
+        var user = new User
+        {
+            Email = e,
+            Name = string.IsNullOrWhiteSpace(name) ? e : name.Trim(),
+            Role = role,
+            Permissions = role == Roles.Admin ? new() : permissions ?? new(),
+        };
+        user.PasswordHash = _hasher.HashPassword(user, password);
+        try
+        {
+            await _users.InsertAsync(user);
+        }
+        catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
+        {
+            return (null, "Ya existe una cuenta con ese correo.");
+        }
+        return (user, null);
+    }
+
     public async Task<User?> ValidateCredentialsAsync(string email, string password)
     {
         var user = await FindByEmailAsync(email);
