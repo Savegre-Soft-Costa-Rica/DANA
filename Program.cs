@@ -372,6 +372,18 @@ RestApi.Map(app);
 
 app.MapStaticAssets().AllowAnonymous();
 app.MapRazorComponents<App>()
-    .AddInteractiveServerRenderMode();
+    .AddInteractiveServerRenderMode()
+    // Los archivos del framework (/_framework/*) y el hub del circuito (/_blazor) deben ser
+    // anónimos: si la FallbackPolicy los exige autenticados, el navegador recibe el HTML de
+    // login en vez de blazor.web.js y Blazor no arranca. Las páginas siguen protegidas.
+    .Add(b =>
+    {
+        if (b is RouteEndpointBuilder re)
+        {
+            var path = re.RoutePattern.RawText ?? "";
+            if (path.Contains("_framework") || path.Contains("_blazor"))
+                b.Metadata.Add(new AllowAnonymousAttribute());
+        }
+    });
 
 app.Run();
