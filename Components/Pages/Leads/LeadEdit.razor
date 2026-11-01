@@ -252,6 +252,7 @@
         <div>
         <TaskList EntityType="lead" EntityId="@_model.Id" EntityTitle="@(_model.Title)" />
         @if (!IsNew) { <DocumentsCard EntityType="lead" EntityId="@_model.Id" /> }
+        @if (!IsNew) { <FilesCard EntityType="lead" EntityId="@_model.Id" /> }
         <div class="card mt-3">
             <div class="card-header">Actualizaciones</div>
             <div class="card-body">

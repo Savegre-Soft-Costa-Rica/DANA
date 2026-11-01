@@ -38,9 +38,9 @@
 
 @if (_editing)
 {
-    <div class="sheet-backdrop" @onclick="() => _editing = false"></div>
+    <div class="sheet-backdrop" @onclick="CloseCustomizer"></div>
     <div class="sheet" style="width:min(640px,94vw)">
-        <div class="sheet-head"><strong>Personalizar menú</strong><button class="icon-btn" @onclick="() => _editing = false">✕</button></div>
+        <div class="sheet-head"><strong>Personalizar menú</strong><button class="icon-btn" @onclick="CloseCustomizer">✕</button></div>
         <div class="sheet-body">
             <div class="small muted mb-2">Oculte, renombre, reordene o mueva de sección cada elemento. Los cambios son solo para su usuario.</div>
             @foreach (var section in _draftSections)
@@ -87,7 +87,7 @@
         <div class="sheet-foot">
             <button class="btn-ghost" @onclick="ResetAsync">Restablecer predeterminado</button>
             <span class="flex-grow-1"></span>
-            <button class="btn-secondary" @onclick="() => _editing = false">Cancelar</button>
+            <button class="btn-secondary" @onclick="CloseCustomizer">Cancelar</button>
             <button class="btn-primary" @onclick="SaveAsync">Guardar</button>
         </div>
     </div>
@@ -96,6 +96,7 @@
 @code {
     [Parameter] public bool Collapsed { get; set; }
     [Parameter] public EventCallback OnToggle { get; set; }
+    [Parameter] public EventCallback<bool> OnOverlayChange { get; set; }
 
     private List<NavItem> _items = new();
     private List<string> _sections = new();
@@ -126,11 +127,18 @@
         return new($"<svg viewBox=\"0 0 20 20\" class=\"nav-svg\">{NavService.Icons.GetValueOrDefault(icon, "")}</svg>");
     }
 
-    private void OpenCustomizer()
+    private async Task OpenCustomizer()
     {
         _draft = _items.ToList();
         _draftSections = _sections.ToList();
         _editing = true;
+        await OnOverlayChange.InvokeAsync(true);
+    }
+
+    private async Task CloseCustomizer()
+    {
+        _editing = false;
+        await OnOverlayChange.InvokeAsync(false);
     }
 
     private void Replace(NavItem old, NavItem updated) { var i = _draft.IndexOf(old); if (i >= 0) _draft[i] = updated; }
@@ -168,6 +176,7 @@
         }
         await Navs.SaveAsync(_me, NavService.ToConfig(_draft, _draftSections));
         _editing = false;
+        await OnOverlayChange.InvokeAsync(false);
         await LoadAsync();
     }
 
@@ -176,6 +185,7 @@
         if (!await Dialogs.ConfirmAsync("¿Volver al menú predeterminado?")) return;
         await Navs.SaveAsync(_me, null);
         _editing = false;
+        await OnOverlayChange.InvokeAsync(false);
         await LoadAsync();
     }
 }

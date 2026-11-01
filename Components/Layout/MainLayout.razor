@@ -5,9 +5,9 @@
 @inject ILogger<MainLayout> Logger
 @inject IHostEnvironment Env
 
-<div class="app @(_collapsed ? "sidebar-collapsed" : "")">
+<div class="app @(_collapsed ? "sidebar-collapsed" : "") @(_navOverlay ? "nav-overlay" : "")">
     <aside class="sidebar @(_navOpen ? "open" : "") @(_collapsed ? "collapsed" : "")">
-        <NavMenu Collapsed="_collapsed" OnToggle="ToggleSidebarAsync" />
+        <NavMenu Collapsed="_collapsed" OnToggle="ToggleSidebarAsync" OnOverlayChange="v => _navOverlay = v" />
     </aside>
 
     <div class="main">
@@ -63,6 +63,7 @@
 @code {
     private bool _navOpen;
     private bool _collapsed;
+    private bool _navOverlay;
     private ErrorBoundary? _boundary;
 
     protected override void OnInitialized() => Drawer.StateChanged += OnDrawerChanged;

@@ -1,0 +1,154 @@
+@typeparam TItem
+
+@* Combobox con búsqueda: input de texto + lista filtrable. Reemplaza a <select> cuando la lista puede crecer. *@
+<div class="@(_open ? "search-select open" : "search-select")">
+    <div class="ss-field">
+        <input class="form-control ss-input" type="text" autocomplete="off"
+               placeholder="@Placeholder"
+               value="@_query"
+               @oninput="OnInput"
+               @onfocus="OnFocus"
+               @onclick="() => _open = true"
+               @onblur="OnBlur"
+               @onkeydown="OnKey" />
+        @if (HasValue)
+        {
+            <button type="button" class="ss-clear" tabindex="-1" title="Limpiar"
+                    @onmousedown="ClearAsync" @onmousedown:preventDefault>✕</button>
+        }
+        <span class="ss-caret" aria-hidden="true">▾</span>
+    </div>
+    @if (_open)
+    {
+        var list = Filtered();
+        <div class="ss-menu" role="listbox">
+            @if (list.Count == 0)
+            {
+                <div class="ss-empty">@EmptyText</div>
+            }
+            else
+            {
+                @for (var i = 0; i < list.Count; i++)
+                {
+                    var item = list[i];
+                    var id = IdFor(item);
+                    var sub = SubFor?.Invoke(item);
+                    var cls = "list-opt" + (i == _highlight ? " active" : "") + (id == Value ? " selected" : "");
+                    <button type="button" role="option" class="@cls"
+                            @onmousedown="() => SelectAsync(item)" @onmousedown:preventDefault>
+                        <span class="ss-opt-text">
+                            <span class="ss-opt-label">@LabelFor(item)</span>
+                            @if (!string.IsNullOrEmpty(sub)) { <span class="ss-opt-sub">@sub</span> }
+                        </span>
+                    </button>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<TItem> Items { get; set; } = Array.Empty<TItem>();
+    [Parameter] public Func<TItem, string> IdFor { get; set; } = _ => "";
+    [Parameter] public Func<TItem, string> LabelFor { get; set; } = _ => "";
+    [Parameter] public Func<TItem, string?>? SubFor { get; set; }
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Buscar…";
+    [Parameter] public string EmptyText { get; set; } = "Sin resultados";
+    [Parameter] public int MaxResults { get; set; } = 50;
+
+    private bool _open;
+    private bool _typing;
+    private string _query = "";
+    private int _highlight;
+    private string? _syncedValue;
+
+    protected override void OnParametersSet()
+    {
+        // Refleja cambios externos del valor (carga inicial, filtrado cruzado) en el texto del input.
+        if (!_open && Value != _syncedValue)
+        {
+            _syncedValue = Value;
+            _query = CurrentLabel();
+        }
+    }
+
+    private bool HasValue => !string.IsNullOrEmpty(Value);
+
+    private string CurrentLabel()
+    {
+        if (string.IsNullOrEmpty(Value)) return "";
+        var sel = Items.FirstOrDefault(x => IdFor(x) == Value);
+        return sel is null ? "" : LabelFor(sel);
+    }
+
+    private List<TItem> Filtered()
+    {
+        IEnumerable<TItem> src = Items;
+        var q = _query?.Trim() ?? "";
+        if (_typing && q.Length > 0)
+            src = src.Where(x =>
+                LabelFor(x).Contains(q, StringComparison.OrdinalIgnoreCase)
+                || (SubFor?.Invoke(x)?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
+        return src.Take(MaxResults).ToList();
+    }
+
+    private void OnFocus()
+    {
+        _open = true;
+        _typing = false;   // primera apertura: muestra toda la lista
+        _query = "";        // input vacío para escribir; la opción actual queda resaltada
+        _highlight = 0;
+    }
+
+    private void OnInput(ChangeEventArgs e)
+    {
+        _query = e.Value?.ToString() ?? "";
+        _typing = true;
+        _open = true;
+        _highlight = 0;
+    }
+
+    private void OnBlur()
+    {
+        _open = false;
+        _typing = false;
+        _query = CurrentLabel();   // restaura la etiqueta del valor seleccionado
+        _syncedValue = Value;
+    }
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (!_open && (e.Key == "ArrowDown" || e.Key == "Enter")) { OnFocus(); return; }
+        var list = Filtered();
+        switch (e.Key)
+        {
+            case "ArrowDown": _highlight = list.Count == 0 ? 0 : Math.Min(_highlight + 1, list.Count - 1); break;
+            case "ArrowUp": _highlight = Math.Max(_highlight - 1, 0); break;
+            case "Enter":
+                if (_open && _highlight >= 0 && _highlight < list.Count) await SelectAsync(list[_highlight]);
+                break;
+            case "Escape": _open = false; _typing = false; _query = CurrentLabel(); break;
+        }
+    }
+
+    private async Task SelectAsync(TItem item)
+    {
+        var id = IdFor(item);
+        _open = false;
+        _typing = false;
+        _query = LabelFor(item);
+        _syncedValue = id;
+        if (Value != id) { Value = id; await ValueChanged.InvokeAsync(id); }
+    }
+
+    private async Task ClearAsync()
+    {
+        _open = false;
+        _typing = false;
+        _query = "";
+        _syncedValue = null;
+        if (Value != null) { Value = null; await ValueChanged.InvokeAsync(null); }
+    }
+}

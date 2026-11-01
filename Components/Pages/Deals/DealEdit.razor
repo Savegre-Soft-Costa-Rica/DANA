@@ -89,17 +89,17 @@
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Contacto</label>
-                            <InputSelect class="form-select" @bind-Value="_model.ContactId">
-                                <option value="">— Sin contacto —</option>
-                                @foreach (var c in _contacts) { <option value="@c.Id">@c.FullName</option> }
-                            </InputSelect>
+                            <SearchSelect TItem="Contact" Items="FilteredContacts"
+                                          IdFor="c => c.Id!" LabelFor="c => c.FullName" SubFor="ContactSub"
+                                          Value="_model.ContactId" ValueChanged="OnContactChanged"
+                                          Placeholder="— Sin contacto —" EmptyText="Sin contactos" />
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Compañía</label>
-                            <InputSelect class="form-select" @bind-Value="_model.CompanyId">
-                                <option value="">— Sin compañía —</option>
-                                @foreach (var c in _companies) { <option value="@c.Id">@c.Title</option> }
-                            </InputSelect>
+                            <SearchSelect TItem="Company" Items="FilteredCompanies"
+                                          IdFor="c => c.Id!" LabelFor="c => c.Title" SubFor="CompanySub"
+                                          Value="_model.CompanyId" ValueChanged="OnCompanyChanged"
+                                          Placeholder="— Sin compañía —" EmptyText="Sin compañías" />
                         </div>
                         <div class="col-md-3">
                             <label class="form-label">Importe</label>
@@ -163,6 +163,7 @@
         }
 
         @if (!IsNew) { <DocumentsCard EntityType="deal" EntityId="@_model.Id" /> }
+        @if (!IsNew) { <FilesCard EntityType="deal" EntityId="@_model.Id" /> }
 
         @if (!IsNew && _model.History.Count > 0)
         {
@@ -222,6 +223,46 @@
 
     private Pipeline? CurrentPipeline => _pipelines.FirstOrDefault(p => p.Id == _model.PipelineId);
     private Stage? CurrentStage => CurrentPipeline?.GetStage(_model.StageId);
+
+    // Filtrado cruzado contacto <-> compañía (el contacto pertenece a una compañía vía Contact.CompanyId).
+    private IReadOnlyList<Contact> FilteredContacts =>
+        string.IsNullOrEmpty(_model.CompanyId) ? _contacts : _contacts.Where(c => c.CompanyId == _model.CompanyId).ToList();
+
+    private IReadOnlyList<Company> FilteredCompanies
+    {
+        get
+        {
+            var compId = _contacts.FirstOrDefault(c => c.Id == _model.ContactId)?.CompanyId;
+            return string.IsNullOrEmpty(_model.ContactId) || string.IsNullOrEmpty(compId)
+                ? _companies
+                : _companies.Where(c => c.Id == compId).ToList();
+        }
+    }
+
+    private string? ContactSub(Contact c) => _companies.FirstOrDefault(x => x.Id == c.CompanyId)?.Title ?? c.Email;
+    private string? CompanySub(Company c) => c.Email;
+
+    private void OnContactChanged(string? id)
+    {
+        _model.ContactId = id;
+        // Al elegir un contacto, autocompleta su compañía (si tiene).
+        if (!string.IsNullOrEmpty(id))
+        {
+            var comp = _contacts.FirstOrDefault(c => c.Id == id)?.CompanyId;
+            if (!string.IsNullOrEmpty(comp)) _model.CompanyId = comp;
+        }
+    }
+
+    private void OnCompanyChanged(string? id)
+    {
+        _model.CompanyId = id;
+        // Si el contacto actual no pertenece a esta compañía, se limpia para respetar el filtro.
+        if (!string.IsNullOrEmpty(id))
+        {
+            var c = _contacts.FirstOrDefault(x => x.Id == _model.ContactId);
+            if (c is not null && c.CompanyId != id) _model.ContactId = null;
+        }
+    }
 
     protected override async Task OnParametersSetAsync()
     {

@@ -141,6 +141,8 @@
     {
         <div>
         <TaskList EntityType="company" EntityId="@_model.Id" EntityTitle="@(_model.Title)" />
+        <DocumentsCard EntityType="company" EntityId="@_model.Id" />
+        <FilesCard EntityType="company" EntityId="@_model.Id" />
         <div class="card mt-3">
             <div class="card-header">Actualizaciones</div>
             <div class="card-body">

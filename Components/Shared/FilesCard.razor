@@ -1,0 +1,87 @@
+@inject AttachmentService Files
+@inject CurrentUser Me
+@inject DialogService Dialogs
+
+<div class="card mt-3">
+    <div class="card-header"><span>Archivos <span class="muted">(@_files.Count)</span></span>
+        <span class="card-head-actions">
+            <label class="btn-secondary btn-sm file-btn" title="Subir archivos (máx. 15 MB c/u)">@(_busy ? "Subiendo…" : "⬆ Subir")<InputFile OnChange="UploadAsync" multiple disabled="@_busy" /></label>
+        </span>
+    </div>
+    <div class="card-body">
+        @if (_error is not null) { <div class="text-danger small mb-2">@_error</div> }
+        @if (_files.Count == 0 && !_busy)
+        {
+            <div class="muted">Sin archivos. Suba documentos, imágenes, PDF u otros (máx. 15 MB cada uno).</div>
+        }
+        <ul class="list-rows">
+            @foreach (var f in _files)
+            {
+                <li>
+                    <span><a href="files/@f.Id" target="_blank" title="Abrir o descargar">@FileIcon(f) <strong>@f.FileName</strong></a> <span class="muted small">@f.SizeText</span></span>
+                    <span class="small muted d-flex align-items-center gap-2">
+                        <span class="d-none d-sm-inline">@(string.IsNullOrEmpty(f.UploadedBy) ? "—" : f.UploadedBy) · </span>@f.CreatedAt.ToLocalTime().ToString("dd/MM")
+                        <button class="icon-btn tiny" title="Eliminar" @onclick="() => DeleteAsync(f)">✕</button>
+                    </span>
+                </li>
+            }
+        </ul>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string EntityType { get; set; } = "";
+    [Parameter] public string EntityId { get; set; } = "";
+    private List<Attachment> _files = new();
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (EntityId.Length > 0) _files = await Files.GetForAsync(EntityType, EntityId);
+    }
+
+    private async Task UploadAsync(InputFileChangeEventArgs e)
+    {
+        if (EntityId.Length == 0) return;
+        _error = null; _busy = true;
+        try
+        {
+            var me = await Me.NameAsync();
+            foreach (var f in e.GetMultipleFiles(20))
+            {
+                if (f.Size > AttachmentService.MaxSize) { _error = $"{f.Name} supera los 15 MB."; continue; }
+                await using var stream = f.OpenReadStream(AttachmentService.MaxSize);
+                var att = await Files.SaveAsync(stream, f.Name, f.ContentType, f.Size, EntityType, EntityId, null, me);
+                _files.Insert(0, att);
+            }
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(Attachment f)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar «{f.FileName}»?")) return;
+        await Files.DeleteAsync(f);
+        _files.Remove(f);
+    }
+
+    private static string FileIcon(Attachment a)
+    {
+        if (a.IsImage) return "🖼";
+        var ext = Path.GetExtension(a.FileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".pdf" => "📕",
+            ".doc" or ".docx" => "📘",
+            ".xls" or ".xlsx" or ".csv" => "📗",
+            ".ppt" or ".pptx" => "📙",
+            ".zip" or ".rar" or ".7z" => "🗜",
+            ".mp4" or ".mov" or ".avi" or ".mkv" => "🎬",
+            ".mp3" or ".wav" or ".ogg" => "🎵",
+            ".txt" or ".md" => "📝",
+            _ => "📄"
+        };
+    }
+}
