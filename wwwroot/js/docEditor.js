@@ -20,7 +20,7 @@ function loadAssets() {
         if (window.toastui && window.toastui.Editor) { resolve(); return; }
 
         const main = document.createElement('script');
-        main.src = '/lib/toastui/toastui-editor.min.js';
+        main.src = '/lib/toastui/toastui-editor-all.min.js'; // bundle all-in-one (incluye ProseMirror)
         main.onload = () => {
             const i18n = document.createElement('script');
             i18n.src = '/lib/toastui/toastui-editor-i18n-es.min.js';
