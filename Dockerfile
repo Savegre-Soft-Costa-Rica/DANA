@@ -14,10 +14,14 @@ COPY Dana.csproj ./
 RUN dotnet restore Dana.csproj
 
 # ---- 2) Compilar y publicar ----
+# IMPORTANTE: sin --no-restore. El stage 'restore' restaura solo con Dana.csproj (sin wwwroot
+# ni Components), lo que NO registra los static assets del framework de Blazor; con --no-restore
+# ese obj/ incompleto se reutilizaba y blazor.web.js no se publicaba (404). Al publicar con
+# restauración completa (proyecto entero presente) se generan wwwroot/_framework/*.
 FROM restore AS build
 COPY . .
-RUN dotnet publish Dana.csproj -c Release -o /app/publish --no-restore /p:UseAppHost=false
-# Diagnóstico: deja en el log de build qué archivos del framework quedaron publicados.
+RUN dotnet publish Dana.csproj -c Release -o /app/publish /p:UseAppHost=false
+# Diagnóstico temporal: confirma en el log que el framework quedó publicado.
 RUN echo "=== wwwroot/_framework ===" && ls -la /app/publish/wwwroot/_framework/ 2>&1 | head -20 || echo "NO existe wwwroot/_framework"
 
 # ---- 3) Pruebas (opcional: docker build --target test .) ----
