@@ -33,7 +33,8 @@
     <div class="actions">
         @if (!Embedded) { <a class="btn-secondary" href="deals/board/@_model.PipelineId">← Tablero</a> }
         @if (!IsNew) { <CopyLink Path="@($"deals/{_model.Id}")" /> }
-        @if (!IsNew) { <button class="btn-secondary" @onclick="() => _emailOpen = true" disabled="@string.IsNullOrWhiteSpace(DealEmail)">✉ Correo al contacto</button> <button class="btn-secondary" @onclick="ArchiveAsync">@(_model.IsArchived ? "↩ Restaurar" : "🗂 Archivar")</button> <button class="btn-danger" @onclick="DeleteAsync">Eliminar</button> }
+        @if (!IsNew && _model.Amount > 0) { <PayLinkButton Amount="_model.Amount" Currency="@_model.Currency" Description="@_model.Title" DealId="@_model.Id" ContactId="@_model.ContactId" CompanyId="@_model.CompanyId" /> }
+        @if (!IsNew) { <button class="btn-secondary" @onclick="() => _emailOpen = true" disabled="@string.IsNullOrWhiteSpace(DealEmail)">✉ Correo al contacto</button> <button class="btn-secondary" @onclick="DuplicateAsync" disabled="@_busy">⧉ Duplicar</button> <button class="btn-secondary" @onclick="ArchiveAsync">@(_model.IsArchived ? "↩ Restaurar" : "🗂 Archivar")</button> <button class="btn-danger" @onclick="DeleteAsync">Eliminar</button> }
     </div>
 </div>
 
@@ -370,6 +371,30 @@
     {
         var q = await Quotes.CreateForDealAsync(_model, await Me.NameAsync());
         Nav.NavigateTo($"cotizaciones/{q.Id}");
+    }
+
+    private async Task DuplicateAsync()
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Duplicar la negociación \"{_model.Title}\"?")) return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            var author = await Me.NameAsync();
+            var copy = Entity.Clone(_model);
+            copy.IsArchived = false;
+            copy.CreatedBy = author;
+            // Misma lógica de copia que el tablero (InsertCopyAsync): título, historial y cierre limpios.
+            copy.Title += " (copia)";
+            copy.History = new();
+            copy.ClosedAt = null;
+            copy.LeadId = null;
+            await Deals.SaveAsync(copy, author);
+            if (Embedded) { await Drawer.NotifyChangedAsync(); Drawer.Open<DealEdit>(copy.Id, "Negociación"); }
+            else Nav.NavigateTo($"deals/{copy.Id}");
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
     }
 
     private async Task DeleteAsync()

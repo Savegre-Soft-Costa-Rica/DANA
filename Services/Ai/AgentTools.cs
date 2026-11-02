@@ -50,6 +50,10 @@ public class AgentTools
             new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "contact", "company", "deal" } }, id = new { type = "string" }, archivar = new { type = "boolean", @default = true } }, required = new[] { "tipo", "id" } }, Write: true),
         new("eliminar", "Eliminar (a papelera)", "Envía un registro a la papelera (borrado lógico, recuperable). Tipos: lead, contact, company, deal, product. Úsala para descartar prospectos basura (JUNK) o duplicados.",
             new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "contact", "company", "deal", "product" } }, id = new { type = "string" } }, required = new[] { "tipo", "id" } }, Write: true),
+        new("emitir_factura", "Emitir factura electrónica", "Crea y emite una factura electrónica (Hacienda, Costa Rica) a partir de una cotización (quoteId): toma sus líneas con el código CABYS de cada producto y los datos del receptor (de la compañía/contacto). En modo Sandbox se simula y queda aceptada. Con emitir=false solo deja el borrador. Requiere que los productos tengan CABYS; indica cedulaReceptor si la compañía no la tiene.",
+            new { type = "object", properties = new { quoteId = new { type = "string" }, cedulaReceptor = new { type = "string" }, emitir = new { type = "boolean", @default = true } }, required = new[] { "quoteId" } }, Write: true),
+        new("crear_enlace_pago", "Crear enlace de pago", "Genera un enlace de pago (Tilopay; en Sandbox se simula) por un monto, para enviar al cliente (p. ej. por el chat o correo). Puedes ligarlo a una negociación (dealId), cotización (quoteId) o factura (facturaId). Devuelve la URL.",
+            new { type = "object", properties = new { monto = new { type = "number" }, moneda = new { type = "string", @default = "CRC" }, descripcion = new { type = "string" }, dealId = new { type = "string" }, quoteId = new { type = "string" }, facturaId = new { type = "string" } }, required = new[] { "monto", "descripcion" } }, Write: true),
         new("cotizaciones_buscar", "Buscar cotizaciones", "Lista cotizaciones por texto, estado (draft|sent|accepted|rejected|expired) o negociación (dealId), con número, total, vencimiento y estado.",
             new { type = "object", properties = new { texto = new { type = "string" }, estado = new { type = "string" }, dealId = new { type = "string" }, limite = new { type = "integer", @default = 20 } }, required = Array.Empty<string>() }),
         new("cotizacion_obtener", "Obtener cotización", "Devuelve una cotización completa: líneas (producto, cantidad, precio, descuento, impuesto), totales, estado, vigencia y negociación asociada. Úsala para revisar o corregir una cotización.",
@@ -184,6 +188,8 @@ public class AgentTools
                 "convertir" => await ConvertLeadAsync(input, author),
                 "archivar" => await ArchiveAsync(Str(input, "tipo"), Str(input, "id"), Bool(input, "archivar", true), author),
                 "eliminar" => await DeleteRecordAsync(Str(input, "tipo"), Str(input, "id"), author),
+                "emitir_factura" => await EmitInvoiceAsync(input, author),
+                "crear_enlace_pago" => await CreatePaymentLinkAsync(input, author),
                 _ => throw new InvalidOperationException("Herramienta no implementada")
             };
             return new(output);
@@ -860,9 +866,58 @@ public class AgentTools
         return Ser(new { ok = true, eliminado = true, nota = "Enviado a la papelera (recuperable)." });
     }
 
+    // ---------- facturación electrónica y enlaces de pago ----------
+    private async Task<string> EmitInvoiceAsync(JsonElement input, string author)
+    {
+        var q = await _quotes.GetAsync(Str(input, "quoteId")) ?? throw new ArgumentException("Cotización no encontrada");
+        var inv = new ElectronicInvoice { QuoteId = q.Id, DealId = q.DealId, ContactId = q.ContactId, CompanyId = q.CompanyId, Currency = q.Currency };
+        var contact = string.IsNullOrEmpty(q.ContactId) ? null : await _contacts.GetByIdAsync(q.ContactId);
+        var company = string.IsNullOrEmpty(q.CompanyId) ? null : await _companies.GetByIdAsync(q.CompanyId);
+        inv.ReceiverName = company?.Title ?? contact?.FullName ?? "";
+        var ced = Str(input, "cedulaReceptor");
+        inv.ReceiverId = ced.Length > 0 ? ced : (company?.TaxId ?? "");
+        inv.ReceiverEmail = contact?.Email ?? company?.Email;
+        foreach (var ln in q.Lines)
+        {
+            var cabys = "";
+            if (!string.IsNullOrEmpty(ln.ProductId)) { var p = await _quotes.GetProductAsync(ln.ProductId); cabys = p?.Cabys ?? ""; }
+            inv.Lines.Add(new InvoiceLine { Cabys = cabys, Description = ln.Description, Quantity = ln.Quantity, UnitPrice = ln.UnitPrice, DiscountPercent = ln.DiscountPercent, TaxRate = ln.TaxRate });
+        }
+
+        var invoices = _sp.GetRequiredService<Dana.Services.Invoicing.InvoiceService>();
+        var (sok, serr) = await invoices.SaveDraftAsync(inv);
+        if (!sok) throw new ArgumentException(serr);
+        if (!Bool(input, "emitir", true)) return Ser(new { ok = true, id = inv.Id, estado = "draft", total = inv.Total });
+        var validation = Dana.Services.Invoicing.InvoiceService.Validate(inv);
+        if (validation is not null) return Ser(new { ok = false, id = inv.Id, estado = "draft", error = validation });
+        var (ok, err) = await invoices.SubmitAsync(inv.Id!);
+        if (!ok) return Ser(new { ok = false, id = inv.Id, error = err });
+        await invoices.RefreshStatusAsync(inv.Id!);
+        var fresh = await invoices.GetAsync(inv.Id);
+        return Ser(new { ok = true, id = inv.Id, estado = fresh?.Status, clave = fresh?.Clave, total = inv.Total, sandbox = invoices.Sandbox });
+    }
+
+    private async Task<string> CreatePaymentLinkAsync(JsonElement input, string author)
+    {
+        var tilopay = _sp.GetRequiredService<Dana.Services.Integrations.TilopayService>();
+        var baseUrl = _sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>()["PublicBaseUrl"] ?? "http://localhost:5025";
+        var moneda = Str(input, "moneda"); var deal = Str(input, "dealId"); var quote = Str(input, "quoteId"); var fact = Str(input, "facturaId");
+        var link = await tilopay.CreateAsync(new PaymentLink
+        {
+            Amount = Dec(input, "monto"),
+            Currency = moneda.Length > 0 ? moneda : "CRC",
+            Description = Str(input, "descripcion"),
+            DealId = deal.Length > 0 ? deal : null,
+            QuoteId = quote.Length > 0 ? quote : null,
+            InvoiceId = fact.Length > 0 ? fact : null,
+        }, baseUrl, author);
+        return Ser(new { ok = link.Url is not null, url = link.Url, estado = link.Status, sandbox = tilopay.Sandbox, error = link.LastError });
+    }
+
     private static string Ser(object o) => JsonSerializer.Serialize(o, Json);
     private static string Str(JsonElement e, string name) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null ? (v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : v.GetRawText()) : "";
     private static int Int(JsonElement e, string name, int def) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : def;
     private static JsonElement Obj(JsonElement e, string name) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) ? v : default;
     private static bool Bool(JsonElement e, string name, bool def) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) ? v.ValueKind switch { JsonValueKind.True => true, JsonValueKind.False => false, JsonValueKind.String => v.GetString()?.ToLowerInvariant() is "true" or "1" or "sí" or "si", _ => def } : def;
+    private static decimal Dec(JsonElement e, string name) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDecimal(out var d) ? d : 0m;
 }

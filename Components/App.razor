@@ -54,5 +54,5 @@
     // Las páginas de cuenta (login, registro…) se renderizan de forma estática en el servidor
     // porque necesitan HttpContext para firmar/cerrar la cookie de sesión.
     private IComponentRenderMode? RenderModeForPage =>
-        HttpContext.Request.Path.StartsWithSegments("/cuenta") || HttpContext.Request.Path.StartsWithSegments("/formulario") || HttpContext.Request.Path.StartsWithSegments("/firmar") || HttpContext.Request.Path.StartsWithSegments("/catalogo") || HttpContext.Request.Path.StartsWithSegments("/doc") || HttpContext.Request.Path.Value!.EndsWith("/imprimir") ? null : InteractiveServer;
+        HttpContext.Request.Path.StartsWithSegments("/cuenta") || HttpContext.Request.Path.StartsWithSegments("/formulario") || HttpContext.Request.Path.StartsWithSegments("/firmar") || HttpContext.Request.Path.StartsWithSegments("/catalogo") || HttpContext.Request.Path.StartsWithSegments("/doc") || HttpContext.Request.Path.StartsWithSegments("/pagar") || HttpContext.Request.Path.Value!.EndsWith("/imprimir") ? null : InteractiveServer;
 }

@@ -34,111 +34,146 @@
 
 <PageHeader Title="Configuración" Subtitle="Centro de administración de Dana: empresa, usuarios, integraciones, automatizaciones y preferencias personales." />
 
-<div class="settings-toolbar">
-    <input type="search" class="settings-search" placeholder="Buscar en la configuración…" value="@_filter" @oninput="e => _filter = e.Value?.ToString() ?? string.Empty" />
-</div>
+<div class="settings-shell">
+    <aside class="settings-nav">
+        <button type="button" class="nav-pill @Active("resumen")" @onclick='() => SelectTab("resumen")'>
+            @IconSvg("gauge") <span>Resumen</span>
+            @if (_pending > 0) { <span class="nav-badge" title="@_pending por revisar">@_pending</span> }
+        </button>
+        @foreach (var g in Groups.Where(HasAccess))
+        {
+            <button type="button" class="nav-pill @Active(g.Id)" @onclick="() => SelectTab(g.Id)">
+                @IconSvg(g.Icon) <span>@g.Title</span>
+            </button>
+        }
+        <button type="button" class="nav-pill @Active("personal")" @onclick='() => SelectTab("personal")'>
+            @IconSvg("user") <span>Personales</span>
+        </button>
+    </aside>
 
-<div class="settings-hub">
-    <div class="widget settings-status">
-        <div class="widget-title">
-            <span>Estado del sistema <span class="badge-soft">@(Env.IsDevelopment() ? "desarrollo" : "producción")</span></span>
-            <span class="status-summary @(_pending == 0 ? "ok" : "warn")">@_active de @_status.Count activos@(_pending > 0 ? $" · {_pending} por revisar" : "")</span>
-        </div>
-        <div class="status-grid">
-            @foreach (var s in _status)
+    <div class="settings-main">
+        <div class="settings-toolbar">
+            <input type="search" class="settings-search" placeholder="Buscar en toda la configuración…" value="@_filter" @oninput="e => _filter = e.Value?.ToString() ?? string.Empty" />
+            @if (!string.IsNullOrWhiteSpace(_filter))
             {
-                <div class="status-item">
-                    <span class="st-dot @s.State"></span>
-                    <div class="st-body">
-                        <div class="st-label">@s.Label <span class="st-state @s.State">@StateText(s.State)</span></div>
-                        <div class="st-detail">@s.Detail</div>
-                    </div>
-                    @if (s.Href is not null) { <a class="st-action" href="@s.Href">Configurar →</a> }
+                <button type="button" class="settings-search-clear" @onclick='() => _filter = string.Empty' title="Limpiar">✕</button>
+            }
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_filter))
+        {
+            var results = Groups.SelectMany(g => g.Items).Where(Visible).ToList();
+            <div class="settings-section-head">
+                <h3>Resultados de búsqueda</h3>
+                <p class="muted">@results.Count resultado@(results.Count == 1 ? "" : "s") para «@_filter».</p>
+            </div>
+            @if (results.Count == 0)
+            {
+                <p class="muted">No hay opciones que coincidan con «@_filter».</p>
+            }
+            else
+            {
+                <div class="settings-grid">
+                    @foreach (var it in results) { @CardLink(it) }
                 </div>
             }
-        </div>
-        <div class="settings-counters">
-            <a href="usuarios" class="counter"><strong>@_users</strong><span>usuarios</span></a>
-            <a href="leads" class="counter"><strong>@_leads</strong><span>prospectos</span></a>
-            <a href="deals" class="counter"><strong>@_deals</strong><span>negociaciones</span></a>
-            <a href="contacts" class="counter"><strong>@_contacts</strong><span>contactos</span></a>
-            <a href="companies" class="counter"><strong>@_companies</strong><span>compañías</span></a>
-            <a href="pipelines" class="counter"><strong>@_pipelines</strong><span>embudos</span></a>
-            <a href="automatizaciones" class="counter"><strong>@_automations</strong><span>automatizaciones</span></a>
-            <a href="configuracion/api" class="counter"><strong>@_channels</strong><span>canales API</span></a>
-            <a href="formularios" class="counter"><strong>@_forms</strong><span>formularios</span></a>
-        </div>
-    </div>
-
-    @foreach (var g in Groups.Where(g => g.Items.Any(Visible)))
-    {
-        <h5 class="settings-group">@g.Title</h5>
-        <div class="settings-grid">
-            @foreach (var it in g.Items.Where(Visible))
-            {
-                <a class="settings-card" href="@it.Href">
-                    <span class="settings-ico">@IconSvg(it.Icon)</span>
-                    <span class="settings-text">
-                        <strong>@it.Title @if (it.Admin) { <span class="badge-soft">admin</span> }</strong>
-                        <span class="muted">@it.Desc</span>
-                    </span>
+        }
+        else if (_tab == "resumen")
+        {
+            <div class="settings-section-head">
+                <h3>Estado del sistema <span class="badge-soft">@(Env.IsDevelopment() ? "desarrollo" : "producción")</span></h3>
+                <p class="status-summary @(_pending == 0 ? "ok" : "warn")">@_active de @_status.Count activos@(_pending > 0 ? $" · {_pending} por revisar" : "")</p>
+            </div>
+            <div class="status-grid">
+                @foreach (var s in _status)
+                {
+                    <div class="status-item">
+                        <span class="st-dot @s.State"></span>
+                        <div class="st-body">
+                            <div class="st-label">@s.Label <span class="st-state @s.State">@StateText(s.State)</span></div>
+                            <div class="st-detail">@s.Detail</div>
+                        </div>
+                        @if (s.Href is not null) { <a class="st-action" href="@s.Href">Configurar →</a> }
+                    </div>
+                }
+            </div>
+            <h5 class="settings-group">Resumen de datos</h5>
+            <div class="settings-counters">
+                <a href="usuarios" class="counter"><strong>@_users</strong><span>usuarios</span></a>
+                <a href="leads" class="counter"><strong>@_leads</strong><span>prospectos</span></a>
+                <a href="deals" class="counter"><strong>@_deals</strong><span>negociaciones</span></a>
+                <a href="contacts" class="counter"><strong>@_contacts</strong><span>contactos</span></a>
+                <a href="companies" class="counter"><strong>@_companies</strong><span>compañías</span></a>
+                <a href="pipelines" class="counter"><strong>@_pipelines</strong><span>embudos</span></a>
+                <a href="automatizaciones" class="counter"><strong>@_automations</strong><span>automatizaciones</span></a>
+                <a href="configuracion/api" class="counter"><strong>@_channels</strong><span>canales API</span></a>
+                <a href="formularios" class="counter"><strong>@_forms</strong><span>formularios</span></a>
+            </div>
+        }
+        else if (_tab == "personal")
+        {
+            <div class="settings-section-head">
+                <h3>Preferencias personales</h3>
+                <p class="muted">Ajustes que aplican solo a tu cuenta en este navegador.</p>
+            </div>
+            <div class="settings-grid">
+                <button type="button" class="settings-card" @onclick="ToggleThemeAsync">
+                    <span class="settings-ico">@IconSvg(_dark ? "sun" : "moon")</span>
+                    <span class="settings-text"><strong>Apariencia</strong><span class="muted">Ahora: @(_dark ? "modo oscuro" : "modo claro"). Clic para cambiar.</span></span>
+                </button>
+                <a class="settings-card" href="cuenta/perfil">
+                    <span class="settings-ico">@IconSvg("user")</span>
+                    <span class="settings-text"><strong>Mi perfil</strong><span class="muted">Nombre, avatar y contraseña de tu cuenta.</span></span>
                 </a>
-            }
-        </div>
-    }
-
-    @if (!string.IsNullOrWhiteSpace(_filter) && !Groups.SelectMany(g => g.Items).Any(Visible))
-    {
-        <p class="muted">No hay opciones que coincidan con «@_filter».</p>
-    }
-
-    <h5 class="settings-group">Preferencias personales</h5>
-    <div class="settings-grid">
-        <button type="button" class="settings-card" @onclick="ToggleThemeAsync">
-            <span class="settings-ico">@IconSvg(_dark ? "sun" : "moon")</span>
-            <span class="settings-text"><strong>Apariencia</strong><span class="muted">Ahora: @(_dark ? "modo oscuro" : "modo claro"). Clic para cambiar.</span></span>
-        </button>
-        <a class="settings-card" href="cuenta/perfil">
-            <span class="settings-ico">@IconSvg("user")</span>
-            <span class="settings-text"><strong>Mi perfil</strong><span class="muted">Nombre, avatar y contraseña de tu cuenta.</span></span>
-        </a>
-        <button type="button" class="settings-card" @onclick="OpenMenuCustomizerAsync">
-            <span class="settings-ico">@IconSvg("sliders")</span>
-            <span class="settings-text"><strong>Personalizar menú</strong><span class="muted">Ocultar, renombrar, reordenar o añadir enlaces al menú lateral.</span></span>
-        </button>
-        <a class="settings-card" href="tutorial">
-            <span class="settings-ico">@IconSvg("help")</span>
-            <span class="settings-text"><strong>Tutorial</strong><span class="muted">Cómo funcionan prospectos, negociaciones, contactos y compañías.</span></span>
-        </a>
+                <button type="button" class="settings-card" @onclick="OpenMenuCustomizerAsync">
+                    <span class="settings-ico">@IconSvg("sliders")</span>
+                    <span class="settings-text"><strong>Personalizar menú</strong><span class="muted">Ocultar, renombrar, reordenar o añadir enlaces al menú lateral.</span></span>
+                </button>
+                <a class="settings-card" href="tutorial">
+                    <span class="settings-ico">@IconSvg("help")</span>
+                    <span class="settings-text"><strong>Tutorial</strong><span class="muted">Cómo funcionan prospectos, negociaciones, contactos y compañías.</span></span>
+                </a>
+            </div>
+        }
+        else
+        {
+            var g = Groups.FirstOrDefault(x => x.Id == _tab) ?? Groups[0];
+            <div class="settings-section-head">
+                <h3>@g.Title</h3>
+                <p class="muted">@g.Desc</p>
+            </div>
+            <div class="settings-grid">
+                @foreach (var it in g.Items.Where(Visible)) { @CardLink(it) }
+            </div>
+        }
     </div>
 </div>
-
 @code {
     private record Item(string Title, string Desc, string Href, string Icon, bool Admin = false);
-    private record Group(string Title, Item[] Items);
+    private record Group(string Id, string Title, string Icon, string Desc, Item[] Items);
 
     private static readonly Group[] Groups =
     [
-        new("Empresa y cuenta", [
+        new("empresa", "Empresa y cuenta", "building", "Identidad de la empresa, usuarios y registro de actividad.", [
             new("Empresa y moneda", "Datos de la empresa, moneda base, tipos de cambio y numeración de cotizaciones.", "configuracion/empresa", "building", true),
             new("Usuarios, roles y equipos", "Invitaciones, roles Admin/Usuario, permisos por tablero y equipos.", "usuarios", "users", true),
             new("Auditoría", "Historial de cambios: quién modificó qué y cuándo.", "auditoria", "clock", true),
             new("Papelera", "Restaurar o eliminar definitivamente registros borrados.", "papelera", "trash"),
         ]),
-        new("Ventas y flujo de trabajo", [
+        new("ventas", "Ventas y flujo de trabajo", "bolt", "Embudos, automatizaciones y plantillas que mueven las negociaciones.", [
             new("Embudos (pipelines)", "Etapas de las negociaciones, probabilidades y embudos por línea de negocio.", "pipelines", "list"),
             new("Automatizaciones", "Reglas \"cuando pase X, haz Y\": notificar, mover de etapa, crear tareas, webhooks.", "automatizaciones", "bolt"),
             new("Plantillas de correo", "Correos reutilizables con variables para prospectos y negociaciones.", "plantillas", "mail"),
             new("Documentos", "Contratos, NDA, propuestas, cartas y actas con plantillas, versiones y exportación a Word.", "documentos", "doc"),
             new("Productos y categorías", "Catálogo de productos, categorías, etiquetas e imágenes.", "productos", "box"),
         ]),
-        new("Inteligencia artificial", [
+        new("ia", "Inteligencia artificial", "spark", "Proveedores de IA, agentes y los canales por donde conversan.", [
             new("Proveedores de IA", "Claves de API de Claude (Anthropic) y ChatGPT (OpenAI), modelos por defecto y límites.", "configuracion/ia", "spark", true),
             new("Agentes", "Asistentes con rol, instrucciones y herramientas sobre los datos del CRM.", "agentes", "robot"),
             new("Oficina virtual", "Espacio 2D donde el equipo y los agentes conviven; acérquese a uno para hablar.", "oficina", "office"),
             new("Telegram", "Hable con los agentes desde Telegram: vincule su chat con su cuenta de Dana.", "agentes/telegram", "send"),
         ]),
-        new("Integraciones", [
+        new("integraciones", "Integraciones", "plug", "Conexiones con servicios externos, API pública y entrada de datos.", [
             new("Servicios externos (Savegre)", "Conectar Senda (facturación), Wapi (WhatsApp) y Wan (teléfono con IA) por URL y clave. Opcional.", "configuracion/integraciones", "plug", true),
             new("API y canales", "Recibir prospectos desde su sitio web y tokens de la API REST.", "configuracion/api", "code", true),
             new("API de productos (catálogo)", "Consultar sus productos desde otros sistemas o su web: GET /api/public/products?key=… y /api/v1/products.", "configuracion/api#catalogo", "box", true),
@@ -158,6 +193,7 @@
         ["sun"] = "<circle cx=\"10\" cy=\"10\" r=\"3.2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\"/><path d=\"M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.6 4.6l1.4 1.4M14 14l1.4 1.4M4.6 15.4 6 14M14 6l1.4-1.4\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\"/>",
         ["help"] = "<circle cx=\"10\" cy=\"10\" r=\"7.5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\"/><path d=\"M8 8a2 2 0 1 1 3 1.7c-.7.4-1 .8-1 1.5M10 14h.01\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\"/>",
         ["plug"] = "<path d=\"M7 3v4M13 3v4M5 7h10v2a5 5 0 0 1-10 0V7zM10 14v4\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
+        ["gauge"] = "<path d=\"M3.5 14.5a6.5 6.5 0 0 1 13 0\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\"/><path d=\"M10 14.5 13 9\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\"/>",
     };
 
     private static MarkupString IconSvg(string key)
@@ -166,21 +202,41 @@
         return new($"<svg viewBox=\"0 0 20 20\" class=\"settings-svg\" aria-hidden=\"true\">{path}</svg>");
     }
 
+    private RenderFragment CardLink(Item it) =>
+        @<a class="settings-card" href="@it.Href">
+            <span class="settings-ico">@IconSvg(it.Icon)</span>
+            <span class="settings-text">
+                <strong>@it.Title @if (it.Admin) { <span class="badge-soft">admin</span> }</strong>
+                <span class="muted">@it.Desc</span>
+            </span>
+        </a>;
+
     // State: ok (activo) · warn (atención) · bad (error) · off (opcional, sin configurar)
     private record StatusItem(string Label, string State, string Detail, string? Href = null);
 
     private bool _isAdmin, _mongoOk, _dark;
     private string _mongoError = "";
     private string _filter = "";
+    private string _tab = "resumen";
     private AppSettings? _settings;
     private List<StatusItem> _status = new();
     private int _active, _pending;
     private long _users, _leads, _deals, _contacts, _companies, _pipelines, _automations, _channels, _forms;
 
-    private bool Visible(Item it) => (!it.Admin || _isAdmin) && Matches(it);
+    private bool HasAccess(Item it) => !it.Admin || _isAdmin;
+    private bool HasAccess(Group g) => g.Items.Any(HasAccess);
+    private bool Visible(Item it) => HasAccess(it) && Matches(it);
 
     private bool Matches(Item it) =>
         string.IsNullOrWhiteSpace(_filter) || (it.Title + " " + it.Desc).Contains(_filter.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private string Active(string tab) => _tab == tab ? "active" : "";
+
+    private void SelectTab(string tab)
+    {
+        _tab = tab;
+        _filter = "";
+    }
 
     private static string StateText(string state) => state switch
     {

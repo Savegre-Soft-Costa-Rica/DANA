@@ -1,0 +1,88 @@
+@page "/pagar/{Token}"
+@attribute [AllowAnonymous]
+@layout EmptyLayout
+@using System.ComponentModel.DataAnnotations
+@using Dana.Services.Integrations
+@inject TilopayService Tilopay
+@inject SettingsService Settings
+
+<PageTitle>Pago</PageTitle>
+
+<div class="pub-form" style="--accent:#00c875">
+    <div class="pub-card" style="text-align:center">
+        @if (_link is null)
+        {
+            <div style="font-size:2.6rem">🔗</div>
+            <h2>Enlace no disponible</h2>
+            <p class="muted">Este enlace de pago no existe o fue cancelado.</p>
+        }
+        else if (_link.Status == PaymentStatuses.Paid || _done)
+        {
+            <div style="font-size:2.6rem">✅</div>
+            <h2>Pago recibido</h2>
+            <p class="muted">Gracias. Su pago de <strong>@_link.Amount.ToString("N2") @_link.Currency</strong> fue registrado.</p>
+        }
+        else if (!_link.IsPayable)
+        {
+            <div style="font-size:2.6rem">⌛</div>
+            <h2>Enlace expirado</h2>
+            <p class="muted">Este enlace de pago ya no está disponible.</p>
+        }
+        else
+        {
+            <div class="pay-brand">@_s.CompanyName</div>
+            <h2>@_link.Amount.ToString("N2") @_link.Currency</h2>
+            <p class="muted">@_link.Description</p>
+
+            @if (_sandbox)
+            {
+                <div class="alert alert-warning py-2 small">Modo de pruebas (Sandbox): no se cobra dinero real.</div>
+                <EditForm Model="Input" method="post" OnValidSubmit="PayAsync" FormName="pay">
+                    <div class="mb-2"><InputText class="form-control" placeholder="Su nombre" @bind-Value="Input.Name" /></div>
+                    <div class="mb-2"><InputText type="email" class="form-control" placeholder="Correo (opcional)" @bind-Value="Input.Email" /></div>
+                    <button type="submit" class="btn-primary">Pagar @_link.Amount.ToString("N2") @_link.Currency (simulado)</button>
+                </EditForm>
+            }
+            else
+            {
+                <p class="muted small">Será redirigido a la pasarela de pago segura.</p>
+                <a class="btn-primary" href="@_link.Url">Continuar al pago</a>
+            }
+        }
+        <div class="muted small text-center mt-3">Pago gestionado con Dana CRM</div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Token { get; set; } = "";
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+    [SupplyParameterFromForm] private InputModel Input { get; set; } = default!;
+
+    private PaymentLink? _link;
+    private AppSettings _s = new();
+    private bool _sandbox;
+    private bool _done;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        _s = await Settings.GetAsync();
+        _link = await Tilopay.FindByTokenAsync(Token);
+        if (_link is null) return;
+        _sandbox = _link.Provider == "sandbox";
+
+        if (HttpContext.Request.Method == "POST" && _sandbox && _link.IsPayable)
+        {
+            await Tilopay.MarkPaidAsync(_link, Input.Name, Input.Email, Input.Name ?? "Cliente");
+            _done = true;
+        }
+    }
+
+    private Task PayAsync() => Task.CompletedTask; // el POST se procesa en OnInitializedAsync
+
+    private sealed class InputModel
+    {
+        public string? Name { get; set; }
+        [EmailAddress(ErrorMessage = "Correo inválido")] public string? Email { get; set; }
+    }
+}

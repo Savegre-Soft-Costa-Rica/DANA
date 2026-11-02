@@ -17,6 +17,14 @@
 }
 else
 {
+    <div class="widget w-12 mb-3" style="border-left:4px solid var(--warning)">
+        <label class="d-flex align-items-center gap-2 mb-1">
+            <input class="form-check-input mt-0" type="checkbox" @bind="_s.Integrations.Sandbox" />
+            <strong>🧪 Modo de pruebas (Sandbox)</strong>
+        </label>
+        <div class="small muted">Con el Sandbox activado, la <strong>facturación electrónica</strong> y los <strong>enlaces de pago</strong> se <strong>simulan</strong>: no se envía nada a Hacienda ni a Tilopay y no se cobra dinero real. Ideal para probar el flujo completo. Desactívelo solo cuando tenga las credenciales reales configuradas.</div>
+    </div>
+
     <div class="widgets">
         <div class="widget w-6">
             <div class="widget-title">Senda · Facturación electrónica @Badge(_s.Integrations.Senda.Enabled, _hasSendaKey)</div>
@@ -54,6 +62,22 @@ else
             </div>
             <button class="btn-ghost btn-sm" disabled="@_loading" @onclick='() => TestAsync("senda")'>▶ Probar conexión</button>
             @if (_result.TryGetValue("senda", out var rs)) { <div class="small mt-2 @(rs.Ok ? "text-success" : "text-danger")">@rs.Message</div> }
+        </div>
+
+        <div class="widget w-6">
+            <div class="widget-title">Tilopay · Enlaces de pago @Badge(_s.Integrations.Tilopay.Enabled, _hasTilopay)</div>
+            <div class="small muted mb-2">Pasarela de pagos (Costa Rica): genera enlaces para cobrar cotizaciones y facturas. Con el modo Sandbox activo los pagos se simulan.</div>
+            <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" id="tilo-on" @bind="_s.Integrations.Tilopay.Enabled" />
+                <label class="form-check-label" for="tilo-on">Activar Tilopay (para pagos reales; requiere desactivar el Sandbox)</label>
+            </div>
+            <input class="form-control mb-2" placeholder="https://app.tilopay.com/api/v1" @bind="_s.Integrations.Tilopay.BaseUrl" />
+            <div class="row g-2">
+                <div class="col-md-4"><input class="form-control" type="password" placeholder="@KeyPh(_hasTilopay)" @bind="_tiloUser" title="API user" /><div class="small muted">API user</div></div>
+                <div class="col-md-4"><input class="form-control" type="password" placeholder="@KeyPh(_hasTilopay)" @bind="_tiloPass" title="Password" /><div class="small muted">Password</div></div>
+                <div class="col-md-4"><input class="form-control" type="password" placeholder="@KeyPh(_hasTilopay)" @bind="_tiloKey" title="API key" /><div class="small muted">API key</div></div>
+            </div>
+            @if (_hasTilopay) { <button class="btn-ghost btn-sm mt-1" title="Quitar credenciales" @onclick="() => { _s.Integrations.Tilopay.ApiUserProtected = _s.Integrations.Tilopay.ApiPasswordProtected = _s.Integrations.Tilopay.ApiKeyProtected = null; _hasTilopay = false; }">✕ Quitar credenciales</button> }
         </div>
 
         <div class="widget w-6">
@@ -113,13 +137,14 @@ else
 
 @code {
     private AppSettings? _s;
-    private string? _sendaKey, _wapiKey, _wanKey;
-    private bool _hasSendaKey, _hasWapiKey, _hasWanKey, _loading, _saved;
+    private string? _sendaKey, _wapiKey, _wanKey, _tiloUser, _tiloPass, _tiloKey;
+    private bool _hasSendaKey, _hasWapiKey, _hasWanKey, _hasTilopay, _loading, _saved;
     private readonly Dictionary<string, IntegrationTestResult> _result = new();
 
     protected override async Task OnInitializedAsync()
     {
         _s = await Settings.GetAsync();
+        _hasTilopay = !string.IsNullOrEmpty(Conn.Unprotect(_s.Integrations.Tilopay.ApiKeyProtected)) || !string.IsNullOrEmpty(Conn.Unprotect(_s.Integrations.Tilopay.ApiUserProtected));
         _hasSendaKey = !string.IsNullOrEmpty(Conn.Unprotect(_s.Integrations.Senda.ApiKeyProtected));
         _hasWapiKey = !string.IsNullOrEmpty(Conn.Unprotect(_s.Integrations.Wapi.ApiKeyProtected));
         _hasWanKey = !string.IsNullOrEmpty(Conn.Unprotect(_s.Integrations.Wan.TokenProtected));
@@ -159,6 +184,10 @@ else
             if (!string.IsNullOrWhiteSpace(_sendaKey)) { _s!.Integrations.Senda.ApiKeyProtected = Conn.Protect(_sendaKey.Trim()); _sendaKey = null; _hasSendaKey = true; }
             if (!string.IsNullOrWhiteSpace(_wapiKey)) { _s!.Integrations.Wapi.ApiKeyProtected = Conn.Protect(_wapiKey.Trim()); _wapiKey = null; _hasWapiKey = true; }
             if (!string.IsNullOrWhiteSpace(_wanKey)) { _s!.Integrations.Wan.TokenProtected = Conn.Protect(_wanKey.Trim()); _wanKey = null; _hasWanKey = true; }
+            if (!string.IsNullOrWhiteSpace(_tiloUser)) { _s!.Integrations.Tilopay.ApiUserProtected = Conn.Protect(_tiloUser.Trim()); _tiloUser = null; _hasTilopay = true; }
+            if (!string.IsNullOrWhiteSpace(_tiloPass)) { _s!.Integrations.Tilopay.ApiPasswordProtected = Conn.Protect(_tiloPass.Trim()); _tiloPass = null; }
+            if (!string.IsNullOrWhiteSpace(_tiloKey)) { _s!.Integrations.Tilopay.ApiKeyProtected = Conn.Protect(_tiloKey.Trim()); _tiloKey = null; }
+            _s!.Integrations.Tilopay.BaseUrl = _s.Integrations.Tilopay.BaseUrl?.Trim();
 
             _s!.Integrations.Senda.BaseUrl = _s.Integrations.Senda.BaseUrl?.Trim();
             _s.Integrations.Wapi.BaseUrl = _s.Integrations.Wapi.BaseUrl?.Trim();

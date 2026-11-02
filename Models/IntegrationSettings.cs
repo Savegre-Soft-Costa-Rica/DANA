@@ -6,9 +6,25 @@ namespace Dana.Models;
 /// </summary>
 public class IntegrationSettings
 {
+    /// <summary>Modo de pruebas: la facturación electrónica y los enlaces de pago se simulan
+    /// (no se envía nada a Hacienda ni a Tilopay). Ideal para probar el flujo completo.</summary>
+    public bool Sandbox { get; set; } = true;
+
     public SendaSettings Senda { get; set; } = new();
     public WapiSettings Wapi { get; set; } = new();
     public WanSettings Wan { get; set; } = new();
+    public TilopaySettings Tilopay { get; set; } = new();
+}
+
+/// <summary>Tilopay: pasarela de pagos (Costa Rica). Enlaces de pago para cotizaciones/facturas.</summary>
+public class TilopaySettings
+{
+    public bool Enabled { get; set; }
+    public string? BaseUrl { get; set; } = "https://app.tilopay.com/api/v1";
+    /// <summary>Credenciales de la API de Tilopay (apiuser / password / key), cifradas.</summary>
+    public string? ApiUserProtected { get; set; }
+    public string? ApiPasswordProtected { get; set; }
+    public string? ApiKeyProtected { get; set; }
 }
 
 /// <summary>Senda / Factu: API de facturación electrónica del Ministerio de Hacienda (Costa Rica).</summary>

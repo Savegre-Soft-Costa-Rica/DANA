@@ -22,6 +22,7 @@ public class NavService
         new("companies", "Compañías", "companies", "dot:#fdab3d", "Tableros"),
         new("quotes", "Cotizaciones", "cotizaciones", "doc", "Ventas"),
         new("products", "Productos", "productos", "box", "Ventas"),
+        new("invoices", "Facturas", "facturas", "doc", "Ventas"),
         new("documents", "Documentos", "documentos", "doc", "Ventas"),
         new("templates", "Plantillas de correo", "plantillas", "mail", "Ventas"),
         new("forms", "Formularios", "formularios", "form", "Ventas"),

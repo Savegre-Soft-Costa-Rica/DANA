@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Dana.Data;
 using Dana.Models;
+using Dana.Services.Integrations;
 
 namespace Dana.Services;
 
@@ -16,15 +17,19 @@ public partial class LinkPreviewService
     private readonly DocumentService _docs;
     private readonly IRepository<Contact> _contacts;
     private readonly IRepository<Company> _companies;
+    private readonly TilopayService _tilopay;
 
     public LinkPreviewService(LeadService leads, DealService deals, QuoteService quotes, DocumentService docs,
-        IRepository<Contact> contacts, IRepository<Company> companies)
+        IRepository<Contact> contacts, IRepository<Company> companies, TilopayService tilopay)
     {
-        _leads = leads; _deals = deals; _quotes = quotes; _docs = docs; _contacts = contacts; _companies = companies;
+        _leads = leads; _deals = deals; _quotes = quotes; _docs = docs; _contacts = contacts; _companies = companies; _tilopay = tilopay;
     }
 
     [GeneratedRegex(@"(?:https?://[^/\s]+)?/?(leads|deals|contacts|companies|cotizaciones|documentos)/([0-9a-fA-F]{24})", RegexOptions.IgnoreCase)]
     private static partial Regex LinkRegex();
+
+    [GeneratedRegex(@"(?:https?://[^/\s]+)?/?pagar/([0-9a-fA-F]{8,32})", RegexOptions.IgnoreCase)]
+    private static partial Regex PagarRegex();
 
     private static readonly Dictionary<string, string> SegmentToType = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -45,6 +50,12 @@ public partial class LinkPreviewService
             var path = $"{seg}/{id}";
             if (seen.Add(path) && SegmentToType.TryGetValue(seg, out var type))
                 result.Add((type, id, path));
+        }
+        foreach (Match m in PagarRegex().Matches(text))
+        {
+            var token = m.Groups[1].Value;
+            var path = $"pagar/{token}";
+            if (seen.Add(path)) result.Add(("payment", token, path));
         }
         return result;
     }
@@ -75,6 +86,12 @@ public partial class LinkPreviewService
                 case "document":
                     var doc = await _docs.GetAsync(id);
                     return doc is null ? null : new("Documento", DocumentKinds.Get(doc.Kind).Emoji, "#7e3b8a", doc.Title, $"{DocumentKinds.Get(doc.Kind).Label} · {DocumentStatuses.Get(doc.Status).Label}", path);
+                case "payment":
+                    var pl = await _tilopay.FindByTokenAsync(id);
+                    if (pl is null) return null;
+                    var ps = PaymentStatuses.Get(pl.Status);
+                    return new("Enlace de pago", "💳", pl.Status == PaymentStatuses.Paid ? "#00c875" : "#579bfc",
+                        $"{pl.Amount:N0} {pl.Currency}", $"{ps.Label}{(string.IsNullOrWhiteSpace(pl.Description) ? "" : " · " + pl.Description)}", path);
                 default:
                     return null;
             }

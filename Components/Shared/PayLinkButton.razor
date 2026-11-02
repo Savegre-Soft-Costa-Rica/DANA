@@ -1,0 +1,58 @@
+@using Dana.Services.Integrations
+@inject TilopayService Tilopay
+@inject NavigationManager Nav
+@inject CurrentUser Me
+@inject IJSRuntime JS
+
+@if (_link is null)
+{
+    <button type="button" class="btn-secondary" title="Crear un enlace de pago para el cliente" disabled="@_busy" @onclick="CreateAsync">💳 @(_busy ? "Creando…" : "Cobrar")</button>
+}
+else
+{
+    <span class="d-inline-flex align-items-center gap-1">
+        <a class="btn-secondary" href="@_link.Url" target="_blank" title="Abrir el enlace de pago">💳 Pago · @PaymentStatuses.Get(_link.Status).Label</a>
+        <button type="button" class="icon-btn" title="Copiar enlace de pago" @onclick="CopyAsync">@(_copied ? "✓" : "⧉")</button>
+    </span>
+}
+
+@code {
+    [Parameter] public decimal Amount { get; set; }
+    [Parameter] public string Currency { get; set; } = "CRC";
+    [Parameter] public string Description { get; set; } = "";
+    [Parameter] public string? DealId { get; set; }
+    [Parameter] public string? QuoteId { get; set; }
+    [Parameter] public string? ContactId { get; set; }
+    [Parameter] public string? CompanyId { get; set; }
+
+    private PaymentLink? _link;
+    private bool _busy, _copied;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Reutiliza un enlace ya creado para esta cotización/negociación en vez de duplicar.
+        if (_link is not null || (QuoteId is null && DealId is null)) return;
+        var all = await Tilopay.GetAllAsync();
+        _link = all.FirstOrDefault(l => (QuoteId is not null && l.QuoteId == QuoteId) || (DealId is not null && l.DealId == DealId && QuoteId is null));
+    }
+
+    private async Task CreateAsync()
+    {
+        _busy = true;
+        try
+        {
+            _link = await Tilopay.CreateAsync(new PaymentLink
+            {
+                Amount = Amount, Currency = Currency, Description = Description,
+                DealId = DealId, QuoteId = QuoteId, ContactId = ContactId, CompanyId = CompanyId,
+            }, Nav.BaseUri, await Me.NameAsync());
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task CopyAsync()
+    {
+        if (_link?.Url is null) return;
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", _link.Url); _copied = true; } catch { }
+    }
+}

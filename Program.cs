@@ -48,7 +48,9 @@ builder.Services.AddHttpClient("integrations", c => c.Timeout = TimeSpan.FromSec
 builder.Services.AddSingleton<IntegrationService>();
 // Facturación electrónica: adaptador a Senda; sin conexión configurada se comporta como "no configurado".
 builder.Services.AddSingleton<IElectronicInvoiceProvider, SendaInvoiceProvider>();
+builder.Services.AddSingleton<Dana.Services.Invoicing.SandboxInvoiceProvider>();
 builder.Services.AddSingleton<InvoiceService>();
+builder.Services.AddSingleton<Dana.Services.Integrations.TilopayService>();
 // Telegram: bot con long polling (sin URL pública). Sin token no se inicia.
 builder.Services.AddSingleton(builder.Configuration.GetSection(TelegramOptions.Section).Get<TelegramOptions>() ?? new TelegramOptions());
 builder.Services.AddHttpClient("telegram", c =>
@@ -365,6 +367,26 @@ app.MapGet("/catalog/images/{id}", async (string id, AttachmentService attachmen
     var path = attachments.PathFor(a);
     return File.Exists(path) ? Results.File(path, a.ContentType, enableRangeProcessing: true) : Results.NotFound();
 }).AllowAnonymous().RequireCors("public-api");
+
+// Webhook de Tilopay: marca el enlace como pagado (pagos reales)
+app.MapPost("/api/tilopay/webhook", async (HttpContext ctx, Dana.Services.Integrations.TilopayService tilopay) =>
+{
+    try
+    {
+        using var doc = await System.Text.Json.JsonDocument.ParseAsync(ctx.Request.Body);
+        var root = doc.RootElement;
+        string? order = root.TryGetProperty("orderNumber", out var o) ? o.GetString() : root.TryGetProperty("order", out var o2) ? o2.GetString() : null;
+        string? code = root.TryGetProperty("code", out var c) ? c.GetString() : root.TryGetProperty("status", out var s) ? s.GetString() : null;
+        if (!string.IsNullOrEmpty(order))
+        {
+            var link = await tilopay.FindByTokenAsync(order);
+            if (link is not null && code is "1" or "approved" or "paid" or "success" or "completed")
+                await tilopay.MarkPaidAsync(link, link.PayerName, link.PayerEmail, "Tilopay");
+        }
+        return Results.Ok(new { ok = true });
+    }
+    catch { return Results.Ok(new { ok = false }); }
+}).AllowAnonymous().DisableAntiforgery();
 
 // Salud (Docker / balanceadores): comprueba la conexión a MongoDB
 app.MapGet("/health", async (MongoContext mongo) =>

@@ -1,0 +1,208 @@
+@page "/facturas"
+@using Dana.Services.Invoicing
+@using Dana.Services.Integrations
+@inject InvoiceService Invoices
+@inject TilopayService Tilopay
+@inject QuoteService Quotes
+@inject IRepository<Contact> Contacts
+@inject IRepository<Company> Companies
+@inject SettingsService Settings
+@inject CurrentUser Me
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<PageTitle>Dana · Facturas</PageTitle>
+
+<PageHeader Title="Facturación electrónica" Subtitle="Comprobantes de Hacienda (Costa Rica) y enlaces de pago.">
+    <Actions>
+        <span class="muted small align-self-center">@(Invoices.Sandbox ? "🧪 Modo pruebas (Sandbox)" : $"Proveedor: {Invoices.ProviderName}")</span>
+        <select class="form-select mw-filter" @onchange="OnPickQuote">
+            <option value="">Crear desde cotización…</option>
+            @foreach (var q in _quotes) { <option value="@q.Id">@q.Number · @q.Title (@q.Total.ToString("N0") @q.Currency)</option> }
+        </select>
+        <button class="btn-primary" @onclick="NewBlank">+ Factura manual</button>
+    </Actions>
+</PageHeader>
+
+@if (_msg is not null) { <div class="alert alert-info py-2 small">@_msg</div> }
+@if (_err is not null) { <div class="alert alert-danger py-2 small">@_err</div> }
+
+@if (_edit is not null)
+{
+    <div class="card mb-3">
+        <div class="card-header">@(_edit.Id is null ? "Nueva factura" : $"Factura {(_edit.Clave ?? "borrador")}")</div>
+        <div class="card-body">
+            <div class="row g-2 mb-3">
+                <div class="col-md-5"><label class="form-label">Receptor (nombre) *</label><input class="form-control" @bind="_edit.ReceiverName" /></div>
+                <div class="col-md-4"><label class="form-label">Identificación (cédula/DIMEX/NITE) *</label><input class="form-control" @bind="_edit.ReceiverId" /></div>
+                <div class="col-md-3"><label class="form-label">Moneda</label>
+                    <select class="form-select" @bind="_edit.Currency">@foreach (var c in Catalogs.Currencies) { <option value="@c">@c</option> }</select></div>
+                <div class="col-md-5"><label class="form-label">Correo del receptor</label><input class="form-control" @bind="_edit.ReceiverEmail" /></div>
+            </div>
+
+            <table class="table table-sm align-middle">
+                <thead><tr><th style="width:150px">CABYS (13 díg.)</th><th>Descripción</th><th style="width:80px">Cant.</th><th style="width:110px">P. unit.</th><th style="width:80px">Imp.%</th><th class="text-end" style="width:110px">Total</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var l in _edit.Lines)
+                    {
+                        <tr>
+                            <td><input class="form-control form-control-sm @(IsCabysOk(l.Cabys) ? "" : "border-danger")" @bind="l.Cabys" /></td>
+                            <td><input class="form-control form-control-sm" @bind="l.Description" /></td>
+                            <td><input type="number" step="any" class="form-control form-control-sm" @bind="l.Quantity" /></td>
+                            <td><input type="number" step="any" class="form-control form-control-sm" @bind="l.UnitPrice" /></td>
+                            <td><input type="number" step="any" class="form-control form-control-sm" @bind="l.TaxRate" /></td>
+                            <td class="text-end">@l.Total.ToString("N2")</td>
+                            <td><button class="btn-danger btn-sm" @onclick="() => _edit.Lines.Remove(l)">✕</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <button class="btn-secondary btn-sm" @onclick="() => _edit.Lines.Add(new InvoiceLine())">+ Línea</button>
+            <div class="text-end mt-2"><strong>Total: @_edit.Total.ToString("N2") @_edit.Currency</strong> <span class="muted small">(imp. @_edit.Tax.ToString("N2"))</span></div>
+        </div>
+        <div class="card-footer d-flex justify-content-between">
+            <button class="btn-secondary" @onclick="() => _edit = null">Cerrar</button>
+            <span class="d-flex gap-2">
+                <button class="btn-secondary" @onclick="SaveDraftAsync">Guardar borrador</button>
+                <button class="btn-primary" @onclick="EmitAsync">Emitir @(Invoices.Sandbox ? "(prueba)" : "")</button>
+            </span>
+        </div>
+    </div>
+}
+
+@if (_items is null) { <p class="muted">Cargando…</p> }
+else if (_items.Count == 0 && _edit is null) { <div class="empty-state">Aún no hay facturas. Cree una desde una cotización o manual.</div> }
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead><tr><th>Fecha</th><th>Receptor</th><th class="text-end">Total</th><th>Estado</th><th>Clave / Proveedor</th><th>Pago</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var inv in _items)
+                {
+                    var st = InvoiceStatuses.Get(inv.Status);
+                    var pay = _links.FirstOrDefault(p => p.InvoiceId == inv.Id);
+                    <tr>
+                        <td class="small">@inv.Date.ToLocalTime().ToString("dd/MM/yyyy")</td>
+                        <td>@inv.ReceiverName <div class="small muted">@inv.ReceiverId</div></td>
+                        <td class="text-end text-nowrap">@inv.Total.ToString("N2") @inv.Currency</td>
+                        <td><Badge Text="@st.Label" Color="@st.Color" /></td>
+                        <td class="small"><div class="text-truncate" style="max-width:220px" title="@inv.Clave">@(inv.Clave ?? "—")</div><span class="muted">@inv.Provider</span>@if (inv.LastError is not null) { <div class="text-danger small">@inv.LastError</div> }</td>
+                        <td>
+                            @if (pay is not null)
+                            {
+                                var ps = PaymentStatuses.Get(pay.Status);
+                                <span class="badge-soft @(pay.Status == PaymentStatuses.Paid ? "ok" : "")">@ps.Label</span>
+                                <button class="icon-btn" title="Copiar enlace de pago" @onclick="() => CopyAsync(pay.Url)">⧉</button>
+                            }
+                        </td>
+                        <td class="text-end text-nowrap">
+                            @if (inv.Status is "draft" or "rejected") { <button class="btn-secondary btn-sm" @onclick="() => Edit(inv)">Editar</button> }
+                            @if (inv.Status == "submitted") { <button class="btn-secondary btn-sm" @onclick="() => RefreshAsync(inv)">Actualizar estado</button> }
+                            @if (inv.Status == "accepted" && pay is null) { <button class="btn-primary btn-sm" @onclick="() => CreatePayAsync(inv)">💳 Enlace de pago</button> }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<ElectronicInvoice>? _items;
+    private List<PaymentLink> _links = new();
+    private List<Quote> _quotes = new();
+    private ElectronicInvoice? _edit;
+    private string? _msg, _err;
+
+    private static bool IsCabysOk(string? c) => !string.IsNullOrEmpty(c) && c.Length == 13 && c.All(char.IsDigit);
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _items = (await Invoices.GetAllAsync()).OrderByDescending(i => i.Date).ToList();
+        _links = await Tilopay.GetAllAsync();
+        _quotes = (await Quotes.GetAllAsync()).Where(q => q.Status != "rejected").OrderByDescending(q => q.CreatedAt).Take(50).ToList();
+    }
+
+    private void NewBlank()
+    {
+        _err = _msg = null;
+        _edit = new ElectronicInvoice { Currency = "CRC", Lines = { new InvoiceLine() } };
+    }
+
+    private void Edit(ElectronicInvoice inv) { _err = _msg = null; _edit = inv; }
+
+    private async Task OnPickQuote(ChangeEventArgs e)
+    {
+        var id = e.Value?.ToString();
+        if (string.IsNullOrEmpty(id)) return;
+        var q = await Quotes.GetAsync(id);
+        if (q is null) return;
+        var inv = new ElectronicInvoice { QuoteId = q.Id, DealId = q.DealId, ContactId = q.ContactId, CompanyId = q.CompanyId, Currency = q.Currency };
+        var contact = string.IsNullOrEmpty(q.ContactId) ? null : await Contacts.GetByIdAsync(q.ContactId);
+        var company = string.IsNullOrEmpty(q.CompanyId) ? null : await Companies.GetByIdAsync(q.CompanyId);
+        inv.ReceiverName = company?.Title ?? contact?.FullName ?? "";
+        inv.ReceiverId = company?.TaxId ?? "";
+        inv.ReceiverEmail = contact?.Email ?? company?.Email;
+        foreach (var ln in q.Lines)
+        {
+            var cabys = "";
+            if (!string.IsNullOrEmpty(ln.ProductId)) { var p = await Quotes.GetProductAsync(ln.ProductId); cabys = p?.Cabys ?? ""; }
+            inv.Lines.Add(new InvoiceLine { Cabys = cabys, Description = ln.Description, Quantity = ln.Quantity, UnitPrice = ln.UnitPrice, DiscountPercent = ln.DiscountPercent, TaxRate = ln.TaxRate });
+        }
+        if (inv.Lines.Count == 0) inv.Lines.Add(new InvoiceLine());
+        _edit = inv; _err = _msg = null;
+    }
+
+    private async Task SaveDraftAsync()
+    {
+        var (ok, error) = await Invoices.SaveDraftAsync(_edit!);
+        if (!ok) { _err = error; return; }
+        _msg = "Borrador guardado."; _err = null;
+        await LoadAsync();
+    }
+
+    private async Task EmitAsync()
+    {
+        var val = InvoiceService.Validate(_edit!);
+        if (val is not null) { _err = val; return; }
+        var (ok, _) = await Invoices.SaveDraftAsync(_edit!);
+        if (!ok) { _err = "No se pudo guardar antes de emitir."; return; }
+        var (sok, serror) = await Invoices.SubmitAsync(_edit!.Id!);
+        if (!sok) { _err = serror; await LoadAsync(); return; }
+        // En sandbox, consultar estado de inmediato (queda aceptada)
+        await Invoices.RefreshStatusAsync(_edit.Id!);
+        _msg = "Factura emitida" + (Invoices.Sandbox ? " (prueba) y aceptada." : "."); _err = null;
+        _edit = null;
+        await LoadAsync();
+    }
+
+    private async Task RefreshAsync(ElectronicInvoice inv)
+    {
+        var (ok, error) = await Invoices.RefreshStatusAsync(inv.Id!);
+        if (!ok) _err = error; else _msg = "Estado actualizado.";
+        await LoadAsync();
+    }
+
+    private async Task CreatePayAsync(ElectronicInvoice inv)
+    {
+        var link = await Tilopay.CreateAsync(new PaymentLink
+        {
+            Amount = inv.Total, Currency = inv.Currency,
+            Description = $"Factura {inv.Clave ?? inv.Id}",
+            InvoiceId = inv.Id, DealId = inv.DealId, QuoteId = inv.QuoteId, ContactId = inv.ContactId, CompanyId = inv.CompanyId,
+            PayerName = inv.ReceiverName, PayerEmail = inv.ReceiverEmail,
+        }, Nav.BaseUri, await Me.NameAsync());
+        _msg = link.Url is not null ? $"Enlace de pago creado: {link.Url}" : (link.LastError ?? "No se pudo crear el enlace.");
+        await LoadAsync();
+    }
+
+    private async Task CopyAsync(string? url)
+    {
+        if (string.IsNullOrEmpty(url)) return;
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", url); _msg = "Enlace copiado: " + url; } catch { }
+    }
+}

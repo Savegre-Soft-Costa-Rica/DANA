@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Dana.Data;
 using Dana.Models;
+using Dana.Services.Integrations;
 
 namespace Dana.Services.Invoicing;
 
@@ -9,16 +10,24 @@ public class InvoiceService
     private static readonly Regex Cabys = new(@"^\d{13}$", RegexOptions.Compiled);
 
     private readonly IRepository<ElectronicInvoice> _invoices;
-    private readonly IElectronicInvoiceProvider _provider;
+    private readonly IElectronicInvoiceProvider _real;
+    private readonly SandboxInvoiceProvider _sandbox;
+    private readonly IntegrationService _integrations;
     private readonly ILogger<InvoiceService> _logger;
 
-    public InvoiceService(IRepository<ElectronicInvoice> invoices, IElectronicInvoiceProvider provider, ILogger<InvoiceService> logger)
+    public InvoiceService(IRepository<ElectronicInvoice> invoices, IElectronicInvoiceProvider real, SandboxInvoiceProvider sandbox, IntegrationService integrations, ILogger<InvoiceService> logger)
     {
         _invoices = invoices;
-        _provider = provider;
+        _real = real;
+        _sandbox = sandbox;
+        _integrations = integrations;
         _logger = logger;
     }
 
+    /// <summary>Proveedor activo: el de pruebas si el modo Sandbox está encendido, si no el real.</summary>
+    private IElectronicInvoiceProvider _provider => _integrations.Sandbox ? _sandbox : _real;
+
+    public bool Sandbox => _integrations.Sandbox;
     public bool IsProviderConfigured => _provider.IsConfigured;
     public string ProviderName => _provider.Name;
 

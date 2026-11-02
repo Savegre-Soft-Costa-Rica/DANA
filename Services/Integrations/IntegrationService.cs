@@ -36,13 +36,20 @@ public class IntegrationService
     /// <summary>Configuración vigente (desde la caché de <see cref="SettingsService"/>).</summary>
     public IntegrationSettings Current => _settings.Current.Integrations;
 
+    /// <summary>Modo de pruebas global: factura electrónica y pagos se simulan.</summary>
+    public bool Sandbox => Current.Sandbox;
+
     public bool IsSendaConfigured => Enabled(Current.Senda.Enabled, Current.Senda.BaseUrl);
     public bool IsWapiConfigured => Enabled(Current.Wapi.Enabled, Current.Wapi.BaseUrl);
     public bool IsWanConfigured => Enabled(Current.Wan.Enabled, Current.Wan.BaseUrl);
+    public bool IsTilopayConfigured => Enabled(Current.Tilopay.Enabled, Current.Tilopay.BaseUrl);
 
     public string? SendaApiKey => Unprotect(Current.Senda.ApiKeyProtected);
     public string? WapiApiKey => Unprotect(Current.Wapi.ApiKeyProtected);
     public string? WanToken => Unprotect(Current.Wan.TokenProtected);
+    public string? TilopayUser => Unprotect(Current.Tilopay.ApiUserProtected);
+    public string? TilopayPassword => Unprotect(Current.Tilopay.ApiPasswordProtected);
+    public string? TilopayKey => Unprotect(Current.Tilopay.ApiKeyProtected);
 
     private static bool Enabled(bool enabled, string? url) => enabled && !string.IsNullOrWhiteSpace(url);
 

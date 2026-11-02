@@ -18,6 +18,7 @@ else
         <div class="actions">
             <a class="btn-secondary" href="cotizaciones">← Cotizaciones</a>
             <CopyLink Path="@($"cotizaciones/{_q.Id}")" />
+            @if (_q.Total > 0) { <PayLinkButton Amount="_q.Total" Currency="@_q.Currency" Description="@($"Cotización {_q.Number}")" QuoteId="@_q.Id" DealId="@_q.DealId" ContactId="@_q.ContactId" CompanyId="@_q.CompanyId" /> }
             <a class="btn-secondary" href="cotizaciones/@_q.Id/imprimir" target="_blank">🖨 Imprimir / PDF</a>
             <select class="form-select" style="width:auto" value="@_q.Status" @onchange="async e => await SetStatusAsync(e.Value?.ToString() ?? string.Empty)">
                 @foreach (var (id, label, _) in QuoteStatuses.All) { <option value="@id">@label</option> }
