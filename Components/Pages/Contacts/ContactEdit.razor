@@ -60,24 +60,22 @@
                         <div class="col-md-4"><label class="form-label">Cargo</label><InputText class="form-control" @bind-Value="_model.Position" /></div>
                         <div class="col-md-6">
                             <label class="form-label">Compañía</label>
-                            <InputSelect class="form-select" @bind-Value="_model.CompanyId">
-                                <option value="">— Sin compañía —</option>
-                                @foreach (var c in _companies) { <option value="@c.Id">@c.Title</option> }
-                            </InputSelect>
+                            <SearchSelect TItem="Company" Items="_companies"
+                                          IdFor="c => c.Id!" LabelFor="c => c.Title" SubFor="c => c.Industry"
+                                          Value="_model.CompanyId" ValueChanged="OnCompanyChanged"
+                                          Placeholder="— Sin compañía —" EmptyText="Sin compañías" />
                         </div>
                         <div class="col-md-3">
                             <label class="form-label">Tipo</label>
-                            <InputSelect class="form-select" @bind-Value="_model.Type">
-                                <option value="">—</option>
-                                @foreach (var t in Catalogs.ContactTypes) { <option value="@t">@t</option> }
-                            </InputSelect>
+                            <SearchSelect TItem="string" Items="Catalogs.ContactTypes"
+                                          IdFor="t => t" LabelFor="t => t"
+                                          Value="_model.Type" ValueChanged="v => _model.Type = v" Placeholder="—" />
                         </div>
                         <div class="col-md-3">
                             <label class="form-label">Fuente</label>
-                            <InputSelect class="form-select" @bind-Value="_model.Source">
-                                <option value="">—</option>
-                                @foreach (var s in Catalogs.Sources) { <option value="@s">@s</option> }
-                            </InputSelect>
+                            <SearchSelect TItem="string" Items="Catalogs.Sources"
+                                          IdFor="s => s" LabelFor="s => s"
+                                          Value="_model.Source" ValueChanged="v => _model.Source = v" Placeholder="—" />
                         </div>
                         <div class="col-md-4"><label class="form-label">Teléfono</label><InputText class="form-control" @bind-Value="_model.Phone" /></div>
                         <div class="col-md-4">
@@ -87,10 +85,9 @@
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Responsable</label>
-                            <InputSelect class="form-select" @bind-Value="_model.AssignedTo">
-                                <option value="">Sin asignar</option>
-                                @foreach (var p in _people) { <option value="@p">@p</option> }
-                            </InputSelect>
+                            <SearchSelect TItem="string" Items="_people"
+                                          IdFor="p => p" LabelFor="p => p"
+                                          Value="_model.AssignedTo" ValueChanged="v => _model.AssignedTo = v" Placeholder="Sin asignar" />
                         </div>
                         <div class="col-12"><label class="form-label">Dirección</label><InputText class="form-control" @bind-Value="_model.Address" /></div>
                         <div class="col-12"><label class="form-label">Comentarios</label><InputTextArea class="form-control" rows="3" @bind-Value="_model.Comments" /></div>
@@ -202,6 +199,12 @@
             else if (wasNew) Nav.NavigateTo($"contacts/{_model.Id}");
         }
         finally { _busy = false; }
+    }
+
+    private void OnCompanyChanged(string? id)
+    {
+        _model.CompanyId = id;
+        _company = _companies.FirstOrDefault(c => c.Id == id);
     }
 
     private async Task DeleteAsync()

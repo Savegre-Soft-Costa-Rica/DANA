@@ -2,14 +2,16 @@
 @layout EmptyLayout
 @using System.ComponentModel.DataAnnotations
 @using System.Security.Claims
+@using Dana.Components.Shared
 @using Microsoft.AspNetCore.Authentication
 @using Microsoft.AspNetCore.Authentication.Cookies
 @inject UserService Users
+@inject PermissionService Perms
 @inject NavigationManager Nav
 
 <PageTitle>Dana · Mi cuenta</PageTitle>
 
-<div class="auth-box text-start" style="max-width:520px">
+<div class="auth-box text-start profile-box">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0">Mi cuenta</h4>
         <a class="btn btn-sm btn-outline-secondary" href="/">← Volver al CRM</a>
@@ -24,20 +26,81 @@
         @if (_ok is not null) { <div class="alert alert-success py-2 small">@_ok</div> }
         @if (_error is not null) { <div class="alert alert-danger py-2 small">@_error</div> }
 
-        <div class="small text-muted mb-3">
-            @_user.Email · Rol: <strong>@_user.Role</strong>
-            @if (_user.HasGoogle) { <span class="badge text-bg-light border ms-1">Google vinculado</span> }
+        <div class="profile-head">
+            @if (!string.IsNullOrEmpty(_user.Picture))
+            {
+                <img src="@_user.Picture" alt="" class="profile-avatar" referrerpolicy="no-referrer" />
+            }
+            else
+            {
+                <span class="profile-avatar profile-avatar-letter" style="background:@Avatar.ColorFor(_user.Name)">@Avatar.Initials(_user.Name)</span>
+            }
+            <div class="profile-id">
+                <div class="profile-name">@_user.Name</div>
+                <div class="profile-email">@_user.Email</div>
+                <div class="profile-badges">
+                    <span class="badge text-bg-primary">@_user.Role</span>
+                    @if (_user.IsActive) { <span class="badge text-bg-success">Activa</span> } else { <span class="badge text-bg-secondary">Inactiva</span> }
+                    @if (_user.PasswordHash is not null) { <span class="badge text-bg-light border">Contraseña</span> }
+                    @if (_user.HasGoogle) { <span class="badge text-bg-light border">Google vinculado</span> }
+                </div>
+            </div>
         </div>
+
+        <dl class="profile-meta">
+            <dt>Último ingreso</dt>
+            <dd>@(_user.LastLoginAt is { } d ? d.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "—")</dd>
+
+            <dt>Equipos</dt>
+            <dd>
+                @if (_teams.Count == 0) { <span class="text-muted">Sin equipo</span> }
+                else
+                {
+                    @foreach (var t in _teams)
+                    {
+                        <span class="badge border me-1" style="background:transparent;color:inherit;border-color:@t.Color">
+                            <span class="stage-dot" style="background:@t.Color"></span> @t.Name
+                        </span>
+                    }
+                }
+            </dd>
+
+            <dt>Permisos por tablero</dt>
+            <dd>
+                @if (_user.Role == Roles.Admin)
+                {
+                    <span class="text-muted">Administrador: acceso total a todos los tableros.</span>
+                }
+                else
+                {
+                    <div class="perm-summary">
+                        @foreach (var (key, label) in Boards)
+                        {
+                            var lvl = _user.Permissions.GetValueOrDefault(key, AccessLevels.Edit);
+                            <span><strong>@label:</strong> @LevelLabel(lvl)</span>
+                        }
+                    </div>
+                }
+            </dd>
+        </dl>
 
         <EditForm Model="Input" method="post" OnValidSubmit="SaveAsync" FormName="profile">
             <DataAnnotationsValidator />
+
+            <h6 class="profile-section-title">Datos personales</h6>
             <div class="mb-3">
                 <label class="form-label">Nombre</label>
                 <InputText class="form-control" @bind-Value="Input.Name" />
                 <ValidationMessage For="() => Input.Name" />
             </div>
-            <hr />
-            <p class="small text-muted mb-2">@(_user.PasswordHash is null ? "Defina una contraseña para poder entrar también sin Google." : "Cambiar contraseña (opcional)")</p>
+            <div class="mb-3">
+                <label class="form-label">Foto (URL)</label>
+                <InputText class="form-control" @bind-Value="Input.Picture" placeholder="https://…" />
+                <div class="form-text">Opcional. Enlace a una imagen para su avatar.</div>
+            </div>
+
+            <h6 class="profile-section-title">Seguridad</h6>
+            <p class="small text-muted mb-2">@(_user.PasswordHash is null ? "Defina una contraseña para poder entrar también sin Google." : "Cambiar contraseña (opcional). Déjelo en blanco para no modificarla.")</p>
             @if (_user.PasswordHash is not null)
             {
                 <div class="mb-3">
@@ -55,7 +118,8 @@
                 <InputText class="form-control" @bind-Value="Input.ConfirmPassword" type="password" autocomplete="new-password" />
                 <ValidationMessage For="() => Input.ConfirmPassword" />
             </div>
-            <button type="submit" class="btn btn-primary w-100">Guardar</button>
+
+            <button type="submit" class="btn btn-primary w-100">Guardar cambios</button>
         </EditForm>
     }
 </div>
@@ -64,33 +128,51 @@
     [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
     [SupplyParameterFromForm] private InputModel Input { get; set; } = default!;
 
+    private static readonly (string Key, string Label)[] Boards =
+        [("leads", "Prospectos"), ("deals", "Negociaciones"), ("contacts", "Contactos"), ("companies", "Compañías")];
+
     private User? _user;
+    private List<Team> _teams = new();
     private string? _ok, _error;
+
+    private static string LevelLabel(string id) =>
+        AccessLevels.All.FirstOrDefault(a => a.Id == id).Label ?? id;
 
     protected override async Task OnInitializedAsync()
     {
         Input ??= new();
         _user = await Users.GetAsync(HttpContext.User.FindFirstValue(ClaimTypes.NameIdentifier));
         if (_user is null) { Nav.NavigateTo("cuenta/login"); return; }
-        if (HttpContext.Request.Method == "GET") Input.Name = _user.Name;
+
+        _teams = (await Perms.GetTeamsAsync()).Where(t => t.Members.Contains(_user.Name)).ToList();
+
+        if (HttpContext.Request.Method == "GET")
+        {
+            Input.Name = _user.Name;
+            Input.Picture = _user.Picture;
+        }
     }
 
     private async Task SaveAsync()
     {
         if (_user is null) return;
+
         if (!string.IsNullOrEmpty(Input.NewPassword))
         {
             if (Input.NewPassword.Length < 8) { _error = "La nueva contraseña debe tener al menos 8 caracteres."; return; }
             var err = await Users.ChangePasswordAsync(_user, Input.CurrentPassword, Input.NewPassword);
             if (err is not null) { _error = err; return; }
         }
+
         _user.Name = Input.Name.Trim();
+        _user.Picture = string.IsNullOrWhiteSpace(Input.Picture) ? null : Input.Picture.Trim();
         await Users.UpdateProfileAsync(_user);
 
-        // Refrescar la cookie con el nuevo nombre
+        // Refrescar la cookie con el nuevo nombre y foto
         await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, UserService.CreatePrincipal(_user),
             new AuthenticationProperties { IsPersistent = true });
-        _ok = "Cambios guardados.";
+
+        _ok = string.IsNullOrEmpty(Input.NewPassword) ? "Cambios guardados." : "Cambios guardados. Contraseña actualizada.";
         Input.CurrentPassword = Input.NewPassword = Input.ConfirmPassword = "";
     }
 
@@ -98,6 +180,7 @@
     {
         [Required(ErrorMessage = "Ingrese su nombre")]
         public string Name { get; set; } = "";
+        public string? Picture { get; set; }
         public string? CurrentPassword { get; set; }
         public string NewPassword { get; set; } = "";
         [Compare(nameof(NewPassword), ErrorMessage = "Las contraseñas no coinciden")]

@@ -1,0 +1,269 @@
+@using System.Text
+@using System.ComponentModel.DataAnnotations
+@inject ShareLinkService Shares
+@inject QuoteService Quotes
+@inject LeadService Leads
+
+@* Vista pública interactiva del catálogo: navegar, armar un carrito y enviar los datos para crear un prospecto. *@
+
+@if (!_ready)
+{
+    <div class="pub-empty">Cargando…</div>
+}
+else if (!_live)
+{
+    <div class="pub-form">
+        <div class="pub-card" style="text-align:center">
+            <div style="font-size:2.6rem">🔒</div>
+            <h2>Catálogo no disponible</h2>
+            <p class="muted">@_reason</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="pub-catalog" style="--accent:@_share!.AccentColor">
+        <header class="pubc-head">
+            <div class="pubc-head-in">
+                <div class="min-w-0">
+                    <h1>@_share.Title</h1>
+                    @if (!string.IsNullOrWhiteSpace(_share.Subtitle)) { <p class="pubc-sub">@_share.Subtitle</p> }
+                </div>
+                <div class="pubc-search">
+                    <input placeholder="Buscar producto o servicio…" aria-label="Buscar" @bind="_q" @bind:event="oninput" />
+                </div>
+            </div>
+            @if (_share.Category is null && _cats.Count > 0)
+            {
+                <nav class="pubc-cats">
+                    <button class="pubc-cat @(_cat is null ? "active" : "")" @onclick="() => _cat = null">Todo</button>
+                    @foreach (var c in _cats)
+                    {
+                        <button class="pubc-cat @(_cat == c.Name ? "active" : "")" @onclick="() => _cat = c.Name">@c.Name</button>
+                    }
+                </nav>
+            }
+        </header>
+
+        <main class="pubc-body @(CartCount > 0 ? "has-cart" : "")">
+            @{ var list = Filtered(); }
+            @if (list.Count == 0)
+            {
+                <div class="pub-empty">No hay productos que coincidan con su búsqueda.</div>
+            }
+            else
+            {
+                <div class="tiles">
+                    @foreach (var p in list)
+                    {
+                        var cat = _cats.FirstOrDefault(c => c.Name == p.Category);
+                        var qty = _cart.GetValueOrDefault(p.Id!);
+                        <article class="tile pubc-tile">
+                            <div class="tile-img">
+                                @if (p.MainImageId is not null) { <img src="catalog/images/@p.MainImageId" alt="@p.Name" loading="lazy" /> }
+                                else { <span class="tile-noimg">📦</span> }
+                            </div>
+                            <div class="tile-body">
+                                <div class="tile-name">@p.Name</div>
+                                <div class="tile-price" style="color:var(--accent)">@p.Price.ToString("N2") @p.Currency <small class="muted">/ @p.Unit</small></div>
+                                @if (cat is not null) { <span class="badge-pill" style="background:@cat.Color">@cat.Name</span> }
+                                @if (!string.IsNullOrWhiteSpace(p.Description)) { <p class="pubc-desc">@p.Description</p> }
+                                <div class="mt-auto pt-2">
+                                    @if (qty == 0)
+                                    {
+                                        <button class="btn-primary w-100" style="background:var(--accent)" @onclick="() => Add(p)">＋ Agregar</button>
+                                    }
+                                    else
+                                    {
+                                        <div class="qty-stepper">
+                                            <button class="qty-btn" title="Quitar uno" @onclick="() => SetQty(p.Id!, qty - 1)">−</button>
+                                            <span class="qty-n">@qty</span>
+                                            <button class="qty-btn" title="Agregar uno" @onclick="() => SetQty(p.Id!, qty + 1)">＋</button>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </article>
+                    }
+                </div>
+            }
+        </main>
+
+        @if (CartCount > 0)
+        {
+            <div class="cart-bar">
+                <div class="cart-bar-in">
+                    <span>🛒 <strong>@CartCount</strong> artículo@(CartCount == 1 ? "" : "s") @foreach (var (cur, tot) in Totals()) { <span class="cart-tot">· @tot.ToString("N2") @cur</span> }</span>
+                    <span class="d-flex gap-2">
+                        <button class="btn-ghost" @onclick="() => _cart.Clear()">Vaciar</button>
+                        <button class="btn-primary" style="background:var(--accent)" @onclick="() => _checkout = true">Solicitar pedido →</button>
+                    </span>
+                </div>
+            </div>
+        }
+
+        <footer class="pubc-foot">
+            <span>@Filtered().Count producto@(Filtered().Count == 1 ? "" : "s")</span>
+            <span class="muted">Catálogo gestionado con Dana CRM</span>
+        </footer>
+    </div>
+
+    @* ---------- Checkout: arma el carrito y envía sus datos (crea un prospecto) ---------- *@
+    @if (_checkout)
+    {
+        <div class="sheet-backdrop" @onclick="() => _checkout = false"></div>
+        <div class="sheet" style="width:min(640px,96vw)">
+            <div class="sheet-head"><strong>Solicitar pedido</strong><button class="icon-btn" @onclick="() => _checkout = false">✕</button></div>
+            <div class="sheet-body">
+                @if (_done)
+                {
+                    <div class="text-center py-4">
+                        <div style="font-size:2.6rem">✅</div>
+                        <h3>¡Gracias, @_name!</h3>
+                        <p class="muted">Recibimos su solicitud y nos pondremos en contacto pronto.</p>
+                        <button class="btn-primary" style="background:var(--accent)" @onclick="CloseDone">Seguir viendo el catálogo</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="cart-review">
+                        @foreach (var (p, qty) in CartLines())
+                        {
+                            <div class="cart-line">
+                                <span class="min-w-0 flex-grow-1 text-truncate">@p.Name</span>
+                                <div class="qty-stepper sm">
+                                    <button class="qty-btn" @onclick="() => SetQty(p.Id!, qty - 1)">−</button>
+                                    <span class="qty-n">@qty</span>
+                                    <button class="qty-btn" @onclick="() => SetQty(p.Id!, qty + 1)">＋</button>
+                                </div>
+                                <span class="cart-line-tot">@((p.Price * qty).ToString("N2")) @p.Currency</span>
+                            </div>
+                        }
+                        @foreach (var (cur, tot) in Totals())
+                        {
+                            <div class="cart-line total"><span class="flex-grow-1">Total</span><strong>@tot.ToString("N2") @cur</strong></div>
+                        }
+                    </div>
+
+                    @if (_error is not null) { <div class="alert alert-danger py-2 small">@_error</div> }
+
+                    <input class="hp" tabindex="-1" autocomplete="off" @bind="_hp" />
+                    <div class="row g-2 mt-1">
+                        <div class="col-md-6"><label class="form-label">Nombre *</label><input class="form-control" @bind="_name" /></div>
+                        <div class="col-md-6"><label class="form-label">Apellido</label><input class="form-control" @bind="_lastName" /></div>
+                        <div class="col-md-6"><label class="form-label">Correo</label><input type="email" class="form-control" @bind="_email" /></div>
+                        <div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" @bind="_phone" /></div>
+                        <div class="col-12"><label class="form-label">Compañía</label><input class="form-control" @bind="_company" /></div>
+                        <div class="col-12"><label class="form-label">Mensaje (opcional)</label><textarea class="form-control" rows="2" @bind="_message"></textarea></div>
+                    </div>
+                    <p class="muted small mt-2">Indique un correo o un teléfono para poder contactarle.</p>
+                }
+            </div>
+            @if (!_done)
+            {
+                <div class="sheet-foot">
+                    <button class="btn-secondary" @onclick="() => _checkout = false">Cancelar</button>
+                    <button class="btn-primary" style="background:var(--accent)" disabled="@_busy" @onclick="SubmitAsync">@(_busy ? "Enviando…" : "Enviar solicitud")</button>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string Token { get; set; } = "";
+
+    private ShareLink? _share;
+    private bool _ready, _live;
+    private string _reason = "";
+    private List<Product> _all = new();
+    private List<ProductCategory> _cats = new();
+
+    private string? _cat;
+    private string _q = "";
+    private readonly Dictionary<string, int> _cart = new();
+
+    private bool _checkout, _done, _busy;
+    private string _name = "", _message = "";
+    private string? _lastName, _email, _phone, _company, _hp, _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _share = await Shares.FindByTokenAsync(Token);
+        if (_share is null || _share.Kind != ShareKinds.Catalog) { _reason = "Este enlace no existe o fue revocado."; _ready = true; return; }
+        if (!_share.IsEnabled) { _reason = "Este enlace fue detenido por quien lo compartió."; _ready = true; return; }
+        if (_share.IsExpired) { _reason = "Este enlace expiró y ya no está disponible."; _ready = true; return; }
+        _live = true;
+
+        _all = await Quotes.GetCatalogAsync(_share.Category);
+        var present = _all.Select(p => p.Category).Where(c => !string.IsNullOrEmpty(c)).Distinct().ToHashSet();
+        _cats = (await Quotes.GetCategoriesAsync()).Where(c => present.Contains(c.Name)).ToList();
+        _ready = true;
+
+        await Shares.RegisterViewAsync(_share);
+    }
+
+    private List<Product> Filtered()
+    {
+        IEnumerable<Product> src = _all;
+        if (_share?.Category is null && _cat is not null) src = src.Where(p => p.Category == _cat);
+        if (!string.IsNullOrWhiteSpace(_q))
+            src = src.Where(p => $"{p.Name} {p.Sku} {p.Description} {p.Category} {string.Join(' ', p.Tags)}".Contains(_q, StringComparison.OrdinalIgnoreCase));
+        return src.ToList();
+    }
+
+    // ----- carrito -----
+    private int CartCount => _cart.Values.Sum();
+    private void Add(Product p) => _cart[p.Id!] = _cart.GetValueOrDefault(p.Id!) + 1;
+    private void SetQty(string id, int n) { if (n <= 0) _cart.Remove(id); else _cart[id] = n; }
+    private List<(Product P, int Qty)> CartLines() =>
+        _cart.Select(kv => (P: _all.FirstOrDefault(p => p.Id == kv.Key)!, Qty: kv.Value)).Where(x => x.P is not null).ToList();
+    private IEnumerable<(string Cur, decimal Total)> Totals() =>
+        CartLines().GroupBy(l => l.P.Currency).Select(g => (g.Key, g.Sum(l => l.P.Price * l.Qty)));
+
+    private void CloseDone() { _done = false; _checkout = false; }
+
+    private async Task SubmitAsync()
+    {
+        _error = null;
+        var name = _name?.Trim();
+        if (string.IsNullOrWhiteSpace(name)) { _error = "Indique su nombre."; return; }
+        if (string.IsNullOrWhiteSpace(_email) && string.IsNullOrWhiteSpace(_phone)) { _error = "Indique un correo o un teléfono para poder contactarle."; return; }
+
+        _busy = true;
+        try
+        {
+            if (!string.IsNullOrEmpty(_hp)) { _done = true; _cart.Clear(); return; } // honeypot: finge éxito
+
+            var lines = CartLines();
+            var totals = Totals().ToList();
+            var sb = new StringBuilder();
+            sb.AppendLine($"Pedido desde el catálogo «{_share!.Title}»:");
+            foreach (var (p, qty) in lines)
+                sb.AppendLine($"• {qty} × {p.Name} ({p.Price:N2} {p.Currency}) = {(p.Price * qty):N2} {p.Currency}");
+            foreach (var (cur, tot) in totals) sb.AppendLine($"Total: {tot:N2} {cur}");
+            if (!string.IsNullOrWhiteSpace(_message)) { sb.AppendLine(); sb.AppendLine($"Mensaje: {_message.Trim()}"); }
+
+            var lead = new Lead
+            {
+                Title = $"Carrito: {name}{(string.IsNullOrWhiteSpace(_company) ? "" : $" ({_company.Trim()})")}",
+                Name = name,
+                LastName = _lastName?.Trim(),
+                Email = _email?.Trim(),
+                Phone = _phone?.Trim(),
+                CompanyName = _company?.Trim(),
+                Source = Catalogs.CartSource,
+                Status = LeadStatuses.New,
+                Comments = sb.ToString().TrimEnd(),
+                Opportunity = totals.Count == 1 ? totals[0].Total : 0,
+                Currency = totals.Count == 1 ? totals[0].Cur : "USD",
+            };
+            await Leads.SaveAsync(lead, $"Catálogo · {_share.Name}");
+
+            _done = true;
+            _cart.Clear();
+        }
+        catch (Exception ex) { _error = "No se pudo enviar la solicitud: " + ex.Message; }
+        finally { _busy = false; }
+    }
+}

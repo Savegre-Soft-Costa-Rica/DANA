@@ -7,6 +7,8 @@ public class Product : Entity
     [Required(ErrorMessage = "El nombre es obligatorio")]
     public string Name { get; set; } = "";
     public string? Sku { get; set; }
+    /// <summary>Código CABYS (Catálogo de Bienes y Servicios de Costa Rica), para facturación electrónica.</summary>
+    public string? Cabys { get; set; }
     public string? Description { get; set; }
     public string? Category { get; set; }
     public List<string> Tags { get; set; } = new();

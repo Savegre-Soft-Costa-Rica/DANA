@@ -68,7 +68,7 @@ else
                     <tr class="@(p.IsActive ? "" : "text-muted")">
                         <td>@if (p.MainImageId is not null) { <img class="thumb" src="catalog/images/@p.MainImageId" alt="" /> } else { <span class="thumb noimg">📦</span> }</td>
                         <td><strong>@p.Name</strong>@if (!string.IsNullOrEmpty(p.Description)) { <div class="small muted text-truncate" style="max-width:320px">@p.Description</div> }</td>
-                        <td>@p.Sku</td>
+                        <td>@p.Sku @if (!string.IsNullOrEmpty(p.Cabys)) { <div class="small muted">CABYS @p.Cabys</div> }</td>
                         <td>@if (cat is not null) { <span class="badge-pill" style="background:@cat.Color">@cat.Name</span> } else { @p.Category }</td>
                         <td><div class="tags">
                             @foreach (var t in p.Tags) { <span class="tag">@t <button class="tag-x" @onclick="() => RemoveTagAsync(p, t)">×</button></span> }
@@ -97,8 +97,9 @@ else
                 <div class="row g-3">
                     <div class="col-md-8">
                         <div class="row g-2">
-                            <div class="col-md-8"><label class="form-label">Nombre *</label><InputText class="form-control" @bind-Value="_edit.Name" /><ValidationMessage For="() => _edit.Name" /></div>
-                            <div class="col-md-4"><label class="form-label">SKU</label><InputText class="form-control" @bind-Value="_edit.Sku" /></div>
+                            <div class="col-md-6"><label class="form-label">Nombre *</label><InputText class="form-control" @bind-Value="_edit.Name" /><ValidationMessage For="() => _edit.Name" /></div>
+                            <div class="col-md-3"><label class="form-label">SKU</label><InputText class="form-control" @bind-Value="_edit.Sku" /></div>
+                            <div class="col-md-3"><label class="form-label">Código CABYS</label><InputText class="form-control" @bind-Value="_edit.Cabys" placeholder="Catálogo CR" /></div>
                             <div class="col-md-6"><label class="form-label">Categoría</label>
                                 <InputSelect class="form-select" @bind-Value="_edit.Category"><option value="">— Sin categoría —</option>@foreach (var c in _categories) { <option value="@c.Name">@c.Name</option> }</InputSelect></div>
                             <div class="col-md-3"><label class="form-label">Unidad</label><InputText class="form-control" @bind-Value="_edit.Unit" /></div>

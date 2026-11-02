@@ -58,17 +58,15 @@
                         </div>
                         <div class="col-md-3">
                             <label class="form-label">Tipo</label>
-                            <InputSelect class="form-select" @bind-Value="_model.Type">
-                                <option value="">—</option>
-                                @foreach (var t in Catalogs.CompanyTypes) { <option value="@t">@t</option> }
-                            </InputSelect>
+                            <SearchSelect TItem="string" Items="Catalogs.CompanyTypes"
+                                          IdFor="t => t" LabelFor="t => t"
+                                          Value="_model.Type" ValueChanged="v => _model.Type = v" Placeholder="—" />
                         </div>
                         <div class="col-md-3">
                             <label class="form-label">Industria</label>
-                            <InputSelect class="form-select" @bind-Value="_model.Industry">
-                                <option value="">—</option>
-                                @foreach (var i in Catalogs.Industries) { <option value="@i">@i</option> }
-                            </InputSelect>
+                            <SearchSelect TItem="string" Items="Catalogs.Industries"
+                                          IdFor="i => i" LabelFor="i => i"
+                                          Value="_model.Industry" ValueChanged="v => _model.Industry = v" Placeholder="—" />
                         </div>
                         <div class="col-md-4"><label class="form-label">Identificación fiscal</label><InputText class="form-control" @bind-Value="_model.TaxId" /></div>
                         <div class="col-md-4"><label class="form-label">Teléfono</label><InputText class="form-control" @bind-Value="_model.Phone" /></div>
@@ -83,10 +81,9 @@
                         <div class="col-md-8"><label class="form-label">Dirección</label><InputText class="form-control" @bind-Value="_model.Address" /></div>
                         <div class="col-md-4">
                             <label class="form-label">Responsable</label>
-                            <InputSelect class="form-select" @bind-Value="_model.AssignedTo">
-                                <option value="">Sin asignar</option>
-                                @foreach (var p in _people) { <option value="@p">@p</option> }
-                            </InputSelect>
+                            <SearchSelect TItem="string" Items="_people"
+                                          IdFor="p => p" LabelFor="p => p"
+                                          Value="_model.AssignedTo" ValueChanged="v => _model.AssignedTo = v" Placeholder="Sin asignar" />
                         </div>
                         <div class="col-12"><label class="form-label">Comentarios</label><InputTextArea class="form-control" rows="3" @bind-Value="_model.Comments" /></div>
                     </div>

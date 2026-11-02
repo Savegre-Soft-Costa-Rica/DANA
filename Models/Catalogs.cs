@@ -4,7 +4,10 @@ namespace Dana.Models;
 public static class Catalogs
 {
     public static readonly string[] Sources =
-        ["Llamada", "Sitio web", "Recomendación", "Redes sociales", "Correo", "Feria / evento", "Publicidad", "Otro"];
+        ["Llamada", "Sitio web", "Carrito", "Recomendación", "Redes sociales", "Correo", "Feria / evento", "Publicidad", "Otro"];
+
+    /// <summary>Origen de los prospectos generados desde el carrito del catálogo público.</summary>
+    public const string CartSource = "Carrito";
 
     public static readonly string[] ContactTypes = ["Cliente", "Proveedor", "Socio", "Prospecto", "Otro"];
 
