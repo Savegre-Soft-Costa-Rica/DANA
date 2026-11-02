@@ -1,0 +1,33 @@
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<button type="button" class="@Class" title="Copiar enlace para compartir (p. ej. en el chat)" @onclick="CopyAsync">
+    @(_copied ? "✓ Copiado" : Label)
+</button>
+
+@code {
+    [Parameter, EditorRequired] public string Path { get; set; } = "";
+    [Parameter] public string Label { get; set; } = "🔗 Copiar enlace";
+    [Parameter] public string Class { get; set; } = "btn-secondary btn-sm";
+
+    private bool _copied;
+
+    private async Task CopyAsync()
+    {
+        var url = Nav.ToAbsoluteUri(Path).ToString();
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", url);
+            _copied = true;
+            _ = ResetAsync();
+        }
+        catch { }
+    }
+
+    private async Task ResetAsync()
+    {
+        await Task.Delay(1600);
+        _copied = false;
+        await InvokeAsync(StateHasChanged);
+    }
+}

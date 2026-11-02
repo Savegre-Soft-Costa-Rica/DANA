@@ -62,21 +62,23 @@ public class ChatService
         _messages.Collection.Find(m => m.ChannelId == channelId && m.DeletedAt == null)
             .SortBy(m => m.CreatedAt).Limit(limit).ToListAsync();
 
-    public async Task<ChatMessage> SendAsync(ChatChannel ch, string author, string text)
+    public async Task<ChatMessage> SendAsync(ChatChannel ch, string author, string text, List<string>? attachmentIds = null)
     {
-        var msg = new ChatMessage { ChannelId = ch.Id!, Author = author, Text = text.Trim(), CreatedBy = author };
+        var msg = new ChatMessage { ChannelId = ch.Id!, Author = author, Text = text.Trim(), AttachmentIds = attachmentIds ?? new(), CreatedBy = author };
         await _messages.InsertAsync(msg);
 
-        ch.LastText = msg.Text.Length > 120 ? msg.Text[..120] : msg.Text;
+        ch.LastText = !string.IsNullOrWhiteSpace(msg.Text) ? (msg.Text.Length > 120 ? msg.Text[..120] : msg.Text) : "📎 Adjunto";
         ch.LastAuthor = author;
         ch.LastAt = msg.CreatedAt;
         ch.LastRead[author] = msg.CreatedAt;
         await _channels.UpdateAsync(ch);
 
-        // Notificar a los demás miembros
-        foreach (var m in ch.Members.Where(m => !string.Equals(m, author, StringComparison.OrdinalIgnoreCase)))
+        // Solo se notifica en la campana a quien fue mencionado con @ (el resto lo ve por el contador de no leídos)
+        var mentioned = await _notifications.FindMentionsAsync(msg.Text);
+        var where = ch.Kind == ChatKinds.Group ? $"el grupo \"{ch.Name}\"" : "el chat";
+        foreach (var m in mentioned.Where(m => ch.IsMember(m) && !string.Equals(m, author, StringComparison.OrdinalIgnoreCase)))
         {
-            try { await _notifications.NotifyAsync(m, NotificationKinds.System, $"le escribió en {(ch.Kind == ChatKinds.Group ? ch.Name : "un chat")}: {ch.LastText}", "chat", author); } catch { }
+            try { await _notifications.NotifyAsync(m, NotificationKinds.Mention, $"te mencionó en {where}: {ch.LastText}", "chat", author); } catch { }
         }
 
         MessageSent?.Invoke(ch.Id!);

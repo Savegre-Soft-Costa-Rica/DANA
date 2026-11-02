@@ -32,6 +32,7 @@
     </div>
     <div class="actions">
         @if (!Embedded) { <a class="btn-secondary" href="deals/board/@_model.PipelineId">← Tablero</a> }
+        @if (!IsNew) { <CopyLink Path="@($"deals/{_model.Id}")" /> }
         @if (!IsNew) { <button class="btn-secondary" @onclick="() => _emailOpen = true" disabled="@string.IsNullOrWhiteSpace(DealEmail)">✉ Correo al contacto</button> <button class="btn-secondary" @onclick="ArchiveAsync">@(_model.IsArchived ? "↩ Restaurar" : "🗂 Archivar")</button> <button class="btn-danger" @onclick="DeleteAsync">Eliminar</button> }
     </div>
 </div>

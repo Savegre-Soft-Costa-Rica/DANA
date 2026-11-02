@@ -3,6 +3,7 @@
 @inject ChatService Chat
 @inject UserService Users
 @inject PresenceService Presence
+@inject AttachmentService Attach
 @inject CurrentUser Me
 @inject IJSRuntime JS
 @inject DialogService Dialogs
@@ -98,16 +99,47 @@
                         @if (!mine) { <UserAvatar Name="@m.Author" Picture="@PictureOf(m.Author)" ShowPresence="false" /> }
                         <div class="chat-bubble">
                             @if (!mine && _active.Kind == ChatKinds.Group) { <div class="chat-author">@m.Author</div> }
-                            <div class="chat-text">@m.Text</div>
+                            @if (!string.IsNullOrWhiteSpace(m.Text)) { <div class="chat-text">@m.Text</div> }
+                            @foreach (var id in m.AttachmentIds)
+                            {
+                                var a = _att.GetValueOrDefault(id);
+                                @if (a is not null)
+                                {
+                                    @if (a.IsImage)
+                                    {
+                                        <a href="files/@id" target="_blank" class="chat-att"><img class="chat-img" src="files/@id" alt="@a.FileName" /></a>
+                                    }
+                                    else if (a.ContentType.StartsWith("audio/"))
+                                    {
+                                        <audio class="chat-audio" controls src="files/@id"></audio>
+                                    }
+                                    else
+                                    {
+                                        <a class="file-chip chat-att" href="files/@id" target="_blank" title="@a.SizeText">📄 <span class="file-name">@a.FileName</span></a>
+                                    }
+                                }
+                            }
                             <div class="chat-time">@m.At.ToLocalTime().ToString("HH:mm")</div>
                         </div>
                     </div>
                 }
             </div>
 
+            @if (_pending.Count > 0)
+            {
+                <div class="chat-pending">
+                    @foreach (var a in _pending)
+                    {
+                        <span class="chip">@(a.IsImage ? "🖼" : a.ContentType.StartsWith("audio/") ? "🎤" : "📄") @a.FileName <button class="tag-x" title="Quitar" @onclick="() => RemovePendingAsync(a)">×</button></span>
+                    }
+                </div>
+            }
+            @if (_uploadErr is not null) { <div class="text-danger small px-3">@_uploadErr</div> }
             <div class="chat-composer">
-                <input class="form-control" placeholder="Escriba un mensaje…" @bind="_draft" @bind:event="oninput" @onkeydown="OnKey" />
-                <button class="btn-primary" disabled="@string.IsNullOrWhiteSpace(_draft)" @onclick="SendAsync">Enviar</button>
+                <label class="icon-btn file-btn" title="Adjuntar imagen o archivo">📎<InputFile OnChange="OnFilesAsync" multiple /></label>
+                <button class="icon-btn @(_recording ? "rec" : "")" title="@(_recording ? "Detener y enviar nota de voz" : "Grabar nota de voz")" @onclick="ToggleRecordAsync">@(_recording ? "⏹" : "🎤")</button>
+                <input class="form-control" placeholder="@(_recording ? "Grabando nota de voz…" : "Escriba un mensaje…")" disabled="@_recording" @bind="_draft" @bind:event="oninput" @onkeydown="OnKey" />
+                <button class="btn-primary" disabled="@((string.IsNullOrWhiteSpace(_draft) && _pending.Count == 0) || _recording)" @onclick="SendAsync">Enviar</button>
             </div>
         }
     </section>
@@ -168,8 +200,13 @@
     private List<User> _users = new();
     private ChatChannel? _active;
     private List<ChatMessage> _messages = new();
+    private Dictionary<string, Attachment> _att = new();
+    private readonly List<Attachment> _pending = new();
     private string _draft = "";
     private bool _moodOpen, _dmOpen, _groupOpen;
+    private bool _recording;
+    private IJSObjectReference? _recorder;
+    private string? _uploadErr;
 
     private string _groupName = "";
     private readonly List<string> _groupMembers = new();
@@ -196,32 +233,102 @@
     private async Task OpenAsync(ChatChannel ch)
     {
         _active = ch;
+        _pending.Clear();
+        _uploadErr = null;
         _messages = await Chat.GetMessagesAsync(ch.Id!);
+        _att = (await Attach.GetForAsync("chat", ch.Id!)).ToDictionary(a => a.Id!);
         await Chat.MarkReadAsync(ch, _me);
         await ScrollAsync();
         StateHasChanged();
     }
 
-    private void OnKey(KeyboardEventArgs e) { if (e.Key == "Enter") _ = SendAsync(); }
+    private void OnKey(KeyboardEventArgs e) { if (e.Key == "Enter" && !_recording) _ = SendAsync(); }
 
     private async Task SendAsync()
     {
-        if (_active is null || string.IsNullOrWhiteSpace(_draft)) return;
+        if (_active is null) return;
+        if (string.IsNullOrWhiteSpace(_draft) && _pending.Count == 0) return;
         var text = _draft;
+        var ids = _pending.Select(a => a.Id!).ToList();
         _draft = "";
-        await Chat.SendAsync(_active, _me, text);
-        // La recarga la dispara el evento MessageSent; pero refrescamos ya por responsividad.
+        _pending.Clear();
+        await Chat.SendAsync(_active, _me, text, ids);
     }
+
+    // ----- adjuntos -----
+    private async Task OnFilesAsync(InputFileChangeEventArgs e)
+    {
+        if (_active is null) return;
+        _uploadErr = null;
+        foreach (var f in e.GetMultipleFiles(10))
+        {
+            if (f.Size > AttachmentService.MaxSize) { _uploadErr = $"{f.Name} supera los 15 MB."; continue; }
+            try
+            {
+                await using var s = f.OpenReadStream(AttachmentService.MaxSize);
+                var a = await Attach.SaveAsync(s, f.Name, f.ContentType, f.Size, "chat", _active.Id!, null, _me);
+                _pending.Add(a);
+            }
+            catch (Exception ex) { _uploadErr = ex.Message; }
+        }
+    }
+
+    private async Task RemovePendingAsync(Attachment a)
+    {
+        _pending.Remove(a);
+        try { await Attach.DeleteAsync(a); } catch { }
+    }
+
+    // ----- nota de voz -----
+    private async Task ToggleRecordAsync()
+    {
+        if (_active is null) return;
+        if (!_recording)
+        {
+            try
+            {
+                _recorder ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/chatRecorder.js");
+                await _recorder.InvokeAsync<bool>("start");
+                _recording = true;
+                _uploadErr = null;
+            }
+            catch { _uploadErr = "No se pudo acceder al micrófono."; }
+        }
+        else
+        {
+            _recording = false;
+            try
+            {
+                var res = _recorder is null ? null : await _recorder.InvokeAsync<RecordResult?>("stop");
+                if (res is not null && !string.IsNullOrEmpty(res.Base64))
+                {
+                    var bytes = Convert.FromBase64String(res.Base64);
+                    using var ms = new MemoryStream(bytes);
+                    var a = await Attach.SaveAsync(ms, $"nota-de-voz-{DateTime.Now:HHmmss}.webm", res.Type ?? "audio/webm", bytes.Length, "chat", _active.Id!, null, _me);
+                    await Chat.SendAsync(_active, _me, "", new List<string> { a.Id! });
+                }
+            }
+            catch (Exception ex) { _uploadErr = "No se pudo guardar la nota de voz: " + ex.Message; }
+        }
+    }
+
+    private sealed class RecordResult { public string? Base64 { get; set; } public string? Type { get; set; } public long Size { get; set; } }
 
     private void OnMessage(string channelId)
     {
         _ = InvokeAsync(async () =>
         {
             _channels = await Chat.GetChannelsForAsync(_me);
+            var changed = _channels.FirstOrDefault(c => c.Id == channelId);
+            if (changed is not null && !string.Equals(changed.LastAuthor, _me, StringComparison.OrdinalIgnoreCase))
+            {
+                try { await JS.InvokeVoidAsync("danaPing"); } catch { }
+            }
             if (_active is not null && _active.Id == channelId)
             {
                 _active = _channels.FirstOrDefault(c => c.Id == channelId) ?? _active;
                 _messages = await Chat.GetMessagesAsync(channelId);
+                _att = (await Attach.GetForAsync("chat", channelId)).ToDictionary(a => a.Id!);
                 await Chat.MarkReadAsync(_active, _me);
                 await ScrollAsync();
             }
@@ -295,5 +402,6 @@
     {
         Chat.MessageSent -= OnMessage;
         Presence.Changed -= OnPresence;
+        if (_recorder is not null) _ = _recorder.DisposeAsync();
     }
 }

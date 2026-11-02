@@ -28,6 +28,7 @@
     </div>
     <div class="actions">
         @if (!Embedded) { <a class="btn-secondary" href="leads">← Tablero</a> }
+        @if (!IsNew) { <CopyLink Path="@($"leads/{_model.Id}")" /> }
         @if (!IsNew && _model.Status != LeadStatuses.Converted)
         {
             <button class="btn-primary" style="background:var(--success)" @onclick="() => _showConvert = !_showConvert">⇄ Convertir</button>

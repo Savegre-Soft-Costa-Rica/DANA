@@ -35,5 +35,7 @@ public class ChatMessage : Entity
     public string ChannelId { get; set; } = "";
     public string Author { get; set; } = "";
     public string Text { get; set; } = "";
+    /// <summary>Ids de adjuntos (imágenes, archivos, notas de voz).</summary>
+    public List<string> AttachmentIds { get; set; } = new();
     [BsonIgnore] public DateTime At => CreatedAt;
 }

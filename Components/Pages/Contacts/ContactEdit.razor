@@ -31,6 +31,7 @@
     </div>
     <div class="actions">
         @if (!Embedded) { <a class="btn-secondary" href="contacts">← Tablero</a> }
+        @if (!IsNew) { <CopyLink Path="@($"contacts/{_model.Id}")" /> }
         @if (!IsNew)
         {
             <a class="btn-secondary" href="deals/new?contactId=@_model.Id&companyId=@_model.CompanyId">+ Negociación</a>

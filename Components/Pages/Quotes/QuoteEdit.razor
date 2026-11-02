@@ -17,6 +17,7 @@ else
         <div><h3>@_q.Number · @_q.Title</h3><div class="sub"><Badge Text="@st.Label" Color="@st.Color" /> <span class="ms-2">@_client</span> @if (_q.DealId is not null) { <a class="ms-2" href="deals/@_q.DealId">Ver negociación</a> }</div></div>
         <div class="actions">
             <a class="btn-secondary" href="cotizaciones">← Cotizaciones</a>
+            <CopyLink Path="@($"cotizaciones/{_q.Id}")" />
             <a class="btn-secondary" href="cotizaciones/@_q.Id/imprimir" target="_blank">🖨 Imprimir / PDF</a>
             <select class="form-select" style="width:auto" value="@_q.Status" @onchange="async e => await SetStatusAsync(e.Value?.ToString() ?? string.Empty)">
                 @foreach (var (id, label, _) in QuoteStatuses.All) { <option value="@id">@label</option> }

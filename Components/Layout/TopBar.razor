@@ -117,9 +117,17 @@
         catch (ObjectDisposedException) { }
     }
 
+    private long _lastUnread = -1;
     private async Task RefreshCountAsync()
     {
-        try { _unread = await Notifications.CountUnreadAsync(_me); } catch { }
+        try
+        {
+            var c = await Notifications.CountUnreadAsync(_me);
+            if (_lastUnread >= 0 && c > _lastUnread) { try { await JS.InvokeVoidAsync("danaPing"); } catch { } }
+            _lastUnread = c;
+            _unread = c;
+        }
+        catch { }
     }
 
     private async Task ToggleBellAsync()

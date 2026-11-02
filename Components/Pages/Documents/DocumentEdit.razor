@@ -20,6 +20,7 @@ else
             <a class="btn-secondary" href="documentos/@_d.Id/word" target="_blank">⬇ Word</a>
             <a class="btn-secondary" href="documentos/@_d.Id/pdf" target="_blank">⬇ PDF</a>
             <a class="btn-secondary" href="documentos/@_d.Id/imprimir" target="_blank">🖨 Imprimir</a>
+            <CopyLink Path="@($"documentos/{_d.Id}")" Label="🔗 Copiar enlace" />
             <button class="btn-secondary" @onclick="OpenSharesAsync">🔗 Compartir</button>
             <label class="btn-secondary file-btn" title="Reemplazar el contenido con un archivo Word, PDF, Markdown o texto">⬆ Importar<InputFile OnChange="ImportAsync" accept=".docx,.pdf,.md,.txt" /></label>
             <button class="btn-primary" disabled="@(!_dirty)" @onclick="SaveAsync">Guardar @(_dirty ? "(cambios)" : "")</button>
