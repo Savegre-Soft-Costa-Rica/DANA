@@ -45,7 +45,7 @@ else if (_view == "tiles")
                 </div>
                 <div class="tile-body">
                     <div class="tile-name">@p.Name</div>
-                    <div class="tile-price">@p.Price.ToString("N2") @p.Currency <small class="muted">/ @p.Unit</small></div>
+                    <div class="tile-price">@if (p.QuoteOnly) { <span class="pubc-quote">A cotizar</span> } else { @p.Price.ToString("N2") <text> </text> @p.Currency <small class="muted">/ @p.Unit</small> }</div>
                     @if (cat is not null) { <span class="badge-pill" style="background:@cat.Color">@cat.Name</span> }
                     <div class="tags" @onclick:stopPropagation>
                         @foreach (var t in p.Tags) { <span class="tag">@t <button class="tag-x" title="Quitar" @onclick="() => RemoveTagAsync(p, t)">×</button></span> }
@@ -74,7 +74,7 @@ else
                             @foreach (var t in p.Tags) { <span class="tag">@t <button class="tag-x" @onclick="() => RemoveTagAsync(p, t)">×</button></span> }
                             <input class="tag-input" placeholder="+" @onkeydown="e => AddTagKeyAsync(e, p)" @onchange="e => AddTagAsync(p, e.Value?.ToString())" />
                         </div></td>
-                        <td class="text-end">@p.Price.ToString("N2") @p.Currency<div class="small muted">/ @p.Unit</div></td>
+                        <td class="text-end">@if (p.QuoteOnly) { <span class="pubc-quote">A cotizar</span> } else { @p.Price.ToString("N2") <text> </text> @p.Currency<div class="small muted">/ @p.Unit</div> }</td>
                         <td class="text-end">@p.TaxRate %</td>
                         <td>@(p.IsActive ? "Activo" : "Inactivo") @(p.IsPublic ? "" : "· privado")</td>
                         <td class="text-end text-nowrap"><button class="btn-secondary btn-sm" @onclick="() => _edit = Clone(p)">Editar</button> <button class="btn-danger btn-sm" @onclick="() => DeleteAsync(p)">Eliminar</button></td>
@@ -107,6 +107,7 @@ else
                             <div class="col-md-4"><label class="form-label">Precio</label><InputNumber class="form-control" @bind-Value="_edit.Price" /></div>
                             <div class="col-md-4"><label class="form-label">Moneda</label><InputSelect class="form-select" @bind-Value="_edit.Currency">@foreach (var c in Catalogs.Currencies) { <option value="@c">@c</option> }</InputSelect></div>
                             <div class="col-md-4"><label class="form-label">Impuesto %</label><InputNumber class="form-control" @bind-Value="_edit.TaxRate" /></div>
+                            <div class="col-12"><div class="form-check"><InputCheckbox class="form-check-input" id="pq" @bind-Value="_edit.QuoteOnly" /><label class="form-check-label" for="pq">Precio a cotizar (no mostrar el precio en el catálogo; el cliente solicita cotización)</label></div></div>
                             <div class="col-12"><label class="form-label">Descripción</label><InputTextArea class="form-control" rows="3" @bind-Value="_edit.Description" /></div>
                             <div class="col-12"><label class="form-label">Etiquetas</label>
                                 <div class="tags big">

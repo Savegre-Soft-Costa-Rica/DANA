@@ -580,6 +580,30 @@ pre.code.small { font-size: .72rem; max-height: 160px; }
 /* Nota informativa en el formulario de pedido */
 .pubc-note { display: flex; gap: 10px; align-items: flex-start; background: var(--primary-softer); border-radius: var(--radius-sm); padding: 10px 12px; font-size: .88rem; color: var(--text); margin-bottom: 12px; }
 .pubc-note-ico { flex-shrink: 0; }
+
+/* Etiqueta de precio a cotizar */
+.pubc-quote { color: var(--warning); font-weight: 600; }
+
+/* Modal de detalle de producto */
+.prod-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(820px, 94vw); max-height: 92vh; overflow-y: auto; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-lg); z-index: 81; }
+.prod-modal-x { position: absolute; top: 10px; right: 10px; z-index: 1; background: var(--surface); }
+.prod-modal-grid { display: grid; grid-template-columns: 1fr 1fr; }
+@media (max-width: 680px) { .prod-modal-grid { grid-template-columns: 1fr; } }
+.prod-gallery { padding: 18px; }
+.prod-main-img { aspect-ratio: 1; background: var(--bg); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.prod-main-img img { width: 100%; height: 100%; object-fit: contain; }
+.prod-main-img .tile-noimg { font-size: 3rem; opacity: .5; }
+.prod-thumbs { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.prod-thumb { width: 54px; height: 54px; border: 2px solid transparent; border-radius: var(--radius-sm); overflow: hidden; padding: 0; cursor: pointer; background: var(--bg); }
+.prod-thumb.active { border-color: var(--accent, var(--primary)); }
+.prod-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.prod-info { padding: 22px 22px 22px 4px; display: flex; flex-direction: column; }
+@media (max-width: 680px) { .prod-info { padding: 4px 18px 20px; } }
+.prod-title { margin: 8px 0 4px; font-size: 1.4rem; }
+.prod-price { font-size: 1.3rem; font-weight: 600; margin-bottom: 6px; }
+.prod-desc { color: var(--text-2); white-space: pre-wrap; }
+.prod-actions { margin-top: auto; display: flex; align-items: center; gap: 12px; padding-top: 10px; }
+.prod-actions .btn-primary { padding: 10px 18px; }
 .pubc-desc { font-size: .85rem; color: var(--text-2); margin: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .pub-empty { text-align: center; color: var(--text-2); padding: 60px 20px; }
 .pubc-foot { max-width: 1200px; margin: 0 auto; width: 100%; padding: 16px clamp(16px, 5vw, 48px); display: flex; justify-content: space-between; border-top: 1px solid var(--border-light); font-size: .85rem; color: var(--text-2); }

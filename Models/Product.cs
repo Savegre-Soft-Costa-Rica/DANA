@@ -16,6 +16,8 @@ public class Product : Entity
     public decimal Price { get; set; }
     public string Currency { get; set; } = "USD";
     public decimal TaxRate { get; set; } = 13m;
+    /// <summary>El precio no se muestra en el catálogo; el cliente debe solicitar cotización.</summary>
+    public bool QuoteOnly { get; set; }
     public bool IsActive { get; set; } = true;
     /// <summary>Visible en el catálogo público (API para webs externas).</summary>
     public bool IsPublic { get; set; } = true;

@@ -48,7 +48,7 @@ public class QuoteService
     public static object ToPublic(Product p, string baseUrl) => new
     {
         id = p.Id, name = p.Name, sku = p.Sku, cabys = p.Cabys, description = p.Description, category = p.Category, tags = p.Tags,
-        unit = p.Unit, price = p.Price, currency = p.Currency, taxRate = p.TaxRate, stock = p.Stock < 0 ? (int?)null : p.Stock,
+        unit = p.Unit, price = p.Price, currency = p.Currency, taxRate = p.TaxRate, quoteOnly = p.QuoteOnly, stock = p.Stock < 0 ? (int?)null : p.Stock,
         image = p.MainImageId is null ? null : $"{baseUrl}/catalog/images/{p.MainImageId}",
         images = p.ImageIds.Select(i => $"{baseUrl}/catalog/images/{i}").ToList(),
         updatedAt = p.UpdatedAt

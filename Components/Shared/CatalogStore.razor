@@ -64,17 +64,18 @@ else
                     {
                         var cat = _cats.FirstOrDefault(c => c.Name == p.Category);
                         var qty = _cart.GetValueOrDefault(p.Id!);
-                        <article class="tile pubc-tile">
+                        <article class="tile pubc-tile" style="cursor:pointer" @onclick="() => OpenDetail(p)">
                             <div class="tile-img">
                                 @if (p.MainImageId is not null) { <img src="catalog/images/@p.MainImageId" alt="@p.Name" loading="lazy" /> }
                                 else { <span class="tile-noimg">📦</span> }
                             </div>
                             <div class="tile-body">
                                 <div class="tile-name">@p.Name</div>
-                                <div class="tile-price" style="color:var(--accent)">@p.Price.ToString("N2") @p.Currency <small class="muted">/ @p.Unit</small></div>
+                                @if (p.QuoteOnly) { <div class="tile-price pubc-quote">A cotizar</div> }
+                                else { <div class="tile-price" style="color:var(--accent)">@p.Price.ToString("N2") @p.Currency <small class="muted">/ @p.Unit</small></div> }
                                 @if (cat is not null) { <span class="badge-pill" style="background:@cat.Color">@cat.Name</span> }
                                 @if (!string.IsNullOrWhiteSpace(p.Description)) { <p class="pubc-desc">@p.Description</p> }
-                                <div class="mt-auto pt-2">
+                                <div class="mt-auto pt-2" @onclick:stopPropagation="true">
                                     @if (qty == 0)
                                     {
                                         <button class="btn-primary w-100" style="background:var(--accent, var(--primary))" @onclick="() => Add(p)">＋ Agregar</button>
@@ -105,7 +106,7 @@ else
                             {
                                 var cat = _cats.FirstOrDefault(c => c.Name == p.Category);
                                 var qty = _cart.GetValueOrDefault(p.Id!);
-                                <tr>
+                                <tr style="cursor:pointer" @onclick="() => OpenDetail(p)">
                                     <td class="pubc-td-img">
                                         @if (p.MainImageId is not null) { <img src="catalog/images/@p.MainImageId" alt="@p.Name" loading="lazy" /> }
                                         else { <span class="pubc-td-noimg">📦</span> }
@@ -115,8 +116,11 @@ else
                                         @if (!string.IsNullOrWhiteSpace(p.Description)) { <div class="small muted pubc-desc">@p.Description</div> }
                                     </td>
                                     <td>@if (cat is not null) { <span class="badge-pill" style="background:@cat.Color">@cat.Name</span> }</td>
-                                    <td class="text-end text-nowrap"><strong style="color:var(--accent)">@p.Price.ToString("N2") @p.Currency</strong><div class="small muted">/ @p.Unit</div></td>
-                                    <td class="pubc-td-add">
+                                    <td class="text-end text-nowrap">
+                                        @if (p.QuoteOnly) { <strong class="pubc-quote">A cotizar</strong> }
+                                        else { <strong style="color:var(--accent)">@p.Price.ToString("N2") @p.Currency</strong><div class="small muted">/ @p.Unit</div> }
+                                    </td>
+                                    <td class="pubc-td-add" @onclick:stopPropagation="true">
                                         @if (qty == 0)
                                         {
                                             <button class="btn-primary" style="background:var(--accent, var(--primary))" @onclick="() => Add(p)">＋ Agregar</button>
@@ -142,7 +146,7 @@ else
         {
             <div class="cart-bar">
                 <div class="cart-bar-in">
-                    <span>🛒 <strong>@CartCount</strong> artículo@(CartCount == 1 ? "" : "s") @foreach (var (cur, tot) in Totals()) { <span class="cart-tot">· @tot.ToString("N2") @cur</span> }</span>
+                    <span>🛒 <strong>@CartCount</strong> artículo@(CartCount == 1 ? "" : "s") @foreach (var (cur, tot) in Totals()) { <span class="cart-tot">· @tot.ToString("N2") @cur</span> } @if (HasQuoteItems) { <span class="cart-tot">· a cotizar</span> }</span>
                     <span class="d-flex gap-2">
                         <button class="btn-ghost" @onclick="() => _cart.Clear()">Vaciar</button>
                         <button class="btn-primary" style="background:var(--accent, var(--primary))" @onclick="() => _checkout = true">Solicitar pedido →</button>
@@ -185,7 +189,7 @@ else
                                     <span class="qty-n">@qty</span>
                                     <button class="qty-btn" @onclick="() => SetQty(p.Id!, qty + 1)">＋</button>
                                 </div>
-                                <span class="cart-line-tot">@((p.Price * qty).ToString("N2")) @p.Currency</span>
+                                <span class="cart-line-tot">@if (p.QuoteOnly) { <span class="pubc-quote">A cotizar</span> } else { @((p.Price * qty).ToString("N2")) <text> </text> @p.Currency }</span>
                             </div>
                         }
                         @foreach (var (cur, tot) in Totals())
@@ -222,6 +226,59 @@ else
             }
         </div>
     }
+
+    @* ---------- Detalle del producto en modal ---------- *@
+    @if (_detail is not null)
+    {
+        var d = _detail;
+        var dcat = _cats.FirstOrDefault(c => c.Name == d.Category);
+        var dqty = _cart.GetValueOrDefault(d.Id!);
+        <div class="sheet-backdrop" @onclick="() => _detail = null"></div>
+        <div class="prod-modal" style="--accent:@_share!.AccentColor">
+            <button class="icon-btn prod-modal-x" title="Cerrar" @onclick="() => _detail = null">✕</button>
+            <div class="prod-modal-grid">
+                <div class="prod-gallery">
+                    <div class="prod-main-img">
+                        @if (_detailImg is not null) { <img src="catalog/images/@_detailImg" alt="@d.Name" /> }
+                        else { <span class="tile-noimg">📦</span> }
+                    </div>
+                    @if (d.ImageIds.Count > 1)
+                    {
+                        <div class="prod-thumbs">
+                            @foreach (var id in d.ImageIds)
+                            {
+                                <button class="prod-thumb @(id == _detailImg ? "active" : "")" @onclick="() => _detailImg = id"><img src="catalog/images/@id" alt="" /></button>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="prod-info">
+                    @if (dcat is not null) { <span class="badge-pill" style="background:@dcat.Color">@dcat.Name</span> }
+                    <h2 class="prod-title">@d.Name</h2>
+                    @if (d.QuoteOnly) { <div class="prod-price pubc-quote">Precio a cotizar</div> }
+                    else { <div class="prod-price" style="color:var(--accent)">@d.Price.ToString("N2") @d.Currency <small class="muted">/ @d.Unit</small></div> }
+                    @if (!string.IsNullOrWhiteSpace(d.Sku)) { <div class="small muted mb-2">SKU: @d.Sku</div> }
+                    @if (!string.IsNullOrWhiteSpace(d.Description)) { <p class="prod-desc">@d.Description</p> }
+                    @if (d.Tags.Count > 0) { <div class="tags mb-3">@foreach (var t in d.Tags) { <span class="tag">@t</span> }</div> }
+                    <div class="prod-actions">
+                        @if (dqty == 0)
+                        {
+                            <button class="btn-primary" style="background:var(--accent, var(--primary))" @onclick="() => Add(d)">＋ Agregar@(d.QuoteOnly ? " para cotizar" : " al carrito")</button>
+                        }
+                        else
+                        {
+                            <div class="qty-stepper" style="max-width:160px">
+                                <button class="qty-btn" @onclick="() => SetQty(d.Id!, dqty - 1)">−</button>
+                                <span class="qty-n">@dqty</span>
+                                <button class="qty-btn" @onclick="() => SetQty(d.Id!, dqty + 1)">＋</button>
+                            </div>
+                            <span class="muted small">En el carrito</span>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 }
 
 @code {
@@ -241,6 +298,10 @@ else
     private bool _checkout, _done, _busy;
     private string _name = "", _message = "";
     private string? _lastName, _email, _phone, _company, _hp, _error;
+
+    private Product? _detail;
+    private string? _detailImg;
+    private void OpenDetail(Product p) { _detail = p; _detailImg = p.MainImageId; }
 
     protected override async Task OnInitializedAsync()
     {
@@ -273,8 +334,10 @@ else
     private void SetQty(string id, int n) { if (n <= 0) _cart.Remove(id); else _cart[id] = n; }
     private List<(Product P, int Qty)> CartLines() =>
         _cart.Select(kv => (P: _all.FirstOrDefault(p => p.Id == kv.Key)!, Qty: kv.Value)).Where(x => x.P is not null).ToList();
+    // Totales solo de los productos con precio; los de "a cotizar" se excluyen.
     private IEnumerable<(string Cur, decimal Total)> Totals() =>
-        CartLines().GroupBy(l => l.P.Currency).Select(g => (g.Key, g.Sum(l => l.P.Price * l.Qty)));
+        CartLines().Where(l => !l.P.QuoteOnly).GroupBy(l => l.P.Currency).Select(g => (g.Key, g.Sum(l => l.P.Price * l.Qty)));
+    private bool HasQuoteItems => CartLines().Any(l => l.P.QuoteOnly);
 
     private void CloseDone() { _done = false; _checkout = false; }
 
@@ -295,8 +358,11 @@ else
             var sb = new StringBuilder();
             sb.AppendLine($"Pedido desde el catálogo «{_share!.Title}»:");
             foreach (var (p, qty) in lines)
-                sb.AppendLine($"• {qty} × {p.Name} ({p.Price:N2} {p.Currency}) = {(p.Price * qty):N2} {p.Currency}");
+                sb.AppendLine(p.QuoteOnly
+                    ? $"• {qty} × {p.Name} (a cotizar)"
+                    : $"• {qty} × {p.Name} ({p.Price:N2} {p.Currency}) = {(p.Price * qty):N2} {p.Currency}");
             foreach (var (cur, tot) in totals) sb.AppendLine($"Total: {tot:N2} {cur}");
+            if (lines.Any(l => l.P.QuoteOnly)) sb.AppendLine("Incluye productos que requieren cotización.");
             if (!string.IsNullOrWhiteSpace(_message)) { sb.AppendLine(); sb.AppendLine($"Mensaje: {_message.Trim()}"); }
 
             var lead = new Lead
