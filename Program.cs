@@ -65,6 +65,7 @@ builder.Services.AddSingleton<LeadFormService>();
 builder.Services.AddSingleton<ShareLinkService>();
 builder.Services.AddSingleton<PresenceService>();
 builder.Services.AddSingleton<ChatService>();
+builder.Services.AddSingleton<LinkPreviewService>();
 builder.Services.AddSingleton<PermissionService>();
 builder.Services.AddSingleton<NavService>();
 builder.Services.AddSingleton<QuoteService>();

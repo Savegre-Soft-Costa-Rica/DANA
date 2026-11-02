@@ -639,6 +639,17 @@ pre.code.small { font-size: .72rem; max-height: 160px; }
 .chat-att { display: inline-block; }
 .chat-audio { margin-top: 4px; max-width: 250px; height: 40px; }
 .chat-msg.mine .file-chip { background: rgba(255,255,255,.18); border-color: transparent; color: #fff; }
+
+/* Tarjeta de elemento interno (previsualización de enlace en el chat) */
+.elem-card { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border-light); max-width: 300px; }
+.elem-card:hover { text-decoration: none; border-color: var(--primary); }
+.chat-msg.mine .elem-card { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.25); }
+.elem-card-ico { flex-shrink: 0; width: 34px; height: 34px; border-radius: 8px; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 1rem; }
+.elem-card-type { display: block; font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; opacity: .7; }
+.elem-card-title { display: block; font-weight: 600; font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.elem-card-sub { display: block; font-size: .78rem; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.elem-card-go { opacity: .5; flex-shrink: 0; }
+.chat-msg.mine .elem-card-title, .chat-msg.mine .elem-card-type, .chat-msg.mine .elem-card-sub, .chat-msg.mine .elem-card-go { color: #fff; }
 .chat-pick, .chat-member { display: flex; align-items: center; gap: 10px; width: 100%; border: 1px solid transparent; background: transparent; border-radius: var(--radius-sm); padding: 8px; cursor: pointer; }
 .chat-pick:hover, .chat-member:hover { background: var(--surface-hover); }
 .chat-member.on { background: var(--primary-softer); border-color: var(--primary); }

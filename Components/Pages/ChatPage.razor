@@ -4,6 +4,7 @@
 @inject UserService Users
 @inject PresenceService Presence
 @inject AttachmentService Attach
+@inject LinkPreviewService LinkPreview
 @inject CurrentUser Me
 @inject IJSRuntime JS
 @inject DialogService Dialogs
@@ -100,6 +101,10 @@
                         <div class="chat-bubble">
                             @if (!mine && _active.Kind == ChatKinds.Group) { <div class="chat-author">@m.Author</div> }
                             @if (!string.IsNullOrWhiteSpace(m.Text)) { <div class="chat-text">@m.Text</div> }
+                            @foreach (var r in LinkPreviewService.ExtractRefs(m.Text))
+                            {
+                                @if (_cards.TryGetValue(r.Path, out var card)) { <ElementCard Card="card" /> }
+                            }
                             @foreach (var id in m.AttachmentIds)
                             {
                                 var a = _att.GetValueOrDefault(id);
@@ -201,6 +206,7 @@
     private ChatChannel? _active;
     private List<ChatMessage> _messages = new();
     private Dictionary<string, Attachment> _att = new();
+    private readonly Dictionary<string, LinkCard> _cards = new();
     private readonly List<Attachment> _pending = new();
     private string _draft = "";
     private bool _moodOpen, _dmOpen, _groupOpen;
@@ -237,9 +243,22 @@
         _uploadErr = null;
         _messages = await Chat.GetMessagesAsync(ch.Id!);
         _att = (await Attach.GetForAsync("chat", ch.Id!)).ToDictionary(a => a.Id!);
+        await BuildCardsAsync();
         await Chat.MarkReadAsync(ch, _me);
         await ScrollAsync();
         StateHasChanged();
+    }
+
+    // Resuelve las tarjetas de los enlaces internos presentes en los mensajes (una vez por elemento).
+    private async Task BuildCardsAsync()
+    {
+        foreach (var m in _messages)
+            foreach (var r in LinkPreviewService.ExtractRefs(m.Text))
+            {
+                if (_cards.ContainsKey(r.Path)) continue;
+                var card = await LinkPreview.ResolveAsync(r.Type, r.Id, r.Path);
+                if (card is not null) _cards[r.Path] = card;
+            }
     }
 
     private void OnKey(KeyboardEventArgs e) { if (e.Key == "Enter" && !_recording) _ = SendAsync(); }
@@ -329,6 +348,7 @@
                 _active = _channels.FirstOrDefault(c => c.Id == channelId) ?? _active;
                 _messages = await Chat.GetMessagesAsync(channelId);
                 _att = (await Attach.GetForAsync("chat", channelId)).ToDictionary(a => a.Id!);
+                await BuildCardsAsync();
                 await Chat.MarkReadAsync(_active, _me);
                 await ScrollAsync();
             }

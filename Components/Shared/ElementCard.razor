@@ -1,0 +1,14 @@
+@* Tarjeta compacta con la información de un elemento interno (para el chat). *@
+<a class="elem-card" href="@Card.Path" title="Abrir @Card.Type">
+    <span class="elem-card-ico" style="background:@Card.Color">@Card.Icon</span>
+    <span class="min-w-0 flex-grow-1">
+        <span class="elem-card-type">@Card.Type</span>
+        <span class="elem-card-title">@Card.Title</span>
+        @if (!string.IsNullOrWhiteSpace(Card.Subtitle)) { <span class="elem-card-sub">@Card.Subtitle</span> }
+    </span>
+    <span class="elem-card-go">↗</span>
+</a>
+
+@code {
+    [Parameter, EditorRequired] public LinkCard Card { get; set; } = default!;
+}
