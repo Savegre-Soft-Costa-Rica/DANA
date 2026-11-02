@@ -1,5 +1,7 @@
 @page "/plantillas"
+@implements IAsyncDisposable
 @inject EmailService Email
+@inject CurrentUser Me
 @inject IJSRuntime JS
 @inject DialogService Dialogs
 
@@ -8,32 +10,73 @@
 <PageHeader Title="Plantillas de correo" Subtitle="Se usan desde el botón Enviar correo de contactos, prospectos y compañías.">
     <Actions>
         <span class="muted small align-self-center">SMTP: @(Email.IsConfigured ? $"configurado ({Email.From})" : "no configurado · los correos solo se registran")</span>
-        <button class="btn-primary" @onclick="() => _edit = new EmailTemplate()">+ Nueva plantilla</button>
+        <button class="btn-primary" @onclick="NewTemplate">+ Nueva plantilla</button>
     </Actions>
 </PageHeader>
 
 @if (_edit is not null)
 {
-    <EditForm Model="_edit" OnValidSubmit="SaveAsync" FormName="tpl">
-        <DataAnnotationsValidator />
-        <div class="card mb-3">
-            <div class="card-header">@(_edit.Id is null ? "Nueva plantilla" : _edit.Name)</div>
-            <div class="card-body row g-3">
-                <div class="col-md-4"><label class="form-label">Nombre *</label><InputText class="form-control" @bind-Value="_edit.Name" /><ValidationMessage For="() => _edit.Name" /></div>
-                <div class="col-md-8"><label class="form-label">Asunto *</label><InputText class="form-control" @bind-Value="_edit.Subject" /><ValidationMessage For="() => _edit.Subject" /></div>
-                <div class="col-12"><label class="form-label">Cuerpo</label><InputTextArea class="form-control" rows="8" @bind-Value="_edit.Body" />
-                    <div class="muted small mt-1">Marcadores: {{nombre}}, {{apellido}}, {{compañía}}, {{correo}}, {{titulo}}, {{usuario}}.</div></div>
-            </div>
-            <div class="card-footer d-flex justify-content-end gap-2">
-                <button type="button" class="btn-secondary" @onclick="() => _edit = null">Cancelar</button>
-                <button type="submit" class="btn-primary">Guardar</button>
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span>@(_edit.Id is null ? "Nueva plantilla" : _edit.Name)</span>
+            <span class="muted small">Los marcadores se reemplazan al enviar con los datos del destinatario.</span>
+        </div>
+        <div class="card-body">
+            <div class="tpl-editor">
+                <div class="tpl-pane">
+                    @if (_err is not null) { <div class="alert alert-danger py-2 small">@_err</div> }
+                    <label class="form-label">Nombre de la plantilla *</label>
+                    <input class="form-control" placeholder="p. ej. Seguimiento de propuesta" @bind="_edit.Name" @bind:event="oninput" />
+
+                    <label class="form-label mt-3">Asunto *</label>
+                    <input id="tpl-subject" class="form-control" @bind="_edit.Subject" @bind:event="oninput" @onfocus='() => _focus = "tpl-subject"' />
+
+                    <label class="form-label mt-3">Cuerpo</label>
+                    <textarea id="tpl-body" class="form-control" rows="11" @bind="_edit.Body" @bind:event="oninput" @onfocus='() => _focus = "tpl-body"'></textarea>
+
+                    <div class="tpl-markers">
+                        <span class="muted small">Insertar marcador @(_focus == "tpl-subject" ? "en el asunto" : "en el cuerpo"):</span>
+                        @foreach (var m in _markers)
+                        {
+                            <button type="button" class="tpl-chip" title="@m.Help" @onclick="() => InsertAsync(m.Token)">@m.Label</button>
+                        }
+                    </div>
+                </div>
+
+                <div class="tpl-pane tpl-preview-pane">
+                    <div class="tpl-preview-head">
+                        <span>Vista previa</span>
+                        <span class="muted small">con datos de ejemplo</span>
+                    </div>
+                    <div class="tpl-preview">
+                        <div class="tpl-prev-subject">@PreviewSubject</div>
+                        <div class="tpl-prev-body">@PreviewBody</div>
+                    </div>
+                    <div class="muted small mt-2">Ejemplo: @_sample.Name @_sample.LastName · @_sample.Company · @_sample.Email</div>
+                </div>
             </div>
         </div>
-    </EditForm>
+        <div class="card-footer d-flex justify-content-between align-items-center">
+            <span>
+                @if (_starters.Count > 0 && _edit.Id is null)
+                {
+                    <span class="muted small me-2">Empezar desde:</span>
+                    @foreach (var s in _starters)
+                    {
+                        <button type="button" class="btn-ghost btn-sm" @onclick="() => UseStarter(s)">@s.Name</button>
+                    }
+                }
+            </span>
+            <span class="d-flex gap-2">
+                <button type="button" class="btn-secondary" @onclick="() => _edit = null">Cancelar</button>
+                <button type="button" class="btn-primary" @onclick="SaveAsync">Guardar</button>
+            </span>
+        </div>
+    </div>
 }
 
 @if (_items is null) { <p class="muted">Cargando…</p> }
-else if (_items.Count == 0) { <div class="empty-state">Aún no hay plantillas. Cree la primera, por ejemplo "Seguimiento de propuesta".</div> }
+else if (_items.Count == 0 && _edit is null) { <div class="empty-state">Aún no hay plantillas. Cree la primera, por ejemplo "Seguimiento de propuesta".</div> }
 else
 {
     <div class="widgets">
@@ -41,7 +84,7 @@ else
         {
             <div class="widget w-6">
                 <div class="widget-title"><span>@t.Name</span>
-                    <span class="d-flex gap-1"><button class="btn-secondary btn-sm" @onclick="() => _edit = t">Editar</button><button class="btn-danger btn-sm" @onclick="() => DeleteAsync(t)">Eliminar</button></span></div>
+                    <span class="d-flex gap-1"><button class="btn-secondary btn-sm" @onclick="() => Edit(t)">Editar</button><button class="btn-danger btn-sm" @onclick="() => DeleteAsync(t)">Eliminar</button></span></div>
                 <div class="small"><strong>Asunto:</strong> @t.Subject</div>
                 <div class="small muted" style="white-space:pre-wrap">@(t.Body.Length > 240 ? t.Body[..240] + "…" : t.Body)</div>
             </div>
@@ -52,12 +95,60 @@ else
 @code {
     private List<EmailTemplate>? _items;
     private EmailTemplate? _edit;
+    private string _focus = "tpl-body";
+    private string? _err;
+    private IJSObjectReference? _mod;
+    private EmailContext _sample = new("María", "González", "Oasis Meals", "maria@oasismeals.com", "Propuesta de servicios", "Steven");
 
-    protected override async Task OnInitializedAsync() => _items = await Email.GetTemplatesAsync();
+    private readonly (string Label, string Token, string Help)[] _markers =
+    {
+        ("Nombre", "{{nombre}}", "Nombre del destinatario"),
+        ("Apellido", "{{apellido}}", "Apellido del destinatario"),
+        ("Compañía", "{{compañía}}", "Compañía del destinatario"),
+        ("Correo", "{{correo}}", "Correo del destinatario"),
+        ("Título", "{{titulo}}", "Título del registro (negociación, prospecto…)"),
+        ("Usuario", "{{usuario}}", "Su nombre de usuario (remitente)"),
+    };
+
+    private readonly List<EmailTemplate> _starters = new()
+    {
+        new() { Name = "Seguimiento de propuesta", Subject = "Seguimiento: {{titulo}}",
+            Body = "Hola {{nombre}},\n\nEspero que se encuentre bien. Le escribo para dar seguimiento a la propuesta «{{titulo}}» que compartimos con {{compañía}}.\n\n¿Tiene alguna duda que podamos aclarar? Quedo atento.\n\nSaludos,\n{{usuario}}" },
+        new() { Name = "Agradecimiento por reunión", Subject = "Gracias por su tiempo, {{nombre}}",
+            Body = "Hola {{nombre}},\n\nMuchas gracias por la reunión de hoy. Fue un gusto conversar con el equipo de {{compañía}}.\n\nComo acordamos, le enviaré los próximos pasos a la brevedad.\n\nSaludos,\n{{usuario}}" },
+        new() { Name = "Bienvenida", Subject = "¡Bienvenido/a, {{nombre}}!",
+            Body = "Hola {{nombre}},\n\nGracias por su interés. Estamos encantados de atender a {{compañía}} y de acompañarle en lo que necesite.\n\nCualquier consulta, estoy a su disposición.\n\nSaludos,\n{{usuario}}" },
+    };
+
+    private string PreviewSubject => string.IsNullOrWhiteSpace(_edit?.Subject) ? "(sin asunto)" : EmailService.Render(_edit!.Subject, _sample);
+    private string PreviewBody => string.IsNullOrWhiteSpace(_edit?.Body) ? "(cuerpo vacío)" : EmailService.Render(_edit!.Body, _sample);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _items = await Email.GetTemplatesAsync();
+        _sample = _sample with { User = await Me.NameAsync() };
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) _mod = await JS.InvokeAsync<IJSObjectReference>("import", "./js/tpl.js");
+    }
+
+    private void NewTemplate() { _edit = new EmailTemplate(); _err = null; _focus = "tpl-body"; }
+    private void Edit(EmailTemplate t) { _edit = t; _err = null; _focus = "tpl-body"; }
+    private void UseStarter(EmailTemplate s) { _edit = new EmailTemplate { Name = s.Name, Subject = s.Subject, Body = s.Body }; _err = null; }
+
+    private async Task InsertAsync(string token)
+    {
+        if (_mod is not null) await _mod.InvokeVoidAsync("insertAtCaret", _focus, token);
+    }
 
     private async Task SaveAsync()
     {
-        await Email.SaveTemplateAsync(_edit!);
+        _err = null;
+        if (string.IsNullOrWhiteSpace(_edit!.Name)) { _err = "Indique un nombre para la plantilla."; return; }
+        if (string.IsNullOrWhiteSpace(_edit.Subject)) { _err = "Indique el asunto."; return; }
+        await Email.SaveTemplateAsync(_edit);
         _edit = null;
         _items = await Email.GetTemplatesAsync();
     }
@@ -66,6 +157,12 @@ else
     {
         if (!await Dialogs.ConfirmAsync($"¿Eliminar la plantilla \"{t.Name}\"?")) return;
         await Email.DeleteTemplateAsync(t.Id!);
+        if (_edit?.Id == t.Id) _edit = null;
         _items = await Email.GetTemplatesAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { if (_mod is not null) await _mod.DisposeAsync(); } catch { }
     }
 }

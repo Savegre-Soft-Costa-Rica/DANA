@@ -584,6 +584,19 @@ pre.code.small { font-size: .72rem; max-height: 160px; }
 /* Etiqueta de precio a cotizar */
 .pubc-quote { color: var(--warning); font-weight: 600; }
 
+/* Editor de plantillas de correo */
+.tpl-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 860px) { .tpl-editor { grid-template-columns: 1fr; } }
+.tpl-pane { min-width: 0; }
+.tpl-markers { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tpl-chip { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 3px 11px; font: inherit; font-size: .8rem; color: var(--primary); cursor: pointer; transition: background-color .12s, border-color .12s; }
+.tpl-chip:hover { background: var(--primary-softer); border-color: var(--primary); }
+.tpl-preview-pane { background: var(--bg); border: 1px solid var(--border-light); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; }
+.tpl-preview-head { display: flex; justify-content: space-between; align-items: baseline; font-weight: 600; margin-bottom: 8px; }
+.tpl-preview { background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius-sm); padding: 14px; flex: 1; min-height: 220px; }
+.tpl-prev-subject { font-weight: 600; border-bottom: 1px solid var(--border-light); padding-bottom: 8px; margin-bottom: 10px; }
+.tpl-prev-body { white-space: pre-wrap; color: var(--text-2); font-size: .92rem; line-height: 1.5; }
+
 /* Modal de detalle de producto */
 .prod-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(820px, 94vw); max-height: 92vh; overflow-y: auto; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-lg); z-index: 81; }
 .prod-modal-x { position: absolute; top: 10px; right: 10px; z-index: 1; background: var(--surface); }
