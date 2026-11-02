@@ -3,6 +3,8 @@
 @inject DrawerService Drawer
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject PresenceService Presence
+@inject CurrentUser Me
 @inject ILogger<MainLayout> Logger
 @inject IHostEnvironment Env
 
@@ -70,6 +72,8 @@
     private bool _collapsed;
     private bool _navOverlay;
     private ErrorBoundary? _boundary;
+    private string? _me;
+    private PeriodicTimer? _heartbeat;
 
     protected override void OnInitialized()
     {
@@ -96,6 +100,23 @@
             if (saved == "collapsed") { _collapsed = true; StateHasChanged(); }
         }
         catch { }
+
+        // Presencia en línea: latir mientras el circuito esté vivo
+        try
+        {
+            _me = await Me.NameAsync();
+            Presence.Heartbeat(_me);
+            _ = HeartbeatLoopAsync();
+        }
+        catch { }
+    }
+
+    private async Task HeartbeatLoopAsync()
+    {
+        _heartbeat = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        try { while (await _heartbeat.WaitForNextTickAsync()) Presence.Heartbeat(_me); }
+        catch (OperationCanceledException) { }
+        catch (ObjectDisposedException) { }
     }
 
     private async Task ToggleSidebarAsync()
@@ -106,6 +127,8 @@
     private void OnDrawerChanged() => InvokeAsync(StateHasChanged);
     public void Dispose()
     {
+        _heartbeat?.Dispose();
+        Presence.Offline(_me);
         Drawer.StateChanged -= OnDrawerChanged;
         Nav.LocationChanged -= OnLocationChanged;
     }

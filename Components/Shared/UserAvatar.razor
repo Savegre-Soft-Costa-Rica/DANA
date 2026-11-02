@@ -1,0 +1,22 @@
+@implements IDisposable
+@inject PresenceService Presence
+
+<span class="uavatar @(Lg ? "uavatar-lg" : "")" title="@Title">
+    @if (!string.IsNullOrEmpty(Picture)) { <img src="@Picture" alt="" referrerpolicy="no-referrer" /> }
+    else { <span class="avatar avatar-letter" style="background:@Avatar.ColorFor(Name)">@Avatar.Initials(Name)</span> }
+    @if (ShowPresence) { <span class="uavatar-dot @(Online ? "on" : "off")"></span> }
+</span>
+
+@code {
+    [Parameter] public string? Name { get; set; }
+    [Parameter] public string? Picture { get; set; }
+    [Parameter] public bool Lg { get; set; }
+    [Parameter] public bool ShowPresence { get; set; } = true;
+
+    private bool Online => Presence.IsOnline(Name);
+    private string Title => (Name ?? "") + (ShowPresence ? (Online ? " · en línea" : " · desconectado") : "");
+
+    protected override void OnInitialized() { if (ShowPresence) Presence.Changed += OnChanged; }
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() { if (ShowPresence) Presence.Changed -= OnChanged; }
+}

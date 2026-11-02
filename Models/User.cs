@@ -24,6 +24,10 @@ public class User : Entity
     public bool IsActive { get; set; } = true;
     public DateTime? LastLoginAt { get; set; }
 
+    /// <summary>Estado de ánimo (0-100) y nota breve, igual que los agentes. Lo fija cada persona.</summary>
+    public int Mood { get; set; } = 70;
+    public string? MoodNote { get; set; }
+
     /// <summary>Acceso por tablero (leads/deals/contacts/companies → AccessLevels). Ausente = editar todo.</summary>
     public Dictionary<string, string> Permissions { get; set; } = new();
 

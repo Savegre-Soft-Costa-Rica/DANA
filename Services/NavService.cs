@@ -15,6 +15,7 @@ public class NavService
     [
         new("home", "Inicio", "", "home", "Principal", MatchAll: true),
         new("mywork", "Mi trabajo", "mi-trabajo", "check", "Principal"),
+        new("chat", "Chat", "chat", "chat", "Principal"),
         new("leads", "Prospectos", "leads", "dot:#a25ddc", "Tableros"),
         new("deals", "Negociaciones", "deals", "dot:#0073ea", "Tableros"),
         new("contacts", "Contactos", "contacts", "dot:#00c875", "Tableros"),
@@ -94,6 +95,7 @@ public class NavService
     public static readonly Dictionary<string, string> Icons = new()
     {
         ["home"] = "<path d=\"M3 9.5 10 3l7 6.5V17a1 1 0 0 1-1 1h-4v-5H8v5H4a1 1 0 0 1-1-1V9.5Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linejoin=\"round\"/>",
+        ["chat"] = "<path d=\"M3 5.5A1.5 1.5 0 0 1 4.5 4h11A1.5 1.5 0 0 1 17 5.5v6A1.5 1.5 0 0 1 15.5 13H8l-4 3v-3H4.5A1.5 1.5 0 0 1 3 11.5z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linejoin=\"round\"/>",
         ["check"] = "<path d=\"M4 10.5l4 4 8-9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
         ["doc"] = "<path d=\"M5 3h7l4 4v10H5z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linejoin=\"round\"/><path d=\"M12 3v4h4M7 10h6M7 13h6\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\"/>",
         ["box"] = "<path d=\"M3 6l7-3 7 3v8l-7 3-7-3zM3 6l7 3 7-3M10 9v8\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linejoin=\"round\"/>",

@@ -24,6 +24,7 @@ public class UserService
     public Task<long> CountAsync() => _users.CountAsync();
     public async Task<User?> FindByNameAsync(string name) => await _users.Collection.Find(u => u.Name == name && u.DeletedAt == null).FirstOrDefaultAsync();
     public async Task SavePermissionsAsync(User u) => await _users.UpdateAsync(u);
+    public async Task UpdateAsync(User u) => await _users.UpdateAsync(u);
 
     public async Task<User?> FindByEmailAsync(string email)
     {

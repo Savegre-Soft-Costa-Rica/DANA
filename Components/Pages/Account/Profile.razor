@@ -44,6 +44,8 @@
                     @if (_user.PasswordHash is not null) { <span class="badge text-bg-light border">Contraseña</span> }
                     @if (_user.HasGoogle) { <span class="badge text-bg-light border">Google vinculado</span> }
                 </div>
+                @{ var m = AgentMood.Describe(_user.Mood); }
+                <div class="profile-mood" title="Estado de ánimo">@m.Emoji <span>@(string.IsNullOrWhiteSpace(_user.MoodNote) ? m.Label : _user.MoodNote)</span></div>
             </div>
         </div>
 
@@ -99,6 +101,25 @@
                 <div class="form-text">Opcional. Enlace a una imagen para su avatar.</div>
             </div>
 
+            <h6 class="profile-section-title">Estado de ánimo</h6>
+            <p class="small text-muted mb-2">Cómo se siente hoy. Lo verán sus compañeros en Usuarios y en el Chat.</p>
+            <InputRadioGroup @bind-Value="Input.Mood" Name="mood">
+                <div class="mood-choices mb-2">
+                    @foreach (var (val, emoji, label) in Moods)
+                    {
+                        <label class="mood-choice">
+                            <InputRadio Value="val" Name="mood" />
+                            <span class="mc-emoji">@emoji</span>
+                            <span>@label</span>
+                        </label>
+                    }
+                </div>
+            </InputRadioGroup>
+            <div class="mb-3">
+                <label class="form-label">Nota de estado (opcional)</label>
+                <InputText class="form-control" @bind-Value="Input.MoodNote" placeholder="p. ej. En reunión hasta las 3" />
+            </div>
+
             <h6 class="profile-section-title">Seguridad</h6>
             <p class="small text-muted mb-2">@(_user.PasswordHash is null ? "Defina una contraseña para poder entrar también sin Google." : "Cambiar contraseña (opcional). Déjelo en blanco para no modificarla.")</p>
             @if (_user.PasswordHash is not null)
@@ -131,6 +152,9 @@
     private static readonly (string Key, string Label)[] Boards =
         [("leads", "Prospectos"), ("deals", "Negociaciones"), ("contacts", "Contactos"), ("companies", "Compañías")];
 
+    private static readonly (int Val, string Emoji, string Label)[] Moods =
+        [(90, "🤩", "Entusiasmado"), (70, "😊", "Contento"), (50, "😐", "Neutral"), (30, "😓", "Cansado"), (10, "😤", "Frustrado")];
+
     private User? _user;
     private List<Team> _teams = new();
     private string? _ok, _error;
@@ -150,6 +174,8 @@
         {
             Input.Name = _user.Name;
             Input.Picture = _user.Picture;
+            Input.Mood = _user.Mood;
+            Input.MoodNote = _user.MoodNote;
         }
     }
 
@@ -166,6 +192,8 @@
 
         _user.Name = Input.Name.Trim();
         _user.Picture = string.IsNullOrWhiteSpace(Input.Picture) ? null : Input.Picture.Trim();
+        _user.Mood = Math.Clamp(Input.Mood, 0, 100);
+        _user.MoodNote = string.IsNullOrWhiteSpace(Input.MoodNote) ? null : Input.MoodNote.Trim();
         await Users.UpdateProfileAsync(_user);
 
         // Refrescar la cookie con el nuevo nombre y foto
@@ -181,6 +209,8 @@
         [Required(ErrorMessage = "Ingrese su nombre")]
         public string Name { get; set; } = "";
         public string? Picture { get; set; }
+        public int Mood { get; set; } = 70;
+        public string? MoodNote { get; set; }
         public string? CurrentPassword { get; set; }
         public string NewPassword { get; set; } = "";
         [Compare(nameof(NewPassword), ErrorMessage = "Las contraseñas no coinciden")]

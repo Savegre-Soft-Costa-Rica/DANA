@@ -1,9 +1,11 @@
 @page "/usuarios"
 @attribute [Authorize(Policy = "Admin")]
+@implements IDisposable
 @using System.ComponentModel.DataAnnotations
 @using System.Security.Claims
 @inject UserService Users
 @inject PermissionService Perms
+@inject PresenceService Presence
 @inject CurrentUser Me
 @inject IJSRuntime JS
 @inject DialogService Dialogs
@@ -71,6 +73,7 @@ else
                 <tr>
                     <th>Usuario</th>
                     <th>Correo</th>
+                    <th>Ánimo / Conexión</th>
                     <th>Acceso</th>
                     <th>Rol</th>
                     <th>Estado</th>
@@ -86,11 +89,22 @@ else
                     <tr class="@(u.IsActive ? "" : "table-secondary text-muted")">
                         <td>
                             <div class="d-flex align-items-center gap-2">
-                                @if (!string.IsNullOrEmpty(u.Picture)) { <img src="@u.Picture" class="nav-avatar" alt="" referrerpolicy="no-referrer" /> }
+                                <UserAvatar Name="@u.Name" Picture="@u.Picture" />
                                 <span>@u.Name @(isMe ? "(yo)" : "")</span>
                             </div>
                         </td>
                         <td>@u.Email</td>
+                        <td>
+                            @{ var mood = AgentMood.Describe(u.Mood); }
+                            <div class="user-mood" title="@(u.MoodNote ?? mood.Label)">
+                                <span class="um-emoji">@mood.Emoji</span>
+                                <div>
+                                    <div class="um-note">@(string.IsNullOrWhiteSpace(u.MoodNote) ? mood.Label : u.MoodNote)</div>
+                                    <div class="um-bar"><span style="width:@(u.Mood)%;background:@mood.Color"></span></div>
+                                </div>
+                            </div>
+                            <div class="small @(Presence.IsOnline(u.Name) ? "text-success" : "muted")">@(Presence.IsOnline(u.Name) ? "● En línea" : "○ Desconectado")</div>
+                        </td>
                         <td class="small">
                             @if (u.PasswordHash is not null) { <span class="badge text-bg-light border">Contraseña</span> }
                             @if (u.HasGoogle) { <span class="badge text-bg-light border">Google</span> }
@@ -221,8 +235,12 @@ else
     {
         _myId = (await AuthState).User.FindFirstValue(ClaimTypes.NameIdentifier);
         _teams = await Perms.GetTeamsAsync();
+        Presence.Changed += OnPresence;
         await LoadAsync();
     }
+
+    private void OnPresence() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Presence.Changed -= OnPresence;
 
     private async Task LoadAsync() => _items = (await Users.GetAllAsync()).OrderBy(u => u.Name).ToList();
 

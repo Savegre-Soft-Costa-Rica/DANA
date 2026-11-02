@@ -1,0 +1,299 @@
+@page "/chat"
+@implements IDisposable
+@inject ChatService Chat
+@inject UserService Users
+@inject PresenceService Presence
+@inject CurrentUser Me
+@inject IJSRuntime JS
+@inject DialogService Dialogs
+
+<PageTitle>Dana · Chat</PageTitle>
+
+<div class="chat-wrap">
+    <aside class="chat-side">
+        <div class="chat-me">
+            <UserAvatar Name="@_me" Picture="@_meUser?.Picture" Lg="true" ShowPresence="false" />
+            <div class="min-w-0 flex-grow-1">
+                <div class="fw-600 text-truncate">@_me</div>
+                <div class="small"><span class="text-success">● En línea</span></div>
+            </div>
+            <button class="icon-btn" title="Cambiar mi estado de ánimo" @onclick="() => _moodOpen = !_moodOpen">@AgentMood.Describe(_meUser?.Mood ?? 70).Emoji</button>
+        </div>
+
+        @if (_moodOpen && _meUser is not null)
+        {
+            <div class="chat-mood">
+                <div class="d-flex gap-1 flex-wrap mb-2">
+                    @foreach (var (val, emoji, label) in _moodPresets)
+                    {
+                        <button class="mood-opt @(Near(_meUser.Mood, val) ? "on" : "")" title="@label" @onclick="() => SetMoodAsync(val)">@emoji</button>
+                    }
+                </div>
+                <input class="form-control form-control-sm" placeholder="Nota (p. ej. en reunión)" @bind="_meUser.MoodNote" @bind:after="SaveMoodNoteAsync" />
+            </div>
+        }
+
+        <div class="chat-side-actions">
+            <button class="btn-secondary btn-sm flex-grow-1" @onclick="() => { _dmOpen = true; _groupOpen = false; }">＋ Directo</button>
+            <button class="btn-secondary btn-sm flex-grow-1" @onclick="OpenNewGroup">＋ Grupo</button>
+        </div>
+
+        <div class="chat-channels">
+            @if (_channels.Count == 0) { <div class="muted small p-2 text-center">Sin conversaciones aún. Inicie un chat directo o cree un grupo.</div> }
+            @foreach (var ch in _channels)
+            {
+                var title = ch.TitleFor(_me);
+                var unread = Chat.UnreadCount(ch, _me);
+                <button class="chat-ch @(_active?.Id == ch.Id ? "active" : "")" @onclick="() => OpenAsync(ch)">
+                    @if (ch.Kind == ChatKinds.Group)
+                    {
+                        <span class="uavatar"><span class="avatar avatar-letter" style="background:@ch.Color">@Avatar.Initials(title)</span></span>
+                    }
+                    else
+                    {
+                        <UserAvatar Name="@title" Picture="@PictureOf(title)" />
+                    }
+                    <span class="min-w-0 flex-grow-1 text-start">
+                        <span class="chat-ch-title text-truncate">@title @if (ch.Kind == ChatKinds.Group) { <span class="muted small">· @ch.Members.Count</span> }</span>
+                        <span class="chat-ch-last text-truncate">@(ch.LastText ?? "Sin mensajes")</span>
+                    </span>
+                    @if (unread > 0) { <span class="chat-unread"></span> }
+                </button>
+            }
+        </div>
+    </aside>
+
+    <section class="chat-main">
+        @if (_active is null)
+        {
+            <div class="chat-empty"><div style="font-size:2.4rem">💬</div><p class="muted">Seleccione una conversación o inicie una nueva.</p></div>
+        }
+        else
+        {
+            var title = _active.TitleFor(_me);
+            <header class="chat-head">
+                <div class="d-flex align-items-center gap-2 min-w-0">
+                    @if (_active.Kind == ChatKinds.Group)
+                    {
+                        <span class="uavatar"><span class="avatar avatar-letter" style="background:@_active.Color">@Avatar.Initials(title)</span></span>
+                        <div class="min-w-0"><div class="fw-600 text-truncate">@title</div><div class="small muted text-truncate">@string.Join(", ", _active.Members)</div></div>
+                    }
+                    else
+                    {
+                        <UserAvatar Name="@title" Picture="@PictureOf(title)" />
+                        <div class="min-w-0"><div class="fw-600 text-truncate">@title</div><div class="small @(Presence.IsOnline(title) ? "text-success" : "muted")">@(Presence.IsOnline(title) ? "En línea" : "Desconectado")</div></div>
+                    }
+                </div>
+                <div class="d-flex gap-1">
+                    @if (_active.Kind == ChatKinds.Group) { <button class="btn-secondary btn-sm" @onclick="OpenEditGroup">Editar</button> }
+                    <button class="btn-secondary btn-sm" @onclick="LeaveAsync">@(_active.Kind == ChatKinds.Group ? "Salir" : "Eliminar")</button>
+                </div>
+            </header>
+
+            <div class="chat-msgs" id="chatmsgs">
+                @foreach (var m in _messages)
+                {
+                    var mine = string.Equals(m.Author, _me, StringComparison.OrdinalIgnoreCase);
+                    <div class="chat-msg @(mine ? "mine" : "")">
+                        @if (!mine) { <UserAvatar Name="@m.Author" Picture="@PictureOf(m.Author)" ShowPresence="false" /> }
+                        <div class="chat-bubble">
+                            @if (!mine && _active.Kind == ChatKinds.Group) { <div class="chat-author">@m.Author</div> }
+                            <div class="chat-text">@m.Text</div>
+                            <div class="chat-time">@m.At.ToLocalTime().ToString("HH:mm")</div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="chat-composer">
+                <input class="form-control" placeholder="Escriba un mensaje…" @bind="_draft" @bind:event="oninput" @onkeydown="OnKey" />
+                <button class="btn-primary" disabled="@string.IsNullOrWhiteSpace(_draft)" @onclick="SendAsync">Enviar</button>
+            </div>
+        }
+    </section>
+</div>
+
+@* ---------- Nuevo directo ---------- *@
+@if (_dmOpen)
+{
+    <div class="sheet-backdrop" @onclick="() => _dmOpen = false"></div>
+    <div class="sheet" style="width:min(420px,96vw)">
+        <div class="sheet-head"><strong>Nuevo chat directo</strong><button class="icon-btn" @onclick="() => _dmOpen = false">✕</button></div>
+        <div class="sheet-body">
+            @foreach (var u in _users.Where(u => !string.Equals(u.Name, _me, StringComparison.OrdinalIgnoreCase)))
+            {
+                <button class="chat-pick" @onclick="() => StartDmAsync(u.Name)">
+                    <UserAvatar Name="@u.Name" Picture="@u.Picture" />
+                    <span class="flex-grow-1 text-start">@u.Name</span>
+                    @if (Presence.IsOnline(u.Name)) { <span class="small text-success">en línea</span> }
+                </button>
+            }
+        </div>
+    </div>
+}
+
+@* ---------- Nuevo / editar grupo ---------- *@
+@if (_groupOpen)
+{
+    <div class="sheet-backdrop" @onclick="() => _groupOpen = false"></div>
+    <div class="sheet" style="width:min(480px,96vw)">
+        <div class="sheet-head"><strong>@(_groupEdit is null ? "Nuevo grupo" : "Editar grupo")</strong><button class="icon-btn" @onclick="() => _groupOpen = false">✕</button></div>
+        <div class="sheet-body">
+            <label class="form-label">Nombre del grupo *</label>
+            <input class="form-control mb-3" placeholder="p. ej. Ventas" @bind="_groupName" />
+            <label class="form-label">Miembros</label>
+            <div class="chat-members">
+                @foreach (var u in _users.Where(u => !string.Equals(u.Name, _me, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var on = _groupMembers.Contains(u.Name);
+                    <button class="chat-member @(on ? "on" : "")" @onclick="() => Toggle(u.Name)">
+                        <UserAvatar Name="@u.Name" Picture="@u.Picture" ShowPresence="false" />
+                        <span class="flex-grow-1 text-start">@u.Name</span>
+                        @if (on) { <span>✓</span> }
+                    </button>
+                }
+            </div>
+        </div>
+        <div class="sheet-foot">
+            <button class="btn-secondary" @onclick="() => _groupOpen = false">Cancelar</button>
+            <button class="btn-primary" disabled="@(string.IsNullOrWhiteSpace(_groupName) || _groupMembers.Count == 0)" @onclick="SaveGroupAsync">@(_groupEdit is null ? "Crear grupo" : "Guardar")</button>
+        </div>
+    </div>
+}
+
+@code {
+    private string _me = "";
+    private User? _meUser;
+    private List<ChatChannel> _channels = new();
+    private List<User> _users = new();
+    private ChatChannel? _active;
+    private List<ChatMessage> _messages = new();
+    private string _draft = "";
+    private bool _moodOpen, _dmOpen, _groupOpen;
+
+    private string _groupName = "";
+    private readonly List<string> _groupMembers = new();
+    private ChatChannel? _groupEdit;
+
+    private readonly (int Val, string Emoji, string Label)[] _moodPresets =
+    {
+        (90, "🤩", "Entusiasmado"), (70, "😊", "Contento"), (50, "😐", "Neutral"), (30, "😓", "Cansado"), (10, "😤", "Frustrado"),
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _me = await Me.NameAsync();
+        _meUser = await Users.FindByNameAsync(_me);
+        _users = (await Users.GetAllAsync()).Where(u => u.IsActive).OrderBy(u => u.Name).ToList();
+        _channels = await Chat.GetChannelsForAsync(_me);
+        Chat.MessageSent += OnMessage;
+        Presence.Changed += OnPresence;
+    }
+
+    private string? PictureOf(string? name) => _users.FirstOrDefault(u => string.Equals(u.Name, name, StringComparison.OrdinalIgnoreCase))?.Picture;
+    private static bool Near(int a, int b) => Math.Abs(a - b) <= 10;
+
+    private async Task OpenAsync(ChatChannel ch)
+    {
+        _active = ch;
+        _messages = await Chat.GetMessagesAsync(ch.Id!);
+        await Chat.MarkReadAsync(ch, _me);
+        await ScrollAsync();
+        StateHasChanged();
+    }
+
+    private void OnKey(KeyboardEventArgs e) { if (e.Key == "Enter") _ = SendAsync(); }
+
+    private async Task SendAsync()
+    {
+        if (_active is null || string.IsNullOrWhiteSpace(_draft)) return;
+        var text = _draft;
+        _draft = "";
+        await Chat.SendAsync(_active, _me, text);
+        // La recarga la dispara el evento MessageSent; pero refrescamos ya por responsividad.
+    }
+
+    private void OnMessage(string channelId)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            _channels = await Chat.GetChannelsForAsync(_me);
+            if (_active is not null && _active.Id == channelId)
+            {
+                _active = _channels.FirstOrDefault(c => c.Id == channelId) ?? _active;
+                _messages = await Chat.GetMessagesAsync(channelId);
+                await Chat.MarkReadAsync(_active, _me);
+                await ScrollAsync();
+            }
+            StateHasChanged();
+        });
+    }
+
+    private void OnPresence() => InvokeAsync(StateHasChanged);
+
+    private async Task ScrollAsync()
+    {
+        try { await JS.InvokeVoidAsync("eval", "setTimeout(function(){var e=document.getElementById('chatmsgs'); if(e) e.scrollTop=e.scrollHeight;},30)"); } catch { }
+    }
+
+    // ----- directos -----
+    private async Task StartDmAsync(string other)
+    {
+        _dmOpen = false;
+        var ch = await Chat.GetOrCreateDmAsync(_me, other, _me);
+        _channels = await Chat.GetChannelsForAsync(_me);
+        await OpenAsync(_channels.FirstOrDefault(c => c.Id == ch.Id) ?? ch);
+    }
+
+    // ----- grupos -----
+    private void OpenNewGroup() { _groupEdit = null; _groupName = ""; _groupMembers.Clear(); _groupOpen = true; _dmOpen = false; }
+    private void OpenEditGroup() { _groupEdit = _active; _groupName = _active!.Name ?? ""; _groupMembers.Clear(); _groupMembers.AddRange(_active.Members.Where(m => !string.Equals(m, _me, StringComparison.OrdinalIgnoreCase))); _groupOpen = true; }
+    private void Toggle(string name) { if (!_groupMembers.Remove(name)) _groupMembers.Add(name); }
+
+    private async Task SaveGroupAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_groupName) || _groupMembers.Count == 0) return;
+        _groupOpen = false;
+        if (_groupEdit is null)
+        {
+            var ch = await Chat.CreateGroupAsync(_groupName, _groupMembers, _me);
+            _channels = await Chat.GetChannelsForAsync(_me);
+            await OpenAsync(ch);
+        }
+        else
+        {
+            await Chat.UpdateGroupAsync(_groupEdit, _groupName, _groupMembers, _me);
+            _channels = await Chat.GetChannelsForAsync(_me);
+        }
+    }
+
+    private async Task LeaveAsync()
+    {
+        if (_active is null) return;
+        var msg = _active.Kind == ChatKinds.Group ? $"¿Salir del grupo \"{_active.TitleFor(_me)}\"?" : "¿Eliminar esta conversación?";
+        if (!await Dialogs.ConfirmAsync(msg)) return;
+        await Chat.LeaveOrDeleteAsync(_active, _me);
+        _active = null;
+        _messages = new();
+        _channels = await Chat.GetChannelsForAsync(_me);
+    }
+
+    // ----- estado de ánimo -----
+    private async Task SetMoodAsync(int val)
+    {
+        if (_meUser is null) return;
+        _meUser.Mood = val;
+        await Users.UpdateAsync(_meUser);
+    }
+    private async Task SaveMoodNoteAsync()
+    {
+        if (_meUser is null) return;
+        await Users.UpdateAsync(_meUser);
+    }
+
+    public void Dispose()
+    {
+        Chat.MessageSent -= OnMessage;
+        Presence.Changed -= OnPresence;
+    }
+}
