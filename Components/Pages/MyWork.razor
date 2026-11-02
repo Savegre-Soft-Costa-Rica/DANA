@@ -9,12 +9,12 @@
 
 <PageHeader Title="Mi trabajo" Subtitle="Llamadas, reuniones, correos y tareas asignadas, ordenadas por fecha.">
     <Actions>
-        <select class="form-select" style="width:auto" value="@_person" @onchange="async e => { _person = e.Value?.ToString() ?? string.Empty; await LoadAsync(); }">
+        <select class="form-select mw-filter" value="@_person" @onchange="async e => { _person = e.Value?.ToString() ?? string.Empty; await LoadAsync(); }">
             <option value="@_me">👤 Mis actividades</option>
             <option value="">Todas las personas</option>
             @foreach (var p in _people.Where(p => p != _me)) { <option value="@p">@p</option> }
         </select>
-        <button class="tool @(_showDone ? "on" : "")" @onclick="async () => { _showDone = !_showDone; await LoadAsync(); }">✓ Ver hechas</button>
+        <button class="btn-secondary @(_showDone ? "on" : "")" aria-pressed="@_showDone" @onclick="async () => { _showDone = !_showDone; await LoadAsync(); }">@(_showDone ? "✓ Ocultar hechas" : "Ver hechas")</button>
         <button class="btn-primary" @onclick="() => { _adding = !_adding; _draft = new TaskItem { Kind = TaskKinds.Task, AssignedTo = _me }; }">+ Nueva actividad</button>
     </Actions>
 </PageHeader>

@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject DrawerService Drawer
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 @inject ILogger<MainLayout> Logger
 @inject IHostEnvironment Env
 
@@ -9,6 +10,10 @@
     <aside class="sidebar @(_navOpen ? "open" : "") @(_collapsed ? "collapsed" : "")">
         <NavMenu Collapsed="_collapsed" OnToggle="ToggleSidebarAsync" OnOverlayChange="v => _navOverlay = v" />
     </aside>
+    @if (_navOpen)
+    {
+        <div class="nav-backdrop" @onclick="() => _navOpen = false"></div>
+    }
 
     <div class="main">
         <TopBar OnToggleNav="() => _navOpen = !_navOpen" />
@@ -66,7 +71,19 @@
     private bool _navOverlay;
     private ErrorBoundary? _boundary;
 
-    protected override void OnInitialized() => Drawer.StateChanged += OnDrawerChanged;
+    protected override void OnInitialized()
+    {
+        Drawer.StateChanged += OnDrawerChanged;
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    // Al navegar (p. ej. tocar un ítem del menú en mobile), cerrar el panel desplegado
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        if (!_navOpen) return;
+        _navOpen = false;
+        InvokeAsync(StateHasChanged);
+    }
 
     protected override void OnParametersSet() => _boundary?.Recover(); // al navegar a otra página, limpiar el error anterior
 
@@ -87,5 +104,9 @@
         try { await JS.InvokeVoidAsync("localStorage.setItem", "dana.sidebar", _collapsed ? "collapsed" : "open"); } catch { }
     }
     private void OnDrawerChanged() => InvokeAsync(StateHasChanged);
-    public void Dispose() => Drawer.StateChanged -= OnDrawerChanged;
+    public void Dispose()
+    {
+        Drawer.StateChanged -= OnDrawerChanged;
+        Nav.LocationChanged -= OnLocationChanged;
+    }
 }

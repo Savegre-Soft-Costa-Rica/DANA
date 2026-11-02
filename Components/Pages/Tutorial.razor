@@ -11,96 +11,184 @@
 
 <PageHeader Title="Tutorial: cómo trabajar en Dana" Subtitle="Prospectos → Contactos y Compañías → Negociaciones. Diez minutos para dominar el flujo." />
 
-<div class="tut-nav">
-    <a href="tutorial#flujo">El flujo</a><a href="tutorial#prospectos">Prospectos</a><a href="tutorial#contactos">Contactos</a><a href="tutorial#companias">Compañías</a><a href="tutorial#negociaciones">Negociaciones</a><a href="tutorial#tableros">Tableros</a><a href="tutorial#checklist">Checklist</a><a href="tutorial#faq">Preguntas frecuentes</a>
+@* Progreso en vivo: se completa solo según sus datos reales *@
+<div class="widget w-12 mb-3">
+    <div class="tut-progress">
+        <div>
+            <div class="widget-title mb-1" style="justify-content:flex-start">Su progreso</div>
+            <div class="muted small">@_done de @_total pasos completados. Avanza solo a medida que usa Dana.</div>
+        </div>
+        <div class="tut-bar" role="progressbar" aria-valuenow="@Pct" aria-valuemin="0" aria-valuemax="100"><span style="width:@(Pct)%"></span></div>
+        <div class="pct">@Pct%</div>
+        <button class="btn-secondary btn-sm" @onclick='() => Go("pasos")'>Ver pasos</button>
+    </div>
 </div>
 
-<div class="widgets">
-    <div class="widget w-12" id="flujo">
-        <div class="widget-title">El flujo comercial en una imagen</div>
-        <div class="tut-flow">
-            <div class="tut-node" style="background:#a25ddc">◎ Prospecto<small>alguien interesado, aún sin calificar</small></div>
-            <span class="tut-arrow">→</span>
-            <div class="tut-node" style="background:#00c875">● Contacto<small>la persona</small></div>
-            <span class="tut-arrow">+</span>
-            <div class="tut-node" style="background:#fdab3d">■ Compañía<small>su organización</small></div>
-            <span class="tut-arrow">→</span>
-            <div class="tut-node" style="background:#0073ea">◆ Negociación<small>la venta, avanzando por etapas</small></div>
-            <span class="tut-arrow">→</span>
-            <div class="tut-node" style="background:#10b981">🏆 Ganada<small>o perdida</small></div>
-        </div>
-        <p class="mb-0">Todo empieza con un <strong>prospecto</strong> (una solicitud del sitio web, una llamada, una tarjeta de una feria). Cuando confirma que hay una oportunidad real, lo <strong>convierte</strong>: Dana crea el <strong>contacto</strong>, su <strong>compañía</strong> y una <strong>negociación</strong> en la primera etapa del embudo. A partir de ahí, el trabajo diario es mover la negociación por las etapas, registrar actividades y actualizaciones, hasta cerrarla como ganada o perdida.</p>
-    </div>
+@* Pestañas (índice interactivo) *@
+<div class="tut-tabs">
+    @foreach (var t in _tabs)
+    {
+        <button class="tut-tab @(_tab == t.Id ? "active" : "")" @onclick="() => Go(t.Id)">
+            @if (t.Color is not null) { <span class="dot" style="background:@t.Color"></span> }
+            @t.Label
+        </button>
+    }
+</div>
 
-    <div class="widget w-6" id="prospectos">
-        <div class="widget-title"><span><span class="nav-dot" style="background:#a25ddc"></span> Prospectos</span><a class="btn-secondary btn-sm" href="leads">Abrir tablero</a></div>
-        <p><strong>Qué es:</strong> un cliente potencial del que todavía no sabe si vale la pena. Equivale a los <em>leads</em> de Bitrix o monday. Guarda nombre, compañía, teléfono, correo, de dónde viene (fuente) y cuánto podría valer (oportunidad).</p>
-        <p><strong>Estados:</strong> <Badge Text="Nuevo" Color="#3b82f6" /> recién llegado · <Badge Text="En proceso" Color="#f59e0b" /> lo está trabajando · <Badge Text="Calificado" Color="#8b5cf6" /> hay oportunidad real · <Badge Text="No calificado" Color="#ef4444" /> spam o sin interés · <Badge Text="Convertido" Color="#10b981" /> ya es contacto/negociación.</p>
-        <p><strong>Cómo se crean:</strong> a mano con <em>+ Nuevo prospecto</em> o la fila <em>+ Agregar elemento</em>; automáticamente desde el formulario de su sitio web (<a href="configuracion/api">API</a> o <a href="formularios">formularios</a>).</p>
-        <div class="tut-tip">💡 <strong>Convertir:</strong> abra el prospecto y pulse <em>⇄ Convertir</em>. Elija si crear contacto, compañía y negociación (y en qué embudo). Un prospecto solo se convierte una vez; después queda enlazado a lo que creó.</div>
-    </div>
+@* Un panel a la vez; @key reinicia la animación al cambiar de pestaña *@
+<div class="tut-panel widgets" @key="_tab">
+    @switch (_tab)
+    {
+        case "flujo":
+            <div class="widget w-12">
+                <div class="widget-title">El flujo comercial en una imagen <span class="muted small fw-normal">(toque un paso para ir a su sección)</span></div>
+                <div class="tut-flow">
+                    <button type="button" class="tut-node" style="background:#a25ddc" @onclick='() => Go("prospectos")'>◎ Prospecto<small>alguien interesado, aún sin calificar</small></button>
+                    <span class="tut-arrow">→</span>
+                    <button type="button" class="tut-node" style="background:#00c875" @onclick='() => Go("contactos")'>● Contacto<small>la persona</small></button>
+                    <span class="tut-arrow">+</span>
+                    <button type="button" class="tut-node" style="background:#fdab3d" @onclick='() => Go("companias")'>■ Compañía<small>su organización</small></button>
+                    <span class="tut-arrow">→</span>
+                    <button type="button" class="tut-node" style="background:#0073ea" @onclick='() => Go("negociaciones")'>◆ Negociación<small>la venta, avanzando por etapas</small></button>
+                    <span class="tut-arrow">→</span>
+                    <button type="button" class="tut-node" style="background:#10b981" @onclick='() => Go("negociaciones")'>🏆 Ganada<small>o perdida</small></button>
+                </div>
+                <p class="mb-0">Todo empieza con un <strong>prospecto</strong> (una solicitud del sitio web, una llamada, una tarjeta de una feria). Cuando confirma que hay una oportunidad real, lo <strong>convierte</strong>: Dana crea el <strong>contacto</strong>, su <strong>compañía</strong> y una <strong>negociación</strong> en la primera etapa del embudo. A partir de ahí, el trabajo diario es mover la negociación por las etapas, registrar actividades y actualizaciones, hasta cerrarla como ganada o perdida.</p>
+            </div>
+            break;
 
-    <div class="widget w-6" id="contactos">
-        <div class="widget-title"><span><span class="nav-dot" style="background:#00c875"></span> Contactos</span><a class="btn-secondary btn-sm" href="contacts">Abrir tablero</a></div>
-        <p><strong>Qué es:</strong> una <em>persona</em> con la que hace negocios: cliente, proveedor, socio. Tiene cargo, teléfono, correo y, normalmente, una compañía.</p>
-        <p><strong>Para qué sirve:</strong> es a quien llama, a quien escribe y a quien vincula en las negociaciones. En su ficha verá todas sus negociaciones, actividades, correos y actualizaciones.</p>
-        <p><strong>Tipos:</strong> los grupos del tablero (Cliente, Proveedor, Socio…). Puede renombrarlos o crear otros desde el menú de la columna <em>Tipo → Editar etiquetas</em>.</p>
-        <div class="tut-tip">💡 Un contacto sin compañía es válido (por ejemplo, un cliente particular). Si después crea la compañía, asígnela desde la ficha o directamente en la celda <em>Compañía</em> del tablero.</div>
-    </div>
+        case "prospectos":
+            <div class="widget w-12">
+                <div class="widget-title"><span><span class="nav-dot" style="background:#a25ddc"></span> Prospectos</span><a class="btn-secondary btn-sm" href="leads">Abrir tablero</a></div>
+                <p><strong>Qué es:</strong> un cliente potencial del que todavía no sabe si vale la pena. Equivale a los <em>leads</em> de Bitrix o monday. Guarda nombre, compañía, teléfono, correo, de dónde viene (fuente) y cuánto podría valer (oportunidad).</p>
+                <p><strong>Estados:</strong> <Badge Text="Nuevo" Color="#3b82f6" /> recién llegado · <Badge Text="En proceso" Color="#f59e0b" /> lo está trabajando · <Badge Text="Calificado" Color="#8b5cf6" /> hay oportunidad real · <Badge Text="No calificado" Color="#ef4444" /> spam o sin interés · <Badge Text="Convertido" Color="#10b981" /> ya es contacto/negociación.</p>
+                <p><strong>Cómo se crean:</strong> a mano con <em>+ Nuevo prospecto</em> o la fila <em>+ Agregar elemento</em>; automáticamente desde el formulario de su sitio web (<a href="configuracion/api">API</a> o <a href="formularios">formularios</a>).</p>
+                <div class="tut-tip">💡 <strong>Convertir:</strong> abra el prospecto y pulse <em>⇄ Convertir</em>. Elija si crear contacto, compañía y negociación (y en qué embudo). Un prospecto solo se convierte una vez; después queda enlazado a lo que creó.</div>
+            </div>
+            break;
 
-    <div class="widget w-6" id="companias">
-        <div class="widget-title"><span><span class="nav-dot" style="background:#fdab3d"></span> Compañías</span><a class="btn-secondary btn-sm" href="companies">Abrir tablero</a></div>
-        <p><strong>Qué es:</strong> la <em>organización</em>: cliente, proveedor, competidor o socio. Guarda industria, identificación fiscal, sitio web, tamaño e ingresos.</p>
-        <p><strong>Relación:</strong> una compañía tiene varios contactos y varias negociaciones. Su ficha es el "expediente" de la cuenta: quién trabaja ahí y qué está vendiendo usted.</p>
-        <p><strong>Cuándo crearla:</strong> al convertir un prospecto con nombre de compañía se crea sola. También con <em>+ Nueva compañía</em>.</p>
-        <div class="tut-tip">💡 Desde la ficha de la compañía puede crear contactos y negociaciones ya vinculados con los botones <em>+ Contacto</em> y <em>+ Negociación</em>.</div>
-    </div>
+        case "contactos":
+            <div class="widget w-12">
+                <div class="widget-title"><span><span class="nav-dot" style="background:#00c875"></span> Contactos</span><a class="btn-secondary btn-sm" href="contacts">Abrir tablero</a></div>
+                <p><strong>Qué es:</strong> una <em>persona</em> con la que hace negocios: cliente, proveedor, socio. Tiene cargo, teléfono, correo y, normalmente, una compañía.</p>
+                <p><strong>Para qué sirve:</strong> es a quien llama, a quien escribe y a quien vincula en las negociaciones. En su ficha verá todas sus negociaciones, actividades, correos y actualizaciones.</p>
+                <p><strong>Tipos:</strong> los grupos del tablero (Cliente, Proveedor, Socio…). Puede renombrarlos o crear otros desde el menú de la columna <em>Tipo → Editar etiquetas</em>.</p>
+                <div class="tut-tip">💡 Un contacto sin compañía es válido (por ejemplo, un cliente particular). Si después crea la compañía, asígnela desde la ficha o directamente en la celda <em>Compañía</em> del tablero.</div>
+            </div>
+            break;
 
-    <div class="widget w-6" id="negociaciones">
-        <div class="widget-title"><span><span class="nav-dot" style="background:#0073ea"></span> Negociaciones</span><a class="btn-secondary btn-sm" href="deals">Abrir tablero</a></div>
-        <p><strong>Qué es:</strong> una <em>venta en curso</em> (deal). Tiene importe, probabilidad, fecha de cierre prevista, contacto, compañía, y siempre está en una <strong>etapa</strong> de un <strong>embudo</strong>.</p>
-        <p><strong>Embudos y etapas:</strong> el embudo "Ventas" trae: Nuevo → Contacto inicial → Propuesta enviada → Negociación → <Badge Text="Ganada" Color="#10b981" /> / <Badge Text="Perdida" Color="#ef4444" />. Puede crear otros embudos (p. ej. "Servicios") y sus etapas en <a href="pipelines">Embudos</a>.</p>
-        <p><strong>Cómo avanzar:</strong> arrastre la tarjeta en el <em>Kanban</em>, cambie la celda <em>Etapa</em> en la tabla, o use la barra de etapas en la ficha. Al llegar a Ganada o Perdida se cierra y se registra la fecha.</p>
-        <div class="tut-tip">💡 El <em>Historial de etapas</em> y las <em>Actualizaciones</em> de la ficha cuentan la historia completa: quién movió qué y cuándo, notas, correos y actividades.</div>
-    </div>
+        case "companias":
+            <div class="widget w-12">
+                <div class="widget-title"><span><span class="nav-dot" style="background:#fdab3d"></span> Compañías</span><a class="btn-secondary btn-sm" href="companies">Abrir tablero</a></div>
+                <p><strong>Qué es:</strong> la <em>organización</em>: cliente, proveedor, competidor o socio. Guarda industria, identificación fiscal, sitio web, tamaño e ingresos.</p>
+                <p><strong>Relación:</strong> una compañía tiene varios contactos y varias negociaciones. Su ficha es el "expediente" de la cuenta: quién trabaja ahí y qué está vendiendo usted.</p>
+                <p><strong>Cuándo crearla:</strong> al convertir un prospecto con nombre de compañía se crea sola. También con <em>+ Nueva compañía</em>.</p>
+                <div class="tut-tip">💡 Desde la ficha de la compañía puede crear contactos y negociaciones ya vinculados con los botones <em>+ Contacto</em> y <em>+ Negociación</em>.</div>
+            </div>
+            break;
 
-    <div class="widget w-12" id="tableros">
-        <div class="widget-title">Cómo se usan los tableros (igual en los cuatro módulos)</div>
-        <div class="row g-3">
-            <div class="col-md-4"><strong>Editar en la celda.</strong> Haga clic en cualquier celda para cambiar su valor; en Estado/Etapa se abre el selector de colores. Enter guarda, Esc cancela. El nombre se edita con el lápiz ✎.</div>
-            <div class="col-md-4"><strong>Abrir la ficha.</strong> Clic en el nombre o en <em>Abrir ⤢</em>: se despliega el panel lateral con la información, actividades y actualizaciones, sin salir del tablero.</div>
-            <div class="col-md-4"><strong>Agregar rápido.</strong> Escriba en la fila <em>+ Agregar elemento</em> de cualquier grupo y pulse Enter; el elemento nace en ese grupo (estado, etapa o tipo).</div>
-            <div class="col-md-4"><strong>Vistas.</strong> <em>Tabla principal</em> o <em>Kanban</em>; guarde sus filtros y búsqueda como una vista con nombre con <em>+ Guardar vista</em>.</div>
-            <div class="col-md-4"><strong>Columnas.</strong> El "+" del encabezado agrega columnas propias (texto, fecha, estado, persona…). El menú ▾ de cada columna permite ordenar, mover, ocultar o editar etiquetas.</div>
-            <div class="col-md-4"><strong>Selección masiva.</strong> Marque varias casillas: podrá moverlas de grupo, duplicarlas, archivarlas o eliminarlas de una vez.</div>
-        </div>
-    </div>
+        case "negociaciones":
+            <div class="widget w-12">
+                <div class="widget-title"><span><span class="nav-dot" style="background:#0073ea"></span> Negociaciones</span><a class="btn-secondary btn-sm" href="deals">Abrir tablero</a></div>
+                <p><strong>Qué es:</strong> una <em>venta en curso</em> (deal). Tiene importe, probabilidad, fecha de cierre prevista, contacto, compañía, y siempre está en una <strong>etapa</strong> de un <strong>embudo</strong>.</p>
+                <p><strong>Embudos y etapas:</strong> el embudo "Ventas" trae: Nuevo → Contacto inicial → Propuesta enviada → Negociación → <Badge Text="Ganada" Color="#10b981" /> / <Badge Text="Perdida" Color="#ef4444" />. Puede crear otros embudos (p. ej. "Servicios") y sus etapas en <a href="pipelines">Embudos</a>.</p>
+                <p><strong>Cómo avanzar:</strong> arrastre la tarjeta en el <em>Kanban</em>, cambie la celda <em>Etapa</em> en la tabla, o use la barra de etapas en la ficha. Al llegar a Ganada o Perdida se cierra y se registra la fecha.</p>
+                <div class="tut-tip">💡 El <em>Historial de etapas</em> y las <em>Actualizaciones</em> de la ficha cuentan la historia completa: quién movió qué y cuándo, notas, correos y actividades.</div>
+            </div>
+            break;
 
-    <div class="widget w-6" id="checklist">
-        <div class="widget-title">Checklist de primeros pasos <span class="muted small fw-normal">(se marca solo al cumplirse)</span></div>
-        <div class="tut-steps">
-            <div class="tut-step @(_hasLead ? "done" : "")"><span class="num"></span><div><strong>Cree un prospecto</strong> en <a href="leads">Prospectos</a>, o cargue los datos de ejemplo desde el inicio.</div></div>
-            <div class="tut-step @(_hasConverted ? "done" : "")"><span class="num"></span><div><strong>Conviértalo</strong>: abra el prospecto → <em>⇄ Convertir</em>. Verá aparecer el contacto, la compañía y la negociación.</div></div>
-            <div class="tut-step @(_hasMoved ? "done" : "")"><span class="num"></span><div><strong>Mueva una negociación</strong> de etapa en el <a href="deals?view=kanban">Kanban</a> arrastrando la tarjeta.</div></div>
-            <div class="tut-step @(_hasTask ? "done" : "")"><span class="num"></span><div><strong>Programe una actividad</strong> (llamada o reunión) desde la ficha de un contacto o negociación. Aparecerá en <a href="mi-trabajo">Mi trabajo</a>.</div></div>
-            <div class="tut-step @(_hasWon ? "done" : "")"><span class="num"></span><div><strong>Gane una negociación</strong>: llévela a la etapa Ganada. El panel de inicio mostrará el importe cerrado.</div></div>
-            <div class="tut-step @(_hasPipeline2 ? "done" : "")"><span class="num"></span><div><strong>Personalice</strong>: cree un segundo embudo en <a href="pipelines">Embudos</a>, o agregue una columna propia con el "+" del encabezado.</div></div>
-        </div>
-    </div>
+        case "tableros":
+            <div class="widget w-12">
+                <div class="widget-title">Cómo se usan los tableros <span class="muted small fw-normal">(igual en los cuatro módulos)</span></div>
+                <div class="row g-3">
+                    <div class="col-md-4"><strong>Editar en la celda.</strong> Haga clic en cualquier celda para cambiar su valor; en Estado/Etapa se abre el selector de colores. Enter guarda, Esc cancela. El nombre se edita con el lápiz ✎.</div>
+                    <div class="col-md-4"><strong>Abrir la ficha.</strong> Clic en el nombre o en <em>Abrir ⤢</em>: se despliega el panel lateral con la información, actividades y actualizaciones, sin salir del tablero.</div>
+                    <div class="col-md-4"><strong>Agregar rápido.</strong> Escriba en la fila <em>+ Agregar elemento</em> de cualquier grupo y pulse Enter; el elemento nace en ese grupo (estado, etapa o tipo).</div>
+                    <div class="col-md-4"><strong>Vistas.</strong> <em>Tabla principal</em> o <em>Kanban</em>; guarde sus filtros y búsqueda como una vista con nombre con <em>+ Guardar vista</em>.</div>
+                    <div class="col-md-4"><strong>Columnas.</strong> El "+" del encabezado agrega columnas propias (texto, fecha, estado, persona…). El menú ▾ de cada columna permite ordenar, mover, ocultar o editar etiquetas.</div>
+                    <div class="col-md-4"><strong>Selección masiva.</strong> Marque varias casillas: podrá moverlas de grupo, duplicarlas, archivarlas o eliminarlas de una vez.</div>
+                </div>
+            </div>
+            break;
 
-    <div class="widget w-6" id="faq">
-        <div class="widget-title">Preguntas frecuentes</div>
-        <p><strong>¿Prospecto o contacto?</strong> Si todavía no sabe si hay negocio, es prospecto. Si ya es alguien con quien trabaja (o trabajará), es contacto.</p>
-        <p><strong>¿Puedo crear una negociación sin prospecto?</strong> Sí: <em>+ Nueva negociación</em> en el tablero, o <em>+ Negociación</em> desde la ficha de un contacto o compañía. Convertir es solo el atajo cuando viene de un prospecto.</p>
-        <p><strong>¿Qué pasa al convertir sin nombre de compañía?</strong> Se crean el contacto y la negociación; la compañía se omite. Puede asignarla después.</p>
-        <p><strong>¿Cómo llegan las solicitudes de mi sitio web?</strong> Como prospectos nuevos, mediante la <a href="configuracion/api">API de prospectos</a> (su formulario React hace un POST con la clave del canal) o con un <a href="formularios">formulario público</a> de Dana. Puede añadir una <a href="automatizaciones">automatización</a> para asignarlos por rotación y programar la llamada de primer contacto.</p>
-        <p><strong>¿Perdí una negociación, la borro?</strong> No: muévala a Perdida. Así conserva el historial y las estadísticas. Si quiere ocultarla, archívela.</p>
-        <p class="mb-0"><strong>¿Quién ve qué?</strong> Todos los usuarios ven todo; los administradores además gestionan usuarios, API y canales. Use el filtro <em>Persona</em> para ver solo lo suyo.</p>
-    </div>
+        case "pasos":
+            <div class="widget w-12">
+                <div class="widget-title">Checklist de primeros pasos <span class="muted small fw-normal">(se marca solo al cumplirse)</span></div>
+                <div class="tut-steps">
+                    <div class="tut-step @(_hasLead ? "done" : "")"><span class="num"></span><div><strong>Cree un prospecto</strong> en <a href="leads">Prospectos</a>, o cargue los datos de ejemplo desde el inicio.</div></div>
+                    <div class="tut-step @(_hasConverted ? "done" : "")"><span class="num"></span><div><strong>Conviértalo</strong>: abra el prospecto → <em>⇄ Convertir</em>. Verá aparecer el contacto, la compañía y la negociación.</div></div>
+                    <div class="tut-step @(_hasMoved ? "done" : "")"><span class="num"></span><div><strong>Mueva una negociación</strong> de etapa en el <a href="deals?view=kanban">Kanban</a> arrastrando la tarjeta.</div></div>
+                    <div class="tut-step @(_hasTask ? "done" : "")"><span class="num"></span><div><strong>Programe una actividad</strong> (llamada o reunión) desde la ficha de un contacto o negociación. Aparecerá en <a href="mi-trabajo">Mi trabajo</a>.</div></div>
+                    <div class="tut-step @(_hasWon ? "done" : "")"><span class="num"></span><div><strong>Gane una negociación</strong>: llévela a la etapa Ganada. El panel de inicio mostrará el importe cerrado.</div></div>
+                    <div class="tut-step @(_hasPipeline2 ? "done" : "")"><span class="num"></span><div><strong>Personalice</strong>: cree un segundo embudo en <a href="pipelines">Embudos</a>, o agregue una columna propia con el "+" del encabezado.</div></div>
+                </div>
+            </div>
+            break;
+
+        case "faq":
+            <div class="widget w-12">
+                <div class="widget-title">Preguntas frecuentes <span class="muted small fw-normal">(toque para desplegar)</span></div>
+                @foreach (var f in _faq)
+                {
+                    var i = Array.IndexOf(_faq, f);
+                    <div class="faq-item @(_openFaq.Contains(i) ? "open" : "")">
+                        <button class="faq-q" @onclick="() => ToggleFaq(i)" aria-expanded="@_openFaq.Contains(i)">
+                            <span>@f.Q</span><span class="chev">›</span>
+                        </button>
+                        @if (_openFaq.Contains(i))
+                        {
+                            <div class="faq-a">@f.A</div>
+                        }
+                    </div>
+                }
+            </div>
+            break;
+    }
+</div>
+
+@* Navegación secuencial entre secciones *@
+<div class="tut-foot">
+    <button class="btn-secondary" disabled="@(_index == 0)" @onclick="Prev">← Anterior</button>
+    <button class="btn-primary" disabled="@(_index == _tabs.Length - 1)" @onclick="Next">Siguiente →</button>
 </div>
 
 @code {
+    private string _tab = "flujo";
+    private readonly HashSet<int> _openFaq = new();
+
+    private readonly (string Id, string Label, string? Color)[] _tabs =
+    {
+        ("flujo", "El flujo", null),
+        ("prospectos", "Prospectos", "#a25ddc"),
+        ("contactos", "Contactos", "#00c875"),
+        ("companias", "Compañías", "#fdab3d"),
+        ("negociaciones", "Negociaciones", "#0073ea"),
+        ("tableros", "Tableros", null),
+        ("pasos", "Primeros pasos", null),
+        ("faq", "Preguntas frecuentes", null),
+    };
+
+    private readonly (string Q, MarkupString A)[] _faq =
+    {
+        ("¿Prospecto o contacto?", new("Si todavía no sabe si hay negocio, es prospecto. Si ya es alguien con quien trabaja (o trabajará), es contacto.")),
+        ("¿Puedo crear una negociación sin prospecto?", new("Sí: <em>+ Nueva negociación</em> en el tablero, o <em>+ Negociación</em> desde la ficha de un contacto o compañía. Convertir es solo el atajo cuando viene de un prospecto.")),
+        ("¿Qué pasa al convertir sin nombre de compañía?", new("Se crean el contacto y la negociación; la compañía se omite. Puede asignarla después.")),
+        ("¿Cómo llegan las solicitudes de mi sitio web?", new("Como prospectos nuevos, mediante la <a href=\"configuracion/api\">API de prospectos</a> (su formulario React hace un POST con la clave del canal) o con un <a href=\"formularios\">formulario público</a> de Dana. Puede añadir una <a href=\"automatizaciones\">automatización</a> para asignarlos por rotación y programar la llamada de primer contacto.")),
+        ("¿Perdí una negociación, la borro?", new("No: muévala a Perdida. Así conserva el historial y las estadísticas. Si quiere ocultarla, archívela.")),
+        ("¿Quién ve qué?", new("Todos los usuarios ven todo; los administradores además gestionan usuarios, API y canales. Use el filtro <em>Persona</em> para ver solo lo suyo.")),
+    };
+
     private bool _hasLead, _hasConverted, _hasMoved, _hasTask, _hasWon, _hasPipeline2;
+
+    private int _index => Array.FindIndex(_tabs, t => t.Id == _tab);
+    private int _total => 6;
+    private int _done => new[] { _hasLead, _hasConverted, _hasMoved, _hasTask, _hasWon, _hasPipeline2 }.Count(b => b);
+    private int Pct => (int)Math.Round(_done * 100.0 / _total);
+
+    private void Go(string id) => _tab = id;
+    private void Prev() { if (_index > 0) _tab = _tabs[_index - 1].Id; }
+    private void Next() { if (_index < _tabs.Length - 1) _tab = _tabs[_index + 1].Id; }
+    private void ToggleFaq(int i) { if (!_openFaq.Add(i)) _openFaq.Remove(i); }
 
     protected override async Task OnInitializedAsync()
     {
