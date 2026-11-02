@@ -1,0 +1,65 @@
+@page "/doc/{Token}"
+@attribute [AllowAnonymous]
+@layout EmptyLayout
+@inject ShareLinkService Shares
+@inject DocumentService Docs
+@inject SettingsService Settings
+
+<PageTitle>@(_live ? _doc!.Title : "Documento")</PageTitle>
+
+@if (!_live)
+{
+    <div class="pub-form">
+        <div class="pub-card" style="text-align:center">
+            <div style="font-size:2.6rem">🔒</div>
+            <h2>Documento no disponible</h2>
+            <p class="muted">@_reason</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="pub-doc" style="--accent:@_share!.AccentColor">
+        <header class="pubd-bar">
+            <div class="pubd-bar-in">
+                <div class="min-w-0">
+                    <strong class="pubd-company">@_s.CompanyName</strong>
+                    <span class="muted small d-block">@DocumentKinds.Get(_doc!.Kind).Emoji @DocumentKinds.Get(_doc.Kind).Label · versión @_doc.Version</span>
+                </div>
+                <span class="pubd-ro" title="Este documento es solo de lectura">👁 Solo lectura</span>
+            </div>
+        </header>
+
+        <div class="pubd-sheet" oncontextmenu="return false">
+            <h1 class="pubd-title">@_doc.Title</h1>
+            <div class="doc-preview">@((MarkupString)DocumentService.ToHtml(_doc.Content))@((MarkupString)DocumentService.SignaturesHtml(_doc))</div>
+        </div>
+
+        <footer class="pubd-foot muted small">Solo lectura · Documento compartido con Dana CRM</footer>
+    </div>
+}
+
+@code {
+    [Parameter] public string Token { get; set; } = "";
+
+    private ShareLink? _share;
+    private CrmDocument? _doc;
+    private AppSettings _s = new();
+    private bool _live;
+    private string _reason = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _share = await Shares.FindByTokenAsync(Token);
+        if (_share is null || _share.Kind != ShareKinds.Document) { _reason = "Este enlace no existe o fue revocado."; return; }
+        if (!_share.IsEnabled) { _reason = "Este enlace fue detenido por quien lo compartió."; return; }
+        if (_share.IsExpired) { _reason = "Este enlace expiró y ya no está disponible."; return; }
+
+        _doc = await Docs.GetAsync(_share.TargetId);
+        if (_doc is null) { _reason = "El documento ya no está disponible."; return; }
+
+        _s = await Settings.GetAsync();
+        _live = true;
+        await Shares.RegisterViewAsync(_share);
+    }
+}

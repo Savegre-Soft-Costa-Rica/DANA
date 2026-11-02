@@ -5,6 +5,11 @@
 {
     <div class="print-shell">@Body</div>
 }
+else if (Nav.ToBaseRelativePath(Nav.Uri).StartsWith("catalogo/") || Nav.ToBaseRelativePath(Nav.Uri).StartsWith("doc/"))
+{
+    @* Vistas públicas (catálogo / visor de documento): lienzo completo, sin la portada de autenticación *@
+    @Body
+}
 else
 {
     <div class="auth-page">

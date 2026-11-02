@@ -2,6 +2,7 @@
 @inject QuoteService Quotes
 @inject SettingsService Settings
 @inject AttachmentService Attachments
+@inject ShareLinkService ShareLinks
 @inject CurrentUser Me
 @inject DialogService Dialogs
 @inject NavigationManager Nav
@@ -12,6 +13,7 @@
 <PageHeader Title="Productos y servicios" Subtitle="Catálogo para cotizaciones y para su sitio web (API pública).">
     <Actions>
         <button class="btn-secondary" @onclick="() => _catsOpen = true">🏷 Categorías</button>
+        <button class="btn-secondary" @onclick="OpenSharesAsync">🔗 Compartir</button>
         <button class="btn-primary" @onclick="NewAsync">+ Nuevo producto</button>
     </Actions>
 </PageHeader>
@@ -169,6 +171,68 @@ else
     </div>
 }
 
+@* ---------- Compartir: enlaces públicos del catálogo ---------- *@
+@if (_sharesOpen)
+{
+    <div class="sheet-backdrop" @onclick="() => _sharesOpen = false"></div>
+    <div class="sheet" style="width:min(700px,96vw)">
+        <div class="sheet-head"><strong>🔗 Compartir catálogo</strong><button class="icon-btn" @onclick="() => _sharesOpen = false">✕</button></div>
+        <div class="sheet-body">
+            <p class="muted small">Genere un enlace público a una vista del catálogo. Solo muestra productos <strong>activos y publicados</strong>. Puede ponerle fecha de expiración y detenerlo o revocarlo cuando quiera.</p>
+
+            <div class="share-new">
+                <div class="row g-2">
+                    <div class="col-md-6"><label class="form-label">Nombre (interno) *</label><input class="form-control" @bind="_shName" placeholder="p. ej. Catálogo feria 2026" /></div>
+                    <div class="col-md-6"><label class="form-label">Título público</label><input class="form-control" @bind="_shTitle" placeholder="Nuestro catálogo" /></div>
+                    <div class="col-md-5"><label class="form-label">Categoría (opcional)</label>
+                        <select class="form-select" @bind="_shCategory"><option value="">Todo el catálogo</option>@foreach (var c in _categories) { <option value="@c.Name">@c.Name</option> }</select></div>
+                    <div class="col-md-4"><label class="form-label">Expira el (opcional)</label><input type="date" class="form-control" @bind="_shExpiry" /></div>
+                    <div class="col-md-3"><label class="form-label">Color</label><input type="color" class="form-control form-control-color w-100" @bind="_shColor" /></div>
+                </div>
+                <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
+                    <span class="muted small">Caduca:</span>
+                    <button class="tool" @onclick="() => _shExpiry = DateTime.Today.AddDays(7)">7 días</button>
+                    <button class="tool" @onclick="() => _shExpiry = DateTime.Today.AddDays(30)">30 días</button>
+                    <button class="tool @(_shExpiry is null ? "on" : "")" @onclick="() => _shExpiry = null">Sin expiración</button>
+                    <span class="flex-grow-1"></span>
+                    <button class="btn-primary" @onclick="CreateShareAsync">Crear enlace</button>
+                </div>
+                @if (_shError is not null) { <div class="text-danger small mt-1">@_shError</div> }
+            </div>
+
+            <div class="share-list">
+                @if (_shares is null) { <p class="muted small">Cargando…</p> }
+                else if (_shares.Count == 0) { <div class="muted small py-3 text-center">Aún no ha creado enlaces.</div> }
+                else
+                {
+                    @foreach (var s in _shares)
+                    {
+                        <div class="share-row">
+                            <div class="min-w-0 flex-grow-1">
+                                <div class="d-flex align-items-center gap-2">
+                                    <strong class="text-truncate">@s.Name</strong>
+                                    @if (!s.IsEnabled) { <span class="badge-soft">Detenido</span> }
+                                    else if (s.IsExpired) { <span class="badge-soft danger">Expirado</span> }
+                                    else { <span class="badge-soft ok">Activo</span> }
+                                </div>
+                                <div class="share-url"><a href="@ShareUrl(s)" target="_blank">@ShareUrl(s)</a></div>
+                                <div class="muted small">@ExpiryText(s) · @s.ViewCount visita@(s.ViewCount == 1 ? "" : "s")@(s.Category is null ? "" : " · " + s.Category)</div>
+                            </div>
+                            <div class="share-actions">
+                                <button class="icon-btn" title="Copiar enlace" @onclick="() => CopyAsync(s)">@(_copiedId == s.Id ? "✓" : "⧉")</button>
+                                <a class="icon-btn" title="Abrir" href="@ShareUrl(s)" target="_blank">↗</a>
+                                <button class="icon-btn" title="@(s.IsEnabled ? "Detener" : "Reactivar")" @onclick="() => ToggleShareAsync(s)">@(s.IsEnabled ? "⏸" : "▶")</button>
+                                <button class="icon-btn" title="Revocar" @onclick="() => RevokeShareAsync(s)">🗑</button>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+        <div class="sheet-foot"><button class="btn-primary" @onclick="() => _sharesOpen = false">Listo</button></div>
+    </div>
+}
+
 @code {
     private List<Product>? _items;
     private List<ProductCategory> _categories = new();
@@ -176,6 +240,13 @@ else
     private string _q = "", _category = "", _tag = "", _view = "tiles", _editTag = "", _newCat = "";
     private bool _showInactive, _catsOpen, _uploading;
     private string? _uploadError;
+
+    // ----- compartir (enlaces públicos) -----
+    private bool _sharesOpen;
+    private List<ShareLink>? _shares;
+    private string _shName = "", _shTitle = "Nuestro catálogo", _shCategory = "", _shColor = "#0073ea";
+    private DateTime? _shExpiry;
+    private string? _shError, _copiedId;
 
     private List<string> AllTags => (_items ?? []).SelectMany(p => p.Tags).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(t => t).ToList();
 
@@ -287,5 +358,52 @@ else
         if (!await Dialogs.ConfirmAsync($"¿Eliminar la categoría \"{c.Name}\"? Los productos quedarán sin categoría.")) return;
         await Quotes.DeleteCategoryAsync(c, await Me.NameAsync());
         await LoadAsync();
+    }
+
+    // ----- compartir (enlaces públicos del catálogo) -----
+    private async Task OpenSharesAsync() { _sharesOpen = true; _shError = null; _shares = await ShareLinks.GetByKindAsync(ShareKinds.Catalog); }
+
+    private string ShareUrl(ShareLink s) => Nav.ToAbsoluteUri($"catalogo/{s.Token}").ToString();
+
+    private static string ExpiryText(ShareLink s) =>
+        s.ExpiresAt is null ? "Sin expiración"
+        : s.IsExpired ? $"Expiró el {s.ExpiresAt.Value.ToLocalTime():dd/MM/yyyy}"
+        : $"Expira el {s.ExpiresAt.Value.ToLocalTime():dd/MM/yyyy}";
+
+    private async Task CreateShareAsync()
+    {
+        _shError = null;
+        if (string.IsNullOrWhiteSpace(_shName)) { _shError = "Indique un nombre para identificar el enlace."; return; }
+        var s = new ShareLink
+        {
+            Kind = ShareKinds.Catalog,
+            Name = _shName.Trim(),
+            Title = string.IsNullOrWhiteSpace(_shTitle) ? "Nuestro catálogo" : _shTitle.Trim(),
+            Category = string.IsNullOrWhiteSpace(_shCategory) ? null : _shCategory,
+            AccentColor = _shColor,
+            ExpiresAt = _shExpiry is null ? null : DateTime.SpecifyKind(_shExpiry.Value.Date.AddDays(1).AddTicks(-1), DateTimeKind.Local).ToUniversalTime(),
+        };
+        await ShareLinks.SaveAsync(s, await Me.NameAsync());
+        _shName = ""; _shExpiry = null; _shCategory = "";
+        _shares = await ShareLinks.GetByKindAsync(ShareKinds.Catalog);
+    }
+
+    private async Task ToggleShareAsync(ShareLink s)
+    {
+        await ShareLinks.SetEnabledAsync(s, !s.IsEnabled, await Me.NameAsync());
+        _shares = await ShareLinks.GetByKindAsync(ShareKinds.Catalog);
+    }
+
+    private async Task RevokeShareAsync(ShareLink s)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Revocar el enlace \"{s.Name}\"? Dejará de funcionar de inmediato y no se puede deshacer.")) return;
+        await ShareLinks.RevokeAsync(s.Id!, await Me.NameAsync());
+        _shares = await ShareLinks.GetByKindAsync(ShareKinds.Catalog);
+    }
+
+    private async Task CopyAsync(ShareLink s)
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", ShareUrl(s)); _copiedId = s.Id; }
+        catch { }
     }
 }

@@ -20,6 +20,7 @@ else
             <a class="btn-secondary" href="documentos/@_d.Id/word" target="_blank">⬇ Word</a>
             <a class="btn-secondary" href="documentos/@_d.Id/pdf" target="_blank">⬇ PDF</a>
             <a class="btn-secondary" href="documentos/@_d.Id/imprimir" target="_blank">🖨 Imprimir</a>
+            <button class="btn-secondary" @onclick="OpenSharesAsync">🔗 Compartir</button>
             <label class="btn-secondary file-btn" title="Reemplazar el contenido con un archivo Word, PDF, Markdown o texto">⬆ Importar<InputFile OnChange="ImportAsync" accept=".docx,.pdf,.md,.txt" /></label>
             <button class="btn-primary" disabled="@(!_dirty)" @onclick="SaveAsync">Guardar @(_dirty ? "(cambios)" : "")</button>
         </Actions>
@@ -86,6 +87,65 @@ else
             </div>
         </aside>
     </div>
+
+    @* ---------- Compartir: enlace público de solo lectura ---------- *@
+    @if (_sharesOpen)
+    {
+        <div class="sheet-backdrop" @onclick="() => _sharesOpen = false"></div>
+        <div class="sheet" style="width:min(680px,96vw)">
+            <div class="sheet-head"><strong>🔗 Compartir documento</strong><button class="icon-btn" @onclick="() => _sharesOpen = false">✕</button></div>
+            <div class="sheet-body">
+                <p class="muted small">Genere un enlace público a un <strong>visor de solo lectura</strong> de este documento: quien lo reciba puede verlo, pero no editarlo ni descargarlo. Puede ponerle expiración y detenerlo o revocarlo cuando quiera.</p>
+
+                <div class="share-new">
+                    <div class="row g-2">
+                        <div class="col-md-7"><label class="form-label">Nombre (interno) *</label><input class="form-control" @bind="_shName" placeholder="p. ej. Propuesta para cliente X" /></div>
+                        <div class="col-md-3"><label class="form-label">Expira el (opcional)</label><input type="date" class="form-control" @bind="_shExpiry" /></div>
+                        <div class="col-md-2"><label class="form-label">Color</label><input type="color" class="form-control form-control-color w-100" @bind="_shColor" /></div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
+                        <span class="muted small">Caduca:</span>
+                        <button class="tool" @onclick="() => _shExpiry = DateTime.Today.AddDays(7)">7 días</button>
+                        <button class="tool" @onclick="() => _shExpiry = DateTime.Today.AddDays(30)">30 días</button>
+                        <button class="tool @(_shExpiry is null ? "on" : "")" @onclick="() => _shExpiry = null">Sin expiración</button>
+                        <span class="flex-grow-1"></span>
+                        <button class="btn-primary" @onclick="CreateShareAsync">Crear enlace</button>
+                    </div>
+                    @if (_shError is not null) { <div class="text-danger small mt-1">@_shError</div> }
+                </div>
+
+                <div class="share-list">
+                    @if (_shares is null) { <p class="muted small">Cargando…</p> }
+                    else if (_shares.Count == 0) { <div class="muted small py-3 text-center">Aún no ha creado enlaces para este documento.</div> }
+                    else
+                    {
+                        @foreach (var s in _shares)
+                        {
+                            <div class="share-row">
+                                <div class="min-w-0 flex-grow-1">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <strong class="text-truncate">@s.Name</strong>
+                                        @if (!s.IsEnabled) { <span class="badge-soft">Detenido</span> }
+                                        else if (s.IsExpired) { <span class="badge-soft danger">Expirado</span> }
+                                        else { <span class="badge-soft ok">Activo</span> }
+                                    </div>
+                                    <div class="share-url"><a href="@ShareUrl(s)" target="_blank">@ShareUrl(s)</a></div>
+                                    <div class="muted small">@ExpiryText(s) · @s.ViewCount visita@(s.ViewCount == 1 ? "" : "s")</div>
+                                </div>
+                                <div class="share-actions">
+                                    <button class="icon-btn" title="Copiar enlace" @onclick="() => CopyShareAsync(s)">@(_copiedId == s.Id ? "✓" : "⧉")</button>
+                                    <a class="icon-btn" title="Abrir" href="@ShareUrl(s)" target="_blank">↗</a>
+                                    <button class="icon-btn" title="@(s.IsEnabled ? "Detener" : "Reactivar")" @onclick="() => ToggleShareAsync(s)">@(s.IsEnabled ? "⏸" : "▶")</button>
+                                    <button class="icon-btn" title="Revocar" @onclick="() => RevokeShareAsync(s)">🗑</button>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+            <div class="sheet-foot"><button class="btn-primary" @onclick="() => _sharesOpen = false">Listo</button></div>
+        </div>
+    }
 }
 
 @code {
@@ -173,7 +233,61 @@ else
 
     [Inject] private IJSRuntime JS { get; set; } = default!;
     [Inject] private EmailService Email { get; set; } = default!;
+    [Inject] private ShareLinkService Shares { get; set; } = default!;
     private string _sName = "", _sEmail = "", _sRole = ""; private string? _sMsg;
+
+    // ----- compartir (enlace público de solo lectura del documento) -----
+    private bool _sharesOpen;
+    private List<ShareLink>? _shares;
+    private string _shName = "", _shColor = "#0073ea";
+    private DateTime? _shExpiry;
+    private string? _shError, _copiedId;
+
+    private async Task OpenSharesAsync() { _sharesOpen = true; _shError = null; _shares = await Shares.GetByKindAsync(ShareKinds.Document, _d!.Id); }
+
+    private string ShareUrl(ShareLink s) => Nav.ToAbsoluteUri($"doc/{s.Token}").ToString();
+
+    private static string ExpiryText(ShareLink s) =>
+        s.ExpiresAt is null ? "Sin expiración"
+        : s.IsExpired ? $"Expiró el {s.ExpiresAt.Value.ToLocalTime():dd/MM/yyyy}"
+        : $"Expira el {s.ExpiresAt.Value.ToLocalTime():dd/MM/yyyy}";
+
+    private async Task CreateShareAsync()
+    {
+        _shError = null;
+        if (string.IsNullOrWhiteSpace(_shName)) { _shError = "Indique un nombre para identificar el enlace."; return; }
+        var s = new ShareLink
+        {
+            Kind = ShareKinds.Document,
+            TargetId = _d!.Id,
+            Name = _shName.Trim(),
+            Title = _d.Title,
+            AccentColor = _shColor,
+            ExpiresAt = _shExpiry is null ? null : DateTime.SpecifyKind(_shExpiry.Value.Date.AddDays(1).AddTicks(-1), DateTimeKind.Local).ToUniversalTime(),
+        };
+        await Shares.SaveAsync(s, await Me.NameAsync());
+        _shName = ""; _shExpiry = null;
+        _shares = await Shares.GetByKindAsync(ShareKinds.Document, _d.Id);
+    }
+
+    private async Task ToggleShareAsync(ShareLink s)
+    {
+        await Shares.SetEnabledAsync(s, !s.IsEnabled, await Me.NameAsync());
+        _shares = await Shares.GetByKindAsync(ShareKinds.Document, _d!.Id);
+    }
+
+    private async Task RevokeShareAsync(ShareLink s)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Revocar el enlace \"{s.Name}\"? Dejará de funcionar de inmediato.")) return;
+        await Shares.RevokeAsync(s.Id!, await Me.NameAsync());
+        _shares = await Shares.GetByKindAsync(ShareKinds.Document, _d!.Id);
+    }
+
+    private async Task CopyShareAsync(ShareLink s)
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", ShareUrl(s)); _copiedId = s.Id; }
+        catch { }
+    }
 
     private async Task AddSignerAsync()
     {

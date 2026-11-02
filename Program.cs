@@ -62,6 +62,7 @@ builder.Services.AddSingleton<AutomationService>();
 builder.Services.AddSingleton<InboundLeadService>();
 builder.Services.AddSingleton<ReportService>();
 builder.Services.AddSingleton<LeadFormService>();
+builder.Services.AddSingleton<ShareLinkService>();
 builder.Services.AddSingleton<PermissionService>();
 builder.Services.AddSingleton<NavService>();
 builder.Services.AddSingleton<QuoteService>();
