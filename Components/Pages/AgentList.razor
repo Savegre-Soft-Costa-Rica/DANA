@@ -50,6 +50,7 @@
                 <span class="badge-soft">@ProviderLabel(a)</span>
                 <span class="badge-soft">🔧 @a.Tools.Count herramientas</span>
                 @if (a.AllowWrites) { <span class="badge-soft">✎ puede modificar</span> }
+                @if (a.AutoApprove) { <span class="badge-soft">⚡ auto-envío</span> }
                 @if (a.Routines.Count > 0) { <span class="badge-soft" title="@string.Join(", ", a.Routines.Select(r => r.Name))">⏰ @a.Routines.Count(r => r.Enabled)/@a.Routines.Count rutinas</span> }
                 @if (a.CanCollaborate && a.Tools.Contains("consultar_agente")) { <span class="badge-soft">🤝 colabora</span> }
                 <span class="badge-soft">💬 @a.MessageCount</span>
@@ -148,6 +149,12 @@
                 </div>
                 <div class="@(_tab == "tools" ? "" : "d-none")">
                     <label class="d-block mb-2"><InputCheckbox @bind-Value="_edit.AllowWrites" /> <strong>Puede modificar datos</strong> (crear, actualizar, agregar notas). Sin esta casilla las herramientas de escritura se ignoran.</label>
+                    <label class="d-block mb-2"><InputCheckbox @bind-Value="_edit.AutoApprove" /> <strong>⚡ Auto-aprobar envíos</strong>: permite enviar correos/SMS/WhatsApp por sí solo en rutinas y automatizaciones, sin confirmación humana. Úsalo con cuidado.</label>
+                    @if (_edit.AutoApprove)
+                    {
+                        <div class="mb-2 ps-4"><label class="form-label small mb-1">Tope de envíos autónomos por día</label>
+                            <InputNumber class="form-control form-control-sm" style="max-width:120px" @bind-Value="_edit.DailySendLimit" /></div>
+                    }
                     <label class="d-block mb-2"><InputCheckbox @bind-Value="_edit.IsBoss" /> <strong>👑 Jefe del equipo</strong>: coordina a los demás agentes, puede consultar a todos y recibe las escalaciones. Solo puede haber uno.</label>
                     <div class="collab mb-3">
                         <label class="d-block"><InputCheckbox @bind-Value="_edit.CanCollaborate" /> <strong>🤝 Puede comunicarse con otros agentes</strong> (requiere la herramienta "Consultar a otro agente").</label>

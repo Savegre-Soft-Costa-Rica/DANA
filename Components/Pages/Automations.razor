@@ -65,6 +65,23 @@ else
                             </select>
                         }
                         else if (_edit.Trigger.Type == TriggerTypes.OverdueClose) { <span class="muted small align-self-center">Se evalúa cada minuto para negociaciones abiertas con cierre previsto pasado (una vez por negociación).</span> }
+                        else if (_edit.Trigger.Type == TriggerTypes.Inactive)
+                        {
+                            <span class="align-self-center">sin actividad por</span>
+                            <input type="number" min="1" style="width:80px" value='@_edit.Trigger.Get("days", "7")' @onchange='e => _edit.Trigger.Params["days"] = e.Value?.ToString() ?? "7"' />
+                            <span class="align-self-center">días (se dispara una vez por racha de inactividad)</span>
+                        }
+                        else if (_edit.Trigger.Type == TriggerTypes.QuoteAccepted)
+                        {
+                            <select value='@_edit.Trigger.Get("estado")' @onchange='e => _edit.Trigger.Params["estado"] = e.Value?.ToString() ?? string.Empty'>
+                                <option value="">cualquier cambio</option>
+                                <option value="accepted">Aceptada</option>
+                                <option value="rejected">Rechazada</option>
+                                <option value="expired">Vencida</option>
+                                <option value="sent">Enviada</option>
+                            </select>
+                        }
+                        else if (_edit.Trigger.Type == TriggerTypes.DocSigned) { <span class="muted small align-self-center">Se dispara cuando un documento ligado al elemento queda totalmente firmado.</span> }
                     </div>
                     <span></span>
                 </div>

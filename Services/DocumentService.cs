@@ -24,10 +24,12 @@ public partial class DocumentService
     private readonly NotificationService _notifications;
     private readonly IRepository<DocumentTemplateEntity> _templates;
 
-    public DocumentService(IRepository<CrmDocument> docs, IRepository<Lead> leads, IRepository<Contact> contacts, IRepository<Company> companies, IRepository<Deal> deals, SettingsService settings, ActivityService activities, AttachmentService attachments, NotificationService notifications, IRepository<DocumentTemplateEntity> templates)
+    private readonly AutomationService _automations;
+
+    public DocumentService(IRepository<CrmDocument> docs, IRepository<Lead> leads, IRepository<Contact> contacts, IRepository<Company> companies, IRepository<Deal> deals, SettingsService settings, ActivityService activities, AttachmentService attachments, NotificationService notifications, IRepository<DocumentTemplateEntity> templates, AutomationService automations)
     {
         _notifications = notifications; _templates = templates;
-        _docs = docs; _leads = leads; _contacts = contacts; _companies = companies; _deals = deals; _settings = settings; _activities = activities; _attachments = attachments;
+        _docs = docs; _leads = leads; _contacts = contacts; _companies = companies; _deals = deals; _settings = settings; _activities = activities; _attachments = attachments; _automations = automations;
     }
 
     // ---------- plantillas ----------
@@ -350,6 +352,21 @@ public partial class DocumentService
         if (d.EntityType is not null && d.EntityId is not null) await _activities.LogAsync(d.EntityType, d.EntityId, d.EntityTitle ?? "", ActivityKinds.System, $"✍ {signer.SignedName} firmó \"{d.Title}\"{(d.AllSigned ? " · documento completamente firmado" : "")}", signer.SignedName);
         var owner = signer.RequestedBy ?? d.Author ?? d.CreatedBy;
         if (owner is not null) await _notifications.NotifyAsync(owner, NotificationKinds.System, $"✍ {signer.SignedName} firmó \"{d.Title}\"{(d.AllSigned ? " (todas las firmas completas)" : "")}", $"documentos/{d.Id}", signer.SignedName);
+
+        // Trigger de automatización cuando el documento queda completamente firmado
+        if (d.AllSigned && d.EntityType is not null && d.EntityId is not null)
+        {
+            Entity? ent = d.EntityType switch
+            {
+                "lead" => await _leads.GetByIdAsync(d.EntityId),
+                "contact" => await _contacts.GetByIdAsync(d.EntityId),
+                "company" => await _companies.GetByIdAsync(d.EntityId),
+                "deal" => await _deals.GetByIdAsync(d.EntityId),
+                _ => null
+            };
+            if (ent is not null)
+                try { await _automations.TriggerAsync(new AutomationEvent(CrmEntities.BoardOfType(d.EntityType), TriggerTypes.DocSigned, ent, signer.SignedName ?? "Firma", new() { ["documentId"] = d.Id! })); } catch { }
+        }
         return d;
     }
 

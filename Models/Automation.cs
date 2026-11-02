@@ -10,6 +10,9 @@ public static class TriggerTypes
     public const string AssigneeChanged = "assignee_changed";
     public const string OverdueClose = "overdue_close";     // negociaciones (programado)
     public const string TaskCompleted = "task_completed";
+    public const string Inactive = "inactive";              // sin actividad en N días (programado)
+    public const string QuoteAccepted = "quote_accepted";   // una cotización de la negociación fue aceptada/rechazada/vencida
+    public const string DocSigned = "doc_signed";           // un documento del elemento quedó firmado
 
     public static readonly (string Id, string Label, string[] Boards)[] All =
     [
@@ -18,6 +21,9 @@ public static class TriggerTypes
         (StatusChanged, "Cuando un prospecto cambia a un estado", ["leads"]),
         (AssigneeChanged, "Cuando cambia el responsable", ["leads", "deals", "contacts", "companies"]),
         (OverdueClose, "Cuando vence la fecha de cierre prevista", ["deals"]),
+        (Inactive, "Cuando no hay actividad en N días", ["leads", "deals"]),
+        (QuoteAccepted, "Cuando cambia el estado de una cotización", ["deals"]),
+        (DocSigned, "Cuando se firma un documento del elemento", ["leads", "deals", "contacts", "companies"]),
         (TaskCompleted, "Cuando se completa una actividad del elemento", ["leads", "deals", "contacts", "companies"]),
     ];
 }

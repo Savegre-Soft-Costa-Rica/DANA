@@ -274,6 +274,19 @@ public class AgentService
 
     private static string Trim(string s, int n) => s.Length <= n ? s : s[..n] + "…";
 
+    /// <summary>Consume un cupo de envío autónomo del día. Devuelve null si está permitido, o un mensaje si se alcanzó el límite.</summary>
+    public async Task<string?> TryConsumeSendAsync(AiAgent agent)
+    {
+        var today = DateTime.UtcNow.Date;
+        if (agent.SendCountDate != today) { agent.SendCountDate = today; agent.SendCountToday = 0; }
+        var limit = agent.DailySendLimit <= 0 ? 20 : agent.DailySendLimit;
+        if (agent.SendCountToday >= limit)
+            return $"Límite diario de envíos autónomos alcanzado ({limit}). No se realizó el envío.";
+        agent.SendCountToday++;
+        try { await _agents.UpdateAsync(agent); } catch { }
+        return null;
+    }
+
     // ---------- acciones con confirmación ----------
     /// <summary>Ejecuta (o cancela) una acción pendiente de una conversación y deja constancia como mensaje de herramienta.</summary>
     public async Task<AgentMessage> ResolveActionAsync(AiAgent agent, AgentConversation conv, PendingAction action, bool approve, string user)

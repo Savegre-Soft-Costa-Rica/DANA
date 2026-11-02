@@ -11,10 +11,11 @@ public class QuoteService
     private readonly IRepository<Deal> _deals;
     private readonly SettingsService _settings;
     private readonly ActivityService _activities;
+    private readonly AutomationService _automations;
 
-    public QuoteService(IRepository<Quote> quotes, IRepository<Product> products, IRepository<ProductCategory> categories, IRepository<Deal> deals, SettingsService settings, ActivityService activities)
+    public QuoteService(IRepository<Quote> quotes, IRepository<Product> products, IRepository<ProductCategory> categories, IRepository<Deal> deals, SettingsService settings, ActivityService activities, AutomationService automations)
     {
-        _quotes = quotes; _products = products; _categories = categories; _deals = deals; _settings = settings; _activities = activities;
+        _quotes = quotes; _products = products; _categories = categories; _deals = deals; _settings = settings; _activities = activities; _automations = automations;
     }
 
     // ----- categorías -----
@@ -93,6 +94,7 @@ public class QuoteService
             {
                 await _activities.LogAsync("deal", deal.Id!, deal.Title, ActivityKinds.System, $"📄 Cotización {q.Number}: {QuoteStatuses.Get(status).Label}" + (status == "accepted" ? $" · importe {q.Total:N2} {q.Currency}" : ""), author);
                 if (status == "accepted" && deal.Amount != q.Total) { deal.Amount = q.Total; deal.Currency = q.Currency; deal.UpdatedBy = author; await _deals.UpdateAsync(deal); }
+                try { await _automations.TriggerAsync(new AutomationEvent("deals", TriggerTypes.QuoteAccepted, deal, author, new() { ["status"] = status, ["quoteId"] = q.Id! })); } catch { }
             }
         }
     }

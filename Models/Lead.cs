@@ -31,6 +31,8 @@ public class Lead : Entity
     public string? ConvertedContactId { get; set; }
     public string? ConvertedCompanyId { get; set; }
     public string? ConvertedDealId { get; set; }
+    /// <summary>Última vez que se disparó la automatización de inactividad (dedupe por racha).</summary>
+    public DateTime? InactiveTriggeredAt { get; set; }
 
     public string FullName => string.Join(" ", new[] { Name, LastName }.Where(s => !string.IsNullOrWhiteSpace(s)));
 }

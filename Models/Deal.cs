@@ -34,6 +34,8 @@ public class Deal : Entity
     public DateTime? ExpectedCloseDate { get; set; }
     public DateTime? ClosedAt { get; set; }
     public DateTime? OverdueTriggeredAt { get; set; }
+    /// <summary>Última vez que se disparó la automatización de inactividad (dedupe por racha).</summary>
+    public DateTime? InactiveTriggeredAt { get; set; }
     public string? Type { get; set; }
     public string? Source { get; set; }
     public string? AssignedTo { get; set; }

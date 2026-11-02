@@ -44,6 +44,12 @@ public class AgentTools
             new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "contact", "company", "deal", "task", "product" } }, id = new { type = "string" }, datos = new { type = "object", additionalProperties = true } }, required = new[] { "tipo", "id", "datos" } }, Write: true),
         new("agregar_nota", "Agregar nota", "Añade una actualización/nota a la línea de tiempo de un prospecto, contacto, compañía o negociación.",
             new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "contact", "company", "deal" } }, id = new { type = "string" }, texto = new { type = "string" } }, required = new[] { "tipo", "id", "texto" } }, Write: true),
+        new("convertir", "Convertir prospecto", "Convierte un prospecto (lead) en contacto, compañía y/o negociación con sus datos y lo marca como Convertido. Indica qué crear (por defecto los tres); pipelineId opcional para la negociación (si falta, usa el embudo predeterminado). Solo prospectos aún no convertidos.",
+            new { type = "object", properties = new { id = new { type = "string" }, contacto = new { type = "boolean", @default = true }, compania = new { type = "boolean", @default = true }, negociacion = new { type = "boolean", @default = true }, pipelineId = new { type = "string" } }, required = new[] { "id" } }, Write: true),
+        new("archivar", "Archivar / restaurar", "Archiva o restaura un registro (lead, contact, company o deal). archivar=true lo archiva (deja de verse en el tablero salvo con el filtro Archivados); archivar=false lo restaura.",
+            new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "contact", "company", "deal" } }, id = new { type = "string" }, archivar = new { type = "boolean", @default = true } }, required = new[] { "tipo", "id" } }, Write: true),
+        new("eliminar", "Eliminar (a papelera)", "Envía un registro a la papelera (borrado lógico, recuperable). Tipos: lead, contact, company, deal, product. Úsala para descartar prospectos basura (JUNK) o duplicados.",
+            new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "contact", "company", "deal", "product" } }, id = new { type = "string" } }, required = new[] { "tipo", "id" } }, Write: true),
         new("cotizaciones_buscar", "Buscar cotizaciones", "Lista cotizaciones por texto, estado (draft|sent|accepted|rejected|expired) o negociación (dealId), con número, total, vencimiento y estado.",
             new { type = "object", properties = new { texto = new { type = "string" }, estado = new { type = "string" }, dealId = new { type = "string" }, limite = new { type = "integer", @default = 20 } }, required = Array.Empty<string>() }),
         new("cotizacion_obtener", "Obtener cotización", "Devuelve una cotización completa: líneas (producto, cantidad, precio, descuento, impuesto), totales, estado, vigencia y negociación asociada. Úsala para revisar o corregir una cotización.",
@@ -124,10 +130,22 @@ public class AgentTools
         if (def.Write && !allowWrites) return new("Este agente no tiene permiso para modificar datos. Pida al usuario que active \"Puede modificar datos\" en la configuración del agente.", true);
         if (def.Confirm && !ctx.Confirmed)
         {
-            if (ctx.Conversation is null || ctx.User is null || ctx.User == AgentService.SystemUser || ctx.User.EndsWith("(agente)")) return new("Esta acción requiere la confirmación de un usuario en el chat; no está disponible en rutinas automáticas ni entre agentes.", true);
-            var summary = Summarize(name, input);
-            ctx.Conversation.Messages.Add(new AgentMessage { Role = "action", Text = summary, Action = new PendingAction { Tool = name, InputJson = input.GetRawText(), Summary = summary } });
-            return new("Acción preparada y PENDIENTE DE CONFIRMACIÓN del usuario (verá un botón para aprobarla). No la des por realizada: dile que la revise y confirme.");
+            var autonomous = ctx.Conversation is null || ctx.User is null || ctx.User == AgentService.SystemUser || ctx.User.EndsWith("(agente)");
+            if (autonomous)
+            {
+                // Sin usuario que confirme: solo se ejecuta si el agente tiene auto-aprobación y dentro del tope diario.
+                if (ctx.Agent is null || !ctx.Agent.AutoApprove)
+                    return new("Esta acción requiere confirmación de un usuario en el chat. Para permitirla en rutinas/automatizaciones, active \"Auto-aprobar envíos\" en la configuración del agente.", true);
+                var gate = await _sp.GetRequiredService<AgentService>().TryConsumeSendAsync(ctx.Agent);
+                if (gate is not null) return new(gate, true);
+                // auto-aprobado y dentro del límite → continúa y ejecuta directamente (sin acción pendiente)
+            }
+            else
+            {
+                var summary = Summarize(name, input);
+                ctx.Conversation!.Messages.Add(new AgentMessage { Role = "action", Text = summary, Action = new PendingAction { Tool = name, InputJson = input.GetRawText(), Summary = summary } });
+                return new("Acción preparada y PENDIENTE DE CONFIRMACIÓN del usuario (verá un botón para aprobarla). No la des por realizada: dile que la revise y confirme.");
+            }
         }
         try
         {
@@ -163,6 +181,9 @@ public class AgentTools
                 "crear" => await CreateAsync(Str(input, "tipo"), Obj(input, "datos"), author),
                 "actualizar" => await UpdateAsync(Str(input, "tipo"), Str(input, "id"), Obj(input, "datos"), author),
                 "agregar_nota" => await NoteAsync(Str(input, "tipo"), Str(input, "id"), Str(input, "texto"), author),
+                "convertir" => await ConvertLeadAsync(input, author),
+                "archivar" => await ArchiveAsync(Str(input, "tipo"), Str(input, "id"), Bool(input, "archivar", true), author),
+                "eliminar" => await DeleteRecordAsync(Str(input, "tipo"), Str(input, "id"), author),
                 _ => throw new InvalidOperationException("Herramienta no implementada")
             };
             return new(output);
@@ -788,8 +809,60 @@ public class AgentTools
         }
     }
 
+    // ---------- convertir / archivar / eliminar ----------
+    private async Task<string> ConvertLeadAsync(JsonElement input, string author)
+    {
+        var lead = await _leads.GetAsync(Str(input, "id")) ?? throw new ArgumentException("Prospecto no encontrado");
+        if (lead.Status == LeadStatuses.Converted) throw new ArgumentException("El prospecto ya está convertido");
+        var pid = Str(input, "pipelineId");
+        var opts = new ConvertOptions(
+            Bool(input, "contacto", true),
+            Bool(input, "compania", true) && !string.IsNullOrWhiteSpace(lead.CompanyName),
+            Bool(input, "negociacion", true),
+            string.IsNullOrEmpty(pid) ? null : pid);
+        await _leads.ConvertAsync(lead, opts, author);
+        return Ser(new { ok = true, contactId = lead.ConvertedContactId, companyId = lead.ConvertedCompanyId, dealId = lead.ConvertedDealId, enlaceNegociacion = lead.ConvertedDealId is null ? null : $"deals/{lead.ConvertedDealId}" });
+    }
+
+    private async Task<string> ArchiveAsync(string tipo, string id, bool archive, string author)
+    {
+        Entity? e = tipo switch
+        {
+            "lead" => await _leadRepo.GetByIdAsync(id),
+            "deal" => await _dealRepo.GetByIdAsync(id),
+            "contact" => await _contacts.GetByIdAsync(id),
+            "company" => await _companies.GetByIdAsync(id),
+            _ => throw new ArgumentException("Tipo no válido para archivar: " + tipo)
+        };
+        if (e is null) throw new ArgumentException("Registro no encontrado");
+        e.IsArchived = archive; e.UpdatedBy = author;
+        switch (e)
+        {
+            case Lead l: await _leadRepo.UpdateAsync(l); break;
+            case Deal d: await _dealRepo.UpdateAsync(d); break;
+            case Contact c: await _contacts.UpdateAsync(c); break;
+            case Company k: await _companies.UpdateAsync(k); break;
+        }
+        return Ser(new { ok = true, archivado = archive });
+    }
+
+    private async Task<string> DeleteRecordAsync(string tipo, string id, string author)
+    {
+        switch (tipo)
+        {
+            case "lead": await _leadRepo.DeleteAsync(id, author); break;
+            case "deal": await _dealRepo.DeleteAsync(id, author); break;
+            case "contact": await _contacts.DeleteAsync(id, author); break;
+            case "company": await _companies.DeleteAsync(id, author); break;
+            case "product": await _products.DeleteAsync(id, author); break;
+            default: throw new ArgumentException("Tipo no válido para eliminar: " + tipo);
+        }
+        return Ser(new { ok = true, eliminado = true, nota = "Enviado a la papelera (recuperable)." });
+    }
+
     private static string Ser(object o) => JsonSerializer.Serialize(o, Json);
     private static string Str(JsonElement e, string name) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null ? (v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : v.GetRawText()) : "";
     private static int Int(JsonElement e, string name, int def) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : def;
     private static JsonElement Obj(JsonElement e, string name) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) ? v : default;
+    private static bool Bool(JsonElement e, string name, bool def) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) ? v.ValueKind switch { JsonValueKind.True => true, JsonValueKind.False => false, JsonValueKind.String => v.GetString()?.ToLowerInvariant() is "true" or "1" or "sí" or "si", _ => def } : def;
 }

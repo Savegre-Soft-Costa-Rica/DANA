@@ -75,7 +75,43 @@ public class ReminderWorker : BackgroundService
             await automations.TriggerAsync(new AutomationEvent("deals", TriggerTypes.OverdueClose, d, "Recordatorio"));
         }
 
-        if (soon.Count + overdue.Count + late.Count > 0)
-            _logger.LogInformation("Recordatorios: {Soon} próximas, {Overdue} vencidas, {Late} cierres vencidos", soon.Count, overdue.Count, late.Count);
+        // 4. Inactividad: prospectos/negociaciones sin actividad en N días (solo si hay automatizaciones "inactive")
+        var inactiveFired = 0;
+        var rules = (await automations.GetAllAsync()).Where(a => a.IsEnabled && a.Trigger.Type == TriggerTypes.Inactive).ToList();
+        if (rules.Count > 0)
+        {
+            // Prospectos
+            var leadDays = rules.Where(a => a.BoardKey == "leads").Select(a => int.TryParse(a.Trigger.Get("days"), out var d) ? d : 7).DefaultIfEmpty().ToList();
+            if (leadDays.Any(d => d > 0))
+            {
+                var cut = now.AddDays(-leadDays.Where(d => d > 0).Min());
+                var leadsRepo = _sp.GetRequiredService<IRepository<Lead>>();
+                var stale = (await leadsRepo.Collection.Find(l => l.DeletedAt == null && !l.IsArchived && l.Status != LeadStatuses.Converted && l.Status != LeadStatuses.Junk && l.UpdatedAt < cut).Limit(200).ToListAsync(ct))
+                    .Where(l => l.InactiveTriggeredAt == null || l.InactiveTriggeredAt < l.UpdatedAt).ToList();
+                foreach (var l in stale)
+                {
+                    l.InactiveTriggeredAt = now; await leadsRepo.UpdateAsync(l);
+                    await automations.TriggerAsync(new AutomationEvent("leads", TriggerTypes.Inactive, l, "Recordatorio", new() { ["days"] = ((int)(now - l.UpdatedAt).TotalDays).ToString() }));
+                    inactiveFired++;
+                }
+            }
+            // Negociaciones
+            var dealDays = rules.Where(a => a.BoardKey == "deals").Select(a => int.TryParse(a.Trigger.Get("days"), out var d) ? d : 7).DefaultIfEmpty().ToList();
+            if (dealDays.Any(d => d > 0))
+            {
+                var cut = now.AddDays(-dealDays.Where(d => d > 0).Min());
+                var stale = (await deals.Collection.Find(d => d.DeletedAt == null && !d.IsArchived && d.ClosedAt == null && d.UpdatedAt < cut).Limit(200).ToListAsync(ct))
+                    .Where(d => d.InactiveTriggeredAt == null || d.InactiveTriggeredAt < d.UpdatedAt).ToList();
+                foreach (var d in stale)
+                {
+                    d.InactiveTriggeredAt = now; await deals.UpdateAsync(d);
+                    await automations.TriggerAsync(new AutomationEvent("deals", TriggerTypes.Inactive, d, "Recordatorio", new() { ["days"] = ((int)(now - d.UpdatedAt).TotalDays).ToString() }));
+                    inactiveFired++;
+                }
+            }
+        }
+
+        if (soon.Count + overdue.Count + late.Count + inactiveFired > 0)
+            _logger.LogInformation("Recordatorios: {Soon} próximas, {Overdue} vencidas, {Late} cierres vencidos, {Inactive} inactivos", soon.Count, overdue.Count, late.Count, inactiveFired);
     }
 }

@@ -64,6 +64,8 @@ public class AutomationService
         {
             TriggerTypes.StageChanged => trigger.Get("stageId") == "" || trigger.Get("stageId") == data.GetValueOrDefault("stageId"),
             TriggerTypes.StatusChanged => trigger.Get("status") == "" || trigger.Get("status") == data.GetValueOrDefault("status"),
+            TriggerTypes.QuoteAccepted => trigger.Get("estado") == "" || trigger.Get("estado") == data.GetValueOrDefault("status"),
+            TriggerTypes.Inactive => int.TryParse(data.GetValueOrDefault("days"), out var di) && di >= (int.TryParse(trigger.Get("days"), out var th) ? th : 7),
             _ => true
         };
     }

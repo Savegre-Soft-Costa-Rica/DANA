@@ -71,6 +71,13 @@ public class AiAgent : Entity
     /// <summary>Nombres de herramientas habilitadas (ver AgentTools.Catalog).</summary>
     public List<string> Tools { get; set; } = new();
     public bool AllowWrites { get; set; }
+    /// <summary>Permite ejecutar envíos (correo/SMS/WhatsApp) de forma autónoma en rutinas/automatizaciones, sin confirmación humana.</summary>
+    public bool AutoApprove { get; set; }
+    /// <summary>Tope de envíos autónomos por día (0 = usar el valor por defecto, 20).</summary>
+    public int DailySendLimit { get; set; } = 20;
+    /// <summary>Contador de envíos autónomos del día (uso interno).</summary>
+    public DateTime SendCountDate { get; set; }
+    public int SendCountToday { get; set; }
     /// <summary>low | medium | high | "" (predeterminado del modelo). Solo Claude.</summary>
     public string Effort { get; set; } = "";
     public string Color { get; set; } = "#0073ea";
