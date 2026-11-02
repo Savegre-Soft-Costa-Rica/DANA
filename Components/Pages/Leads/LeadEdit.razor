@@ -93,8 +93,13 @@
     <EditForm Model="_model" OnValidSubmit="SaveAsync" FormName="leadForm">
         <DataAnnotationsValidator />
         <div class="card">
-            <div class="card-header">Información</div>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Información</span>
+                @if (!_editing) { <button type="button" class="btn-secondary btn-sm" @onclick="() => _editing = true">✎ Editar</button> }
+            </div>
             <div class="card-body">
+                @if (_editing)
+                {
                 <div class="row g-3">
                     <div class="col-md-8">
                         <label class="form-label">Título *</label>
@@ -239,11 +244,46 @@
                         </div>
                     }
                 </div>
+                }
+                else
+                {
+                    <div class="info-grid">
+                        <FieldView Label="Título" Value="@_model.Title" Wide="true" />
+                        <FieldView Label="Estado"><Badge Text="@_status.Name" Color="@_status.Color" /></FieldView>
+                        <FieldView Label="Nombre" Value="@_model.Name" />
+                        <FieldView Label="Apellido" Value="@_model.LastName" />
+                        <FieldView Label="Cargo" Value="@_model.Position" />
+                        <FieldView Label="Compañía" Value="@_model.CompanyName" />
+                        <FieldView Label="Teléfono" Value="@_model.Phone" />
+                        <FieldView Label="Correo" Value="@_model.Email" />
+                        <FieldView Label="Fuente" Value="@_model.Source" />
+                        <FieldView Label="Oportunidad"><Money Amount="_model.Opportunity" Currency="@_model.Currency" /></FieldView>
+                        <FieldView Label="Responsable" Value="@_model.AssignedTo" />
+                        @foreach (var col in _customCols) { <FieldView Label="@col.Title" Value="@CustomDisplay(col)" /> }
+                        <FieldView Label="Comentarios" Value="@_model.Comments" Wide="true" />
+                    </div>
+                    @if (_model.Contacts.Count > 0)
+                    {
+                        <div class="mt-4">
+                            <strong>Contactos adicionales (@_model.Contacts.Count)</strong>
+                            @foreach (var c in _model.Contacts)
+                            {
+                                <div class="small mt-1 pb-1 border-bottom">@c.FullName@(string.IsNullOrWhiteSpace(c.Position) ? "" : $" · {c.Position}")@(string.IsNullOrWhiteSpace(c.Phone) ? "" : $" · {c.Phone}")@(string.IsNullOrWhiteSpace(c.Email) ? "" : $" · {c.Email}")</div>
+                            }
+                        </div>
+                    }
+                }
             </div>
-            <div class="card-footer d-flex justify-content-between align-items-center">
-                <span class="muted small">@(_saved ? "✓ Guardado" : "")</span>
-                <button type="submit" class="btn-primary" disabled="@_busy">Guardar</button>
-            </div>
+            @if (_editing)
+            {
+                <div class="card-footer d-flex justify-content-between align-items-center">
+                    <span class="muted small">@(_saved ? "✓ Guardado" : "")</span>
+                    <span class="d-flex gap-2">
+                        <button type="button" class="btn-secondary" @onclick="CancelEdit">Cancelar</button>
+                        <button type="submit" class="btn-primary" disabled="@_busy">Guardar</button>
+                    </span>
+                </div>
+            }
         </div>
     </EditForm>
 
@@ -285,6 +325,7 @@
     private string _newFieldTitle = "";
     private ColumnType _newFieldType = ColumnType.Text;
     private bool _busy, _saved;
+    private bool _editing;
     private bool _showConvert;
     private bool _cvContact = true, _cvCompany = true, _cvDeal = true;
     private string? _cvPipelineId;
@@ -310,7 +351,24 @@
             _model = found;
             _cvCompany = !string.IsNullOrWhiteSpace(_model.CompanyName);
         }
+        _editing = IsNew;
         _loading = false;
+    }
+
+    private async Task CancelEdit()
+    {
+        if (IsNew) { if (Embedded) await Drawer.CloseAsync(); else Nav.NavigateTo("leads"); return; }
+        var found = await Leads.GetAsync(Id);
+        if (found is not null) _model = found;
+        _editing = false;
+    }
+
+    private string? CustomDisplay(BoardColumn<Lead> col)
+    {
+        if (col.GetValue(_model) is bool b) return b ? "Sí" : "No";
+        var s = col.EditText(_model);
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        return col.Options is { Count: > 0 } ? col.Options.FirstOrDefault(o => o.Value == s)?.Label ?? s : s;
     }
 
     private async Task SaveAsync()
@@ -321,6 +379,7 @@
             var wasNew = IsNew;
             await Leads.SaveAsync(_model, await Me.NameAsync());
             _saved = true;
+            _editing = false;
             if (Embedded)
             {
                 await Drawer.NotifyChangedAsync();

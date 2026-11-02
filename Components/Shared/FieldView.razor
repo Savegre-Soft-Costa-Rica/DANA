@@ -1,0 +1,17 @@
+@* Muestra una etiqueta y su valor en modo lectura (dentro de .info-grid). *@
+<div class="fv @(Wide ? "fv-wide" : "")">
+    <div class="fv-label">@Label</div>
+    <div class="fv-value @(IsEmpty ? "fv-empty" : "")">
+        @if (ChildContent is not null) { @ChildContent }
+        else { @(IsEmpty ? "—" : Value) }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = "";
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public bool Wide { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private bool IsEmpty => ChildContent is null && string.IsNullOrWhiteSpace(Value);
+}

@@ -45,8 +45,13 @@
         <EditForm Model="_model" OnValidSubmit="SaveAsync" FormName="dealForm">
             <DataAnnotationsValidator />
             <div class="card">
-                <div class="card-header">Información</div>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Información</span>
+                    @if (!_editing) { <button type="button" class="btn-secondary btn-sm" @onclick="() => _editing = true">✎ Editar</button> }
+                </div>
                 <div class="card-body">
+                    @if (_editing)
+                    {
                     @if (CurrentPipeline is not null)
                     {
                         <div class="stage-bar mb-3">
@@ -137,11 +142,35 @@
                         </div>
                         <div class="col-12"><label class="form-label">Comentarios</label><InputTextArea class="form-control" rows="3" @bind-Value="_model.Comments" /></div>
                     </div>
+                    }
+                    else
+                    {
+                        <div class="info-grid">
+                            <FieldView Label="Título" Value="@_model.Title" Wide="true" />
+                            <FieldView Label="Tipo" Value="@_model.Type" />
+                            <FieldView Label="Embudo" Value="@CurrentPipeline?.Name" />
+                            <FieldView Label="Etapa">@if (CurrentStage is not null) { <Badge Text="@CurrentStage.Name" Color="@CurrentStage.Color" /> } else { <span>—</span> }</FieldView>
+                            <FieldView Label="Contacto" Value="@(_contacts.FirstOrDefault(c => c.Id == _model.ContactId)?.FullName)" />
+                            <FieldView Label="Compañía" Value="@(_companies.FirstOrDefault(c => c.Id == _model.CompanyId)?.Title)" />
+                            <FieldView Label="Importe"><Money Amount="_model.Amount" Currency="@_model.Currency" /></FieldView>
+                            <FieldView Label="Probabilidad" Value="@($"{_model.Probability}%")" />
+                            <FieldView Label="Cierre previsto" Value="@(_model.ExpectedCloseDate?.ToString("d"))" />
+                            <FieldView Label="Fuente" Value="@_model.Source" />
+                            <FieldView Label="Responsable" Value="@_model.AssignedTo" />
+                            <FieldView Label="Comentarios" Value="@_model.Comments" Wide="true" />
+                        </div>
+                    }
                 </div>
-                <div class="card-footer d-flex justify-content-between align-items-center">
-                    <span class="muted small">@(_saved ? "✓ Guardado" : "")</span>
-                    <button type="submit" class="btn-primary" disabled="@_busy">Guardar</button>
-                </div>
+                @if (_editing)
+                {
+                    <div class="card-footer d-flex justify-content-between align-items-center">
+                        <span class="muted small">@(_saved ? "✓ Guardado" : "")</span>
+                        <span class="d-flex gap-2">
+                            <button type="button" class="btn-secondary" @onclick="CancelEdit">Cancelar</button>
+                            <button type="submit" class="btn-primary" disabled="@_busy">Guardar</button>
+                        </span>
+                    </div>
+                }
             </div>
         </EditForm>
 
@@ -219,6 +248,7 @@
     private List<string> _people = new();
     private bool _loading = true;
     private bool _busy, _saved;
+    private bool _editing;
     private string? _error;
 
     private Pipeline? CurrentPipeline => _pipelines.FirstOrDefault(p => p.Id == _model.PipelineId);
@@ -294,7 +324,16 @@
             _model = found;
             _quotes = await Quotes.GetForDealAsync(_model.Id!);
         }
+        _editing = IsNew;
         _loading = false;
+    }
+
+    private async Task CancelEdit()
+    {
+        if (IsNew) { if (Embedded) await Drawer.CloseAsync(); else Nav.NavigateTo($"deals/board/{_model.PipelineId}"); return; }
+        var found = await Deals.GetAsync(Id);
+        if (found is not null) _model = found;
+        _editing = false;
     }
 
     private void OnPipelineChanged(ChangeEventArgs e)
@@ -314,6 +353,7 @@
             var wasNew = IsNew;
             await Deals.SaveAsync(_model, await Me.NameAsync());
             _saved = true;
+            _editing = false;
             if (Embedded)
             {
                 await Drawer.NotifyChangedAsync();

@@ -584,6 +584,14 @@ pre.code.small { font-size: .72rem; max-height: 160px; }
 /* Etiqueta de precio a cotizar */
 .pubc-quote { color: var(--warning); font-weight: 600; }
 
+/* Modo lectura de fichas (prospecto, negociación, contacto, compañía) */
+.info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px 20px; }
+.fv { min-width: 0; }
+.fv-wide { grid-column: 1 / -1; }
+.fv-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-3); margin-bottom: 2px; }
+.fv-value { color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.fv-value.fv-empty { color: var(--text-3); }
+
 /* Editor de plantillas de correo */
 .tpl-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 @media (max-width: 860px) { .tpl-editor { grid-template-columns: 1fr; } }

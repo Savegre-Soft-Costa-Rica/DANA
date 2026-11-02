@@ -48,8 +48,13 @@
         <EditForm Model="_model" OnValidSubmit="SaveAsync" FormName="companyForm">
             <DataAnnotationsValidator />
             <div class="card">
-                <div class="card-header">Información</div>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Información</span>
+                    @if (!_editing) { <button type="button" class="btn-secondary btn-sm" @onclick="() => _editing = true">✎ Editar</button> }
+                </div>
                 <div class="card-body">
+                    @if (_editing)
+                    {
                     <div class="row g-3">
                         <div class="col-md-6">
                             <label class="form-label">Nombre *</label>
@@ -87,11 +92,35 @@
                         </div>
                         <div class="col-12"><label class="form-label">Comentarios</label><InputTextArea class="form-control" rows="3" @bind-Value="_model.Comments" /></div>
                     </div>
+                    }
+                    else
+                    {
+                        <div class="info-grid">
+                            <FieldView Label="Nombre" Value="@_model.Title" Wide="true" />
+                            <FieldView Label="Tipo" Value="@_model.Type" />
+                            <FieldView Label="Industria" Value="@_model.Industry" />
+                            <FieldView Label="Identificación fiscal" Value="@_model.TaxId" />
+                            <FieldView Label="Teléfono" Value="@_model.Phone" />
+                            <FieldView Label="Correo" Value="@_model.Email" />
+                            <FieldView Label="Sitio web" Value="@_model.Web" />
+                            <FieldView Label="Ingresos anuales" Value="@(_model.AnnualRevenue?.ToString())" />
+                            <FieldView Label="Empleados" Value="@(_model.Employees?.ToString())" />
+                            <FieldView Label="Dirección" Value="@_model.Address" Wide="true" />
+                            <FieldView Label="Responsable" Value="@_model.AssignedTo" />
+                            <FieldView Label="Comentarios" Value="@_model.Comments" Wide="true" />
+                        </div>
+                    }
                 </div>
-                <div class="card-footer d-flex justify-content-between align-items-center">
-                    <span class="muted small">@(_saved ? "✓ Guardado" : "")</span>
-                    <button type="submit" class="btn-primary" disabled="@_busy">Guardar</button>
-                </div>
+                @if (_editing)
+                {
+                    <div class="card-footer d-flex justify-content-between align-items-center">
+                        <span class="muted small">@(_saved ? "✓ Guardado" : "")</span>
+                        <span class="d-flex gap-2">
+                            <button type="button" class="btn-secondary" @onclick="CancelEdit">Cancelar</button>
+                            <button type="submit" class="btn-primary" disabled="@_busy">Guardar</button>
+                        </span>
+                    </div>
+                }
             </div>
         </EditForm>
 
@@ -165,6 +194,7 @@
     private Dictionary<string, Pipeline> _pipelines = new();
     private bool _loading = true;
     private bool _busy, _saved;
+    private bool _editing;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -183,7 +213,16 @@
             _deals = await Deals.GetByCompanyAsync(_model.Id!);
             _pipelines = (await Pipelines.GetAllAsync()).ToDictionary(p => p.Id!);
         }
+        _editing = IsNew;
         _loading = false;
+    }
+
+    private async Task CancelEdit()
+    {
+        if (IsNew) { if (Embedded) await Drawer.CloseAsync(); else Nav.NavigateTo("companies"); return; }
+        var found = await Companies.GetByIdAsync(Id);
+        if (found is not null) _model = found;
+        _editing = false;
     }
 
     private async Task SaveAsync()
@@ -201,6 +240,7 @@
             }
             else { _model.UpdatedBy = await Me.NameAsync(); await Companies.UpdateAsync(_model); }
             _saved = true;
+            _editing = false;
             if (Embedded)
             {
                 await Drawer.NotifyChangedAsync();
