@@ -22,4 +22,14 @@ public class CurrentUser
     }
 
     public async Task<bool> IsAdminAsync() => (await PrincipalAsync()).IsInRole(Models.Roles.Admin);
+
+    /// <summary>true si la sesión es un invitado del modo demo (sin cuenta real).</summary>
+    public async Task<bool> IsDemoAsync() => (await PrincipalAsync()).HasClaim("demo", "1");
+
+    /// <summary>false para cuentas de "Solo lectura" (no pueden crear/editar/eliminar).</summary>
+    public async Task<bool> CanWriteAsync()
+    {
+        var p = await PrincipalAsync();
+        return !(p.IsInRole(Models.Roles.Viewer) && !p.IsInRole(Models.Roles.Admin));
+    }
 }

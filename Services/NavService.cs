@@ -2,14 +2,55 @@ using Dana.Models;
 
 namespace Dana.Services;
 
-public record NavItemDef(string Id, string Label, string Href, string Icon, string Section, bool AdminOnly = false, bool MatchAll = false);
+public record NavItemDef(string Id, string Label, string Href, string Icon, string Section, bool AdminOnly = false, bool MatchAll = false, string Workspace = "crm");
 
 public record NavItem(string Id, string Label, string Href, string Icon, string Section, bool MatchAll, bool IsCustom, bool NewTab, bool Hidden, int Sort, bool AdminOnly);
+
+/// <summary>Un espacio de trabajo: agrupa un subconjunto del menú (p. ej. CRM o Proyectos).</summary>
+public record Workspace(string Id, string Name, string Icon, string Color, string Home);
 
 /// <summary>Catálogo del menú y resolución de la configuración personal de cada usuario.</summary>
 public class NavService
 {
-    public static readonly string[] Sections = ["Principal", "Tableros", "Ventas", "Análisis", "IA", "Configuración", "Ayuda"];
+    public static readonly string[] Sections = ["Principal", "Tableros", "Ventas", "Facturación", "Análisis", "IA", "Proyectos", "Configuración", "Ayuda"];
+
+    /// <summary>Espacios de trabajo disponibles. El primero es el predeterminado.</summary>
+    public static readonly Workspace[] Workspaces =
+    [
+        new("crm", "CRM", "C", "#a25ddc", ""),
+        new("billing", "Facturación", "F", "#00c875", "facturacion"),
+        new("projects", "Proyectos", "P", "#0073ea", "proyectos"),
+    ];
+
+    public const string DefaultWorkspace = "crm";
+
+    public static Workspace GetWorkspace(string id) => Workspaces.FirstOrDefault(w => w.Id == id) ?? Workspaces[0];
+
+    private static string NormalizePath(string pathOrUri)
+    {
+        var path = pathOrUri;
+        if (Uri.TryCreate(pathOrUri, UriKind.Absolute, out var uri)) path = uri.AbsolutePath;
+        return path.Trim('/');
+    }
+
+    private static readonly string[] SharedPrefixes =
+        ["configuracion", "pipelines", "automatizaciones", "papelera", "auditoria", "usuarios", "tutorial", "cotizaciones", "productos"];
+
+    /// <summary>Rutas que aparecen en todos los espacios (no deben forzar un cambio de espacio).</summary>
+    public static bool IsSharedPath(string pathOrUri)
+    {
+        var path = NormalizePath(pathOrUri);
+        return SharedPrefixes.Any(p => path == p || path.StartsWith(p + "/"));
+    }
+
+    /// <summary>Espacio de trabajo al que pertenece una ruta (para sincronizar el menú con el contenido).</summary>
+    public static string WorkspaceForPath(string pathOrUri)
+    {
+        var path = NormalizePath(pathOrUri);
+        if (path == "facturacion" || path.StartsWith("facturacion/") || path == "facturas" || path.StartsWith("facturas/")) return "billing";
+        if (path == "proyectos" || path.StartsWith("proyectos/")) return "projects";
+        return "crm";
+    }
 
     public static readonly NavItemDef[] Catalog =
     [
@@ -22,43 +63,58 @@ public class NavService
         new("companies", "Compañías", "companies", "dot:#fdab3d", "Tableros"),
         new("quotes", "Cotizaciones", "cotizaciones", "doc", "Ventas"),
         new("products", "Productos", "productos", "box", "Ventas"),
-        new("invoices", "Facturas", "facturas", "doc", "Ventas"),
         new("documents", "Documentos", "documentos", "doc", "Ventas"),
         new("templates", "Plantillas de correo", "plantillas", "mail", "Ventas"),
         new("forms", "Formularios", "formularios", "form", "Ventas"),
+        new("prioridades", "Prioridades", "prioridades", "check", "Análisis"),
         new("reports", "Informes", "informes", "chart", "Análisis"),
         new("calendar", "Calendario", "calendario", "calendar", "Análisis"),
         new("timeline", "Cronograma", "cronograma", "gantt", "Análisis"),
         new("import", "Importar", "importar", "import", "Análisis"),
         new("office", "Oficina", "oficina", "office", "IA"),
         new("agents", "Agentes", "agentes", "robot", "IA"),
-        new("settings", "Configuración", "configuracion", "gear", "Configuración", MatchAll: true),
-        new("pipelines", "Embudos", "pipelines", "list", "Configuración"),
-        new("automations", "Automatizaciones", "automatizaciones", "bolt", "Configuración"),
-        new("trash", "Papelera", "papelera", "trash", "Configuración"),
-        new("company", "Empresa y moneda", "configuracion/empresa", "building", "Configuración", AdminOnly: true),
-        new("audit", "Auditoría", "auditoria", "clock", "Configuración", AdminOnly: true),
-        new("api", "API de prospectos", "configuracion/api", "code", "Configuración", AdminOnly: true),
-        new("users", "Usuarios", "usuarios", "users", "Configuración", AdminOnly: true),
-        new("ai", "Proveedores de IA", "configuracion/ia", "spark", "Configuración", AdminOnly: true),
-        new("tutorial", "Tutorial", "tutorial", "help", "Ayuda"),
+        new("agentactions", "Acciones de agentes", "agentes/acciones", "clock", "IA", AdminOnly: true),
+        // Espacio de trabajo "Facturación"
+        new("billhome", "Resumen", "facturacion", "chart", "Facturación", MatchAll: true, Workspace: "billing"),
+        new("invoices", "Facturas", "facturas", "doc", "Facturación", MatchAll: true, Workspace: "billing"),
+        new("billrecurring", "Recurrentes", "facturacion/recurrentes", "bolt", "Facturación", Workspace: "billing"),
+        new("bill_quotes", "Cotizaciones", "cotizaciones", "doc", "Facturación", Workspace: "billing"),
+        new("bill_products", "Productos y catálogo", "productos", "box", "Facturación", Workspace: "billing"),
+        // Espacio de trabajo "Proyectos" (tipo Trello)
+        new("projects", "Tableros", "proyectos", "board", "Proyectos", MatchAll: true, Workspace: "projects"),
+        new("projectall", "Vista general", "proyectos/general", "list", "Proyectos", MatchAll: true, Workspace: "projects"),
+        new("projectanalytics", "Analítica", "proyectos/analitica", "chart", "Proyectos", MatchAll: true, Workspace: "projects"),
+        // Compartidos entre todos los espacios (Workspace "*")
+        new("settings", "Configuración", "configuracion", "gear", "Configuración", MatchAll: true, Workspace: "*"),
+        new("pipelines", "Embudos", "pipelines", "list", "Configuración", Workspace: "*"),
+        new("automations", "Automatizaciones", "automatizaciones", "bolt", "Configuración", Workspace: "*"),
+        new("trash", "Papelera", "papelera", "trash", "Configuración", Workspace: "*"),
+        new("company", "Empresa y moneda", "configuracion/empresa", "building", "Configuración", AdminOnly: true, Workspace: "*"),
+        new("audit", "Auditoría", "auditoria", "clock", "Configuración", AdminOnly: true, Workspace: "*"),
+        new("api", "API de prospectos", "configuracion/api", "code", "Configuración", AdminOnly: true, Workspace: "*"),
+        new("users", "Usuarios", "usuarios", "users", "Configuración", AdminOnly: true, Workspace: "*"),
+        new("ai", "Proveedores de IA", "configuracion/ia", "spark", "Configuración", AdminOnly: true, Workspace: "*"),
+        new("tutorial", "Tutorial", "tutorial", "help", "Ayuda", Workspace: "*"),
     ];
 
     private readonly UserService _users;
     public NavService(UserService users) { _users = users; }
 
-    /// <summary>Lista final de elementos (catálogo + preferencias del usuario), en orden, incluyendo los ocultos (Hidden=true).</summary>
-    public static List<NavItem> Resolve(MenuConfig? cfg, bool isAdmin)
+    private static bool InWorkspace(string itemWorkspace, string workspace) => itemWorkspace == "*" || itemWorkspace == workspace;
+
+    /// <summary>Lista final de elementos del espacio indicado (catálogo + preferencias del usuario), en orden, incluyendo los ocultos (Hidden=true).</summary>
+    public static List<NavItem> Resolve(MenuConfig? cfg, bool isAdmin, string workspace = DefaultWorkspace)
     {
         var prefs = (cfg?.Items ?? new()).ToDictionary(p => p.Id);
         var items = new List<NavItem>();
         var i = 0;
         foreach (var d in Catalog)
         {
+            i++;
             if (d.AdminOnly && !isAdmin) continue;
+            if (!InWorkspace(d.Workspace, workspace)) continue;
             prefs.TryGetValue(d.Id, out var p);
             items.Add(new NavItem(d.Id, p?.Label ?? d.Label, d.Href, d.Icon, p?.Section ?? d.Section, d.MatchAll, false, false, p?.Hidden ?? false, p?.Sort ?? i * 10, d.AdminOnly));
-            i++;
         }
         foreach (var p in cfg?.Items.Where(p => p.Url is not null) ?? [])
             items.Add(new NavItem(p.Id, p.Label ?? p.Url!, p.Url!, "custom:" + (p.Icon ?? "🔗"), p.Section ?? "Principal", false, true, p.OpenInNewTab, p.Hidden, p.Sort, false));
@@ -87,9 +143,21 @@ public class NavService
             var def = Catalog.FirstOrDefault(d => d.Id == it.Id);
             if (it.IsCustom)
                 cfg.Items.Add(new MenuItemPref { Id = it.Id, Label = it.Label, Section = it.Section, Hidden = it.Hidden, Sort = it.Sort, Url = it.Href, Icon = it.Icon.Replace("custom:", ""), OpenInNewTab = it.NewTab });
-            else if (def is not null && (it.Label != def.Label || it.Section != def.Section || it.Hidden || it.Sort != Array.IndexOf(Catalog, def) * 10))
+            else if (def is not null && (it.Label != def.Label || it.Section != def.Section || it.Hidden || it.Sort != (Array.IndexOf(Catalog, def) + 1) * 10))
                 cfg.Items.Add(new MenuItemPref { Id = it.Id, Label = it.Label == def.Label ? null : it.Label, Section = it.Section == def.Section ? null : it.Section, Hidden = it.Hidden, Sort = it.Sort });
         }
+        return cfg;
+    }
+
+    /// <summary>Convierte el borrador de UN espacio en config, conservando las preferencias guardadas de los demás espacios.</summary>
+    public static MenuConfig ToConfig(List<NavItem> items, List<string> sectionOrder, string workspace, MenuConfig? existing)
+    {
+        var cfg = ToConfig(items, sectionOrder);
+        if (existing is null) return cfg;
+        // Reponer preferencias de ítems exclusivos de OTROS espacios (no editados en este borrador).
+        var otherIds = Catalog.Where(d => d.Workspace != "*" && !InWorkspace(d.Workspace, workspace)).Select(d => d.Id).ToHashSet();
+        foreach (var p in existing.Items.Where(p => otherIds.Contains(p.Id) && cfg.Items.All(x => x.Id != p.Id)))
+            cfg.Items.Add(p);
         return cfg;
     }
 
@@ -111,6 +179,7 @@ public class NavService
         ["spark"] = "<path d=\"M10 2l1.8 5.2L17 9l-5.2 1.8L10 16l-1.8-5.2L3 9l5.2-1.8z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\"/><path d=\"M16 14l.7 1.8 1.8.7-1.8.7L16 19l-.7-1.8-1.8-.7 1.8-.7z\" fill=\"currentColor\"/>",
         ["gear"] = "<path d=\"M10 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zM8.6 2h2.8l.4 2.1a6.2 6.2 0 0 1 1.5.9l2-.7 1.4 2.4-1.6 1.4a6.3 6.3 0 0 1 0 1.8l1.6 1.4-1.4 2.4-2-.7a6.2 6.2 0 0 1-1.5.9l-.4 2.1H8.6l-.4-2.1a6.2 6.2 0 0 1-1.5-.9l-2 .7-1.4-2.4 1.6-1.4a6.3 6.3 0 0 1 0-1.8L3.3 6.7l1.4-2.4 2 .7a6.2 6.2 0 0 1 1.5-.9z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\"/>",
         ["list"] = "<path d=\"M3 5h14M3 10h10M3 15h6\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/>",
+        ["board"] = "<rect x=\"3\" y=\"4\" width=\"14\" height=\"12\" rx=\"2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\"/><path d=\"M7.5 4v12M12.5 4v12\" stroke=\"currentColor\" stroke-width=\"1.6\"/>",
         ["bolt"] = "<path d=\"M11 2 4 11h5l-1 7 7-9h-5l1-7z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linejoin=\"round\"/>",
         ["trash"] = "<path d=\"M4 6h12M8 6V4h4v2M6 6l1 11h6l1-11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
         ["building"] = "<path d=\"M3 17V7l5-3v13M8 17V9l5-2v10M13 17V11l4-1v7M2 17h16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linejoin=\"round\"/>",

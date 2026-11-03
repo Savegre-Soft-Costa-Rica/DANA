@@ -143,7 +143,22 @@
             <div class="chat-composer">
                 <label class="icon-btn file-btn" title="Adjuntar imagen o archivo">📎<InputFile OnChange="OnFilesAsync" multiple /></label>
                 <button class="icon-btn @(_recording ? "rec" : "")" title="@(_recording ? "Detener y enviar nota de voz" : "Grabar nota de voz")" @onclick="ToggleRecordAsync">@(_recording ? "⏹" : "🎤")</button>
-                <input class="form-control" placeholder="@(_recording ? "Grabando nota de voz…" : "Escriba un mensaje…")" disabled="@_recording" @bind="_draft" @bind:event="oninput" @onkeydown="OnKey" />
+                <div class="mention-wrap flex-grow-1">
+                    @if (_mentionOpen)
+                    {
+                        var opts = _users.Where(u => !string.Equals(u.Name, _me, StringComparison.OrdinalIgnoreCase) && u.Name.Contains(_mentionQuery, StringComparison.OrdinalIgnoreCase)).Take(6).ToList();
+                        @if (opts.Count > 0)
+                        {
+                            <div class="mention-list">
+                                @foreach (var u in opts)
+                                {
+                                    <button type="button" class="list-opt" @onclick="() => PickMention(u.Name)"><UserAvatar Name="@u.Name" Picture="@u.Picture" ShowPresence="false" /> @u.Name</button>
+                                }
+                            </div>
+                        }
+                    }
+                    <SmartText Class="form-control" Placeholder="@(_recording ? "Grabando nota de voz…" : "Escriba un mensaje… (@@ para mencionar)")" Disabled="_recording" Value="_draft" ValueChanged="OnDraftChanged" OnKeyDown="OnKey" />
+                </div>
                 <button class="btn-primary" disabled="@((string.IsNullOrWhiteSpace(_draft) && _pending.Count == 0) || _recording)" @onclick="SendAsync">Enviar</button>
             </div>
         }
@@ -213,6 +228,28 @@
     private bool _recording;
     private IJSObjectReference? _recorder;
     private string? _uploadErr;
+    private bool _mentionOpen;
+    private string _mentionQuery = "";
+
+    private void OnDraftChanged(string v)
+    {
+        _draft = v;
+        _mentionOpen = false;
+        var at = _draft.LastIndexOf('@');
+        if (at >= 0 && (at == 0 || char.IsWhiteSpace(_draft[at - 1])))
+        {
+            var q = _draft[(at + 1)..];
+            if (!q.Contains(' ') && q.Length <= 30) { _mentionOpen = true; _mentionQuery = q; }
+        }
+    }
+
+    private void PickMention(string name)
+    {
+        var at = _draft.LastIndexOf('@');
+        if (at < 0) return;
+        _draft = _draft[..at] + "@" + name + " ";
+        _mentionOpen = false;
+    }
 
     private string _groupName = "";
     private readonly List<string> _groupMembers = new();
@@ -261,7 +298,11 @@
             }
     }
 
-    private void OnKey(KeyboardEventArgs e) { if (e.Key == "Enter" && !_recording) _ = SendAsync(); }
+    private void OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") { _mentionOpen = false; return; }
+        if (e.Key == "Enter" && !_recording) _ = SendAsync();
+    }
 
     private async Task SendAsync()
     {
@@ -271,6 +312,7 @@
         var ids = _pending.Select(a => a.Id!).ToList();
         _draft = "";
         _pending.Clear();
+        _mentionOpen = false;
         await Chat.SendAsync(_active, _me, text, ids);
     }
 

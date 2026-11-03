@@ -32,7 +32,7 @@
     <div class="actions">
         @if (!Embedded) { <a class="btn-secondary" href="contacts">← Tablero</a> }
         @if (!IsNew) { <CopyLink Path="@($"contacts/{_model.Id}")" /> }
-        @if (!IsNew)
+        @if (!ReadOnly && !IsNew)
         {
             <a class="btn-secondary" href="deals/new?contactId=@_model.Id&companyId=@_model.CompanyId">+ Negociación</a>
             <button class="btn-secondary" @onclick="() => _emailOpen = true" disabled="@string.IsNullOrWhiteSpace(_model.Email)">✉ Enviar correo</button>
@@ -51,7 +51,7 @@
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <span>Información</span>
-                    @if (!_editing) { <button type="button" class="btn-secondary btn-sm" @onclick="() => _editing = true">✎ Editar</button> }
+                    @if (!_editing && !ReadOnly) { <button type="button" class="btn-secondary btn-sm" @onclick="() => _editing = true">✎ Editar</button> }
                 </div>
                 <div class="card-body">
                     @if (_editing)
@@ -169,6 +169,7 @@
 @code {
     private bool _emailOpen;
     [Parameter] public string? Id { get; set; }
+    [CascadingParameter(Name = "ReadOnly")] private bool ReadOnly { get; set; }
     [Parameter] public bool Embedded { get; set; }
     [SupplyParameterFromQuery(Name = "companyId")] public string? QueryCompanyId { get; set; }
     private bool IsNew => string.IsNullOrEmpty(Id);

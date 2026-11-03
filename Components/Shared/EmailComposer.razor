@@ -7,9 +7,9 @@
     <div class="sheet" style="width:min(680px,94vw)">
         <div class="sheet-head"><strong>✉ Enviar correo</strong><button class="icon-btn" @onclick="CloseAsync">✕</button></div>
         <div class="sheet-body">
-            @if (!Email.IsConfigured)
+            @if (!_canSend)
             {
-                <div class="alert alert-warning small">SMTP no está configurado (<code>Email:Smtp</code>). El correo se registrará en la línea de tiempo y podrá abrirlo en su cliente de correo.</div>
+                <div class="alert alert-warning small">Aún no ha conectado su correo. <a href="cuenta/perfil" target="_blank">Conéctelo en “Mi cuenta”</a> para enviar desde el CRM. Mientras tanto, el correo se registrará en la línea de tiempo y podrá abrirlo en su cliente con “Abrir en mi correo”.</div>
             }
             <div class="row g-2">
                 <div class="col-md-7">
@@ -37,7 +37,7 @@
         </div>
         <div class="sheet-foot">
             <a class="btn-secondary" href="@MailtoLink" target="_blank">Abrir en mi correo</a>
-            <button class="btn-primary" @onclick="SendAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_to) || string.IsNullOrWhiteSpace(_subject))">@(_busy ? "Enviando…" : Email.IsConfigured ? "Enviar" : "Registrar")</button>
+            <button class="btn-primary" @onclick="SendAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_to) || string.IsNullOrWhiteSpace(_subject))">@(_busy ? "Enviando…" : _canSend ? "Enviar" : "Registrar")</button>
         </div>
     </div>
 }
@@ -54,7 +54,8 @@
 
     private List<EmailTemplate> _templates = new();
     private string _to = "", _subject = "", _body = "";
-    private bool _busy, _sent, _wasOpen;
+    private string _meName = "";
+    private bool _busy, _sent, _wasOpen, _canSend;
     private string? _result;
 
     private string MailtoLink => $"mailto:{Uri.EscapeDataString(_to)}?subject={Uri.EscapeDataString(_subject)}&body={Uri.EscapeDataString(_body)}";
@@ -63,6 +64,8 @@
     {
         if (Open && !_wasOpen)
         {
+            _meName = await Me.NameAsync();
+            _canSend = await Email.CanUserSendAsync(_meName);
             _templates = await Email.GetTemplatesAsync();
             _to = To ?? ""; _subject = ""; _body = ""; _result = null;
             _wasOpen = true;
@@ -84,9 +87,11 @@
         _busy = true; _result = null;
         try
         {
-            var (sent, error) = await Email.SendAsync(_to.Trim(), _subject.Trim(), _body, EntityType, EntityId, EntityTitle, await Me.NameAsync());
+            var (sent, error) = await Email.SendAsync(_to.Trim(), _subject.Trim(), _body, EntityType, EntityId, EntityTitle, _meName, null, allowGlobalFallback: false);
             _sent = sent;
-            _result = sent ? "Correo enviado y registrado en la línea de tiempo." : error is not null ? $"No se pudo enviar ({error}). Se registró en la línea de tiempo." : "Correo registrado en la línea de tiempo.";
+            _result = sent ? "Correo enviado desde su cuenta y registrado en la línea de tiempo."
+                : error is not null ? $"No se pudo enviar ({error}). Se registró en la línea de tiempo."
+                : "Correo registrado en la línea de tiempo. Conecte su correo en “Mi cuenta” para enviarlo desde el CRM.";
             await OnSent.InvokeAsync();
         }
         finally { _busy = false; }

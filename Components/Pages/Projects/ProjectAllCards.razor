@@ -1,0 +1,161 @@
+@page "/proyectos/general"
+@inject ProjectService Projects
+@inject CurrentUser Me
+@inject DrawerService Drawer
+@implements IDisposable
+
+<PageTitle>Dana · Vista general</PageTitle>
+
+<PageHeader Title="Vista general" Subtitle="Todas las tarjetas de todos los tableros en un solo Kanban.">
+    <Actions>
+        <select class="form-select" style="width:auto" value="@_group" @onchange="OnGroupChanged">
+            <option value="board">Agrupar por tablero</option>
+            <option value="assignee">Agrupar por responsable</option>
+            <option value="status">Agrupar por estado</option>
+        </select>
+        <a class="btn-secondary" href="proyectos">← Tableros</a>
+    </Actions>
+</PageHeader>
+
+@if (_loading)
+{
+    <p class="muted">Cargando…</p>
+}
+else if (_cards.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-ico">🗂️</div>
+        <h4>No hay tarjetas todavía</h4>
+        <p class="muted">Cree tarjetas en sus tableros para verlas aquí.</p>
+        <a class="btn-primary" href="proyectos">Ir a tableros</a>
+    </div>
+}
+else
+{
+    var draggable = _group != "board";
+    <div class="proj-board">
+        @foreach (var g in Groups())
+        {
+            var cards = _cards.Where(c => GroupKey(c) == g.Key).OrderBy(c => c.Title).ToList();
+            <div class="proj-list @(_dragOver == g.Key ? "drag-over" : "")"
+                 ondragover="@(draggable ? "event.preventDefault();" : null)"
+                 @ondragenter="() => { if (draggable) _dragOver = g.Key; }"
+                 @ondrop="() => { if (draggable) return DropAsync(g.Key); return Task.CompletedTask; }">
+                <div class="proj-list-head">
+                    <span class="proj-list-name" style="color:@g.Color">@g.Title</span>
+                    <span class="proj-list-count">@cards.Count</span>
+                </div>
+                <div class="proj-cards">
+                    @foreach (var card in cards)
+                    {
+                        var board = _boards.GetValueOrDefault(card.BoardId);
+                        <div class="proj-card @(_draggingId == card.Id ? "dragging" : "") @(card.IsDone ? "done" : "")"
+                             draggable="@draggable.ToString().ToLower()"
+                             @ondragstart="() => _draggingId = card.Id"
+                             @ondragend="() => { _draggingId = null; _dragOver = null; }"
+                             @onclick="() => OpenCard(card)">
+                            @if (!string.IsNullOrEmpty(card.Label)) { <span class="proj-card-label" style="background:@CardLabels.ColorOf(card.Label)"></span> }
+                            <div class="proj-card-title">
+                                @if (card.Priority != "none") { <span class="prio-dot" style="background:@CardPriorities.ColorOf(card.Priority)" title="@CardPriorities.NameOf(card.Priority)"></span> }
+                                @card.Title
+                            </div>
+                            @if (board is not null)
+                            {
+                                <div class="proj-card-board"><span class="proj-board-dot" style="background:@board.Color"></span>@board.Name</div>
+                            }
+                            @if (card.HasChecklist || card.Comments.Count > 0)
+                            {
+                                <div class="proj-card-badges">
+                                    @if (card.HasChecklist) { <span class="cb @(card.ChecklistDone == card.Checklist.Count ? "ok" : "")" title="Lista de verificación">✓ @card.ChecklistDone/@card.Checklist.Count</span> }
+                                    @if (card.Comments.Count > 0) { <span class="cb" title="Comentarios">💬 @card.Comments.Count</span> }
+                                </div>
+                            }
+                            <div class="proj-card-foot">
+                                @if (card.DueAt is not null)
+                                {
+                                    <span class="proj-card-due @(card.IsOverdue ? "overdue" : "")">📅 @card.DueAt.Value.ToLocalTime().ToString("dd MMM")</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(card.AssignedTo))
+                                {
+                                    <span class="proj-card-person"><PersonChip Name="@card.AssignedTo" ShowName="false" /></span>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private string _group = "board";
+    private List<ProjectCard> _cards = new();
+    private Dictionary<string, ProjectBoard> _boards = new();
+    private string? _draggingId, _dragOver;
+
+    private const string Unassigned = "\u0000none";
+
+    protected override void OnInitialized() => Drawer.StateChanged += OnDrawerChanged;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _boards = (await Projects.GetBoardsAsync()).ToDictionary(b => b.Id!, b => b);
+        _cards = await Projects.GetAllCardsAsync();
+        _loading = false;
+    }
+
+    private record Group(string Key, string Title, string Color);
+
+    private List<Group> Groups() => _group switch
+    {
+        "status" =>
+        [
+            new("pending", "Pendientes", "#fdab3d"),
+            new("done", "Completadas", "#00c875"),
+        ],
+        "assignee" => _cards.Select(c => string.IsNullOrWhiteSpace(c.AssignedTo) ? Unassigned : c.AssignedTo!)
+            .Distinct()
+            .OrderBy(p => p == Unassigned).ThenBy(p => p)
+            .Select(p => new Group(p, p == Unassigned ? "Sin asignar" : p, p == Unassigned ? "#c3c6d4" : Avatar.ColorFor(p)))
+            .ToList(),
+        _ => _boards.Values.OrderBy(b => b.Name)
+            .Select(b => new Group(b.Id!, b.Name, b.Color))
+            .ToList(),
+    };
+
+    private string GroupKey(ProjectCard c) => _group switch
+    {
+        "status" => c.IsDone ? "done" : "pending",
+        "assignee" => string.IsNullOrWhiteSpace(c.AssignedTo) ? Unassigned : c.AssignedTo!,
+        _ => c.BoardId,
+    };
+
+    private async Task DropAsync(string groupKey)
+    {
+        _dragOver = null;
+        var id = _draggingId;
+        _draggingId = null;
+        if (id is null) return;
+        var card = _cards.FirstOrDefault(c => c.Id == id);
+        if (card is null) return;
+
+        if (_group == "status") card.IsDone = groupKey == "done";
+        else if (_group == "assignee") card.AssignedTo = groupKey == Unassigned ? null : groupKey;
+        else return;
+
+        await Projects.SaveCardAsync(card, await Me.NameAsync());
+        _cards = await Projects.GetAllCardsAsync();
+    }
+
+    private void OnGroupChanged(ChangeEventArgs e) => _group = e.Value?.ToString() ?? "board";
+
+    private void OpenCard(ProjectCard card) => Drawer.Open<ProjectCardEdit>(card.Id, "Tarjeta", LoadAndRenderAsync);
+
+    private async Task LoadAndRenderAsync() { await LoadAsync(); await InvokeAsync(StateHasChanged); }
+    private void OnDrawerChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Drawer.StateChanged -= OnDrawerChanged;
+}

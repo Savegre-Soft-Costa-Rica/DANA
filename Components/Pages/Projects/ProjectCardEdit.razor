@@ -1,0 +1,231 @@
+@inject ProjectService Projects
+@inject UserService Users
+@inject CurrentUser Me
+@inject DialogService Dialogs
+@inject DrawerService Drawer
+
+@if (_card is null)
+{
+    <p class="muted">Cargando…</p>
+}
+else
+{
+    <div class="cedit">
+        @* ---- Título + estado ---- *@
+        <div class="cedit-head">
+            <button type="button" class="cedit-check @(_card.IsDone ? "on" : "")" title="@(_card.IsDone ? "Marcar como pendiente" : "Marcar como completada")" @onclick="ToggleDoneAsync">
+                @(_card.IsDone ? "✓" : "")
+            </button>
+            <input class="cedit-title @(_card.IsDone ? "done" : "")" @bind="_card.Title" @bind:event="oninput" placeholder="Título de la tarjeta" />
+        </div>
+
+        @* ---- Meta: responsable / fecha ---- *@
+        <div class="cedit-grid">
+            <div class="cedit-field">
+                <label class="cedit-label">👤 Responsable</label>
+                <select class="form-select" @bind="_card.AssignedTo">
+                    <option value="">Sin asignar</option>
+                    @foreach (var p in _people) { <option value="@p">@p</option> }
+                </select>
+            </div>
+            <div class="cedit-field">
+                <label class="cedit-label">📅 Fecha límite</label>
+                <input type="date" class="form-control @(_card.IsOverdue ? "is-overdue" : "")" value="@_dueDate" @onchange="OnDueChanged" />
+            </div>
+        </div>
+
+        @* ---- Prioridad (chips) ---- *@
+        <div class="cedit-field">
+            <label class="cedit-label">⚑ Prioridad</label>
+            <div class="chip-row">
+                @foreach (var p in CardPriorities.All)
+                {
+                    <button type="button" class="prio-chip @(_card.Priority == p.Id ? "active" : "")"
+                            style="--c:@p.Color" @onclick="() => _card.Priority = p.Id">
+                        <span class="prio-chip-dot"></span>@p.Name
+                    </button>
+                }
+            </div>
+        </div>
+
+        @* ---- Etiqueta (chips) ---- *@
+        <div class="cedit-field">
+            <label class="cedit-label">🏷 Etiqueta</label>
+            <div class="chip-row">
+                <button type="button" class="label-chip none @(string.IsNullOrEmpty(_card.Label) ? "active" : "")" title="Sin etiqueta" @onclick="() => _card.Label = null">Ninguna</button>
+                @foreach (var l in CardLabels.All)
+                {
+                    <button type="button" class="label-chip @(_card.Label == l.Id ? "active" : "")" style="--c:@l.Color" title="@l.Name" @onclick="() => _card.Label = l.Id">
+                        @if (_card.Label == l.Id) { <span>✓</span> }
+                    </button>
+                }
+            </div>
+        </div>
+
+        @* ---- Descripción ---- *@
+        <div class="cedit-field">
+            <label class="cedit-label">≡ Descripción</label>
+            <textarea class="form-control" rows="3" @bind="_card.Description" placeholder="Agregue más detalles…"></textarea>
+        </div>
+
+        @* ---- Lista de verificación ---- *@
+        <div class="cedit-section">
+            <div class="cedit-section-head">
+                <span class="cedit-section-title">✓ Lista de verificación</span>
+                @if (_card.HasChecklist) { <span class="cedit-progress-pct">@ChecklistPct%</span> }
+            </div>
+            @if (_card.HasChecklist)
+            {
+                <div class="checklist-bar"><div style="width:@ChecklistPct%"></div></div>
+                <div class="checklist">
+                    @foreach (var item in _card.Checklist)
+                    {
+                        <div class="checklist-row @(item.Done ? "done" : "")">
+                            <input type="checkbox" class="form-check-input" checked="@item.Done" @onchange="e => ToggleChecklistAsync(item, e)" />
+                            <span class="checklist-text">@item.Text</span>
+                            <button class="icon-btn tiny checklist-del" title="Quitar" @onclick="() => RemoveChecklistAsync(item)">✕</button>
+                        </div>
+                    }
+                </div>
+            }
+            <div class="checklist-add">
+                <input class="form-control form-control-sm" @bind="_newChecklist" @bind:event="oninput" placeholder="Agregar un elemento…" @onkeydown="OnChecklistKeyAsync" />
+                <button class="btn-secondary btn-sm" @onclick="AddChecklistAsync" disabled="@string.IsNullOrWhiteSpace(_newChecklist)">Añadir</button>
+            </div>
+        </div>
+
+        @* ---- Comentarios ---- *@
+        <div class="cedit-section">
+            <div class="cedit-section-head"><span class="cedit-section-title">💬 Comentarios</span>
+                @if (_card.Comments.Count > 0) { <span class="cedit-progress-pct">@_card.Comments.Count</span> }
+            </div>
+            <div class="comment-compose">
+                <span class="avatar avatar-letter avatar-sm" style="background:@Avatar.ColorFor(_meName)">@Avatar.Initials(_meName)</span>
+                <div class="comment-compose-body">
+                    <textarea class="form-control form-control-sm" rows="2" @bind="_newComment" @bind:event="oninput" placeholder="Escriba un comentario…"></textarea>
+                    <button class="btn-primary btn-sm mt-1" @onclick="AddCommentAsync" disabled="@string.IsNullOrWhiteSpace(_newComment)">Comentar</button>
+                </div>
+            </div>
+            @if (_card.Comments.Count == 0)
+            {
+                <div class="muted small mt-2">Aún no hay comentarios.</div>
+            }
+            else
+            {
+                <div class="comment-list">
+                    @foreach (var c in _card.Comments.OrderByDescending(x => x.CreatedAt))
+                    {
+                        <div class="comment">
+                            <span class="avatar avatar-letter avatar-sm" style="background:@Avatar.ColorFor(c.Author)">@Avatar.Initials(c.Author)</span>
+                            <div class="comment-body">
+                                <div class="comment-meta"><b>@c.Author</b> <span class="muted small">@c.CreatedAt.ToLocalTime().ToString("dd MMM, HH:mm")</span></div>
+                                <div class="comment-text">@c.Text</div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        @* ---- Barra de acciones fija ---- *@
+        <div class="cedit-actions">
+            <button class="btn-primary" @onclick="SaveAsync" disabled="@string.IsNullOrWhiteSpace(_card.Title)">Guardar</button>
+            <span class="flex-grow-1"></span>
+            <button class="btn-ghost danger" title="Eliminar tarjeta" @onclick="DeleteAsync">🗑 Eliminar</button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public bool Embedded { get; set; }
+
+    private ProjectCard? _card;
+    private List<string> _people = new();
+    private string _meName = "";
+    private string? _dueDate;
+    private string _newChecklist = "";
+    private string _newComment = "";
+
+    private int ChecklistPct => _card is null || _card.Checklist.Count == 0 ? 0 : (int)Math.Round(100.0 * _card.ChecklistDone / _card.Checklist.Count);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _meName = await Me.NameAsync();
+        _people = (await Users.GetAllAsync()).Where(u => u.IsActive).Select(u => u.Name).OrderBy(n => n).ToList();
+        _card = await Projects.GetCardAsync(Id);
+        if (_card is not null && _card.DueAt is not null)
+            _dueDate = _card.DueAt.Value.ToLocalTime().ToString("yyyy-MM-dd");
+    }
+
+    private void OnDueChanged(ChangeEventArgs e)
+    {
+        var v = e.Value?.ToString();
+        _dueDate = v;
+        if (_card is null) return;
+        _card.DueAt = DateTime.TryParse(v, out var d) ? DateTime.SpecifyKind(d.Date, DateTimeKind.Local).ToUniversalTime() : null;
+    }
+
+    private async Task ToggleDoneAsync()
+    {
+        if (_card is null) return;
+        _card.IsDone = !_card.IsDone;
+        await PersistAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_card is null || string.IsNullOrWhiteSpace(_card.Title)) return;
+        await Projects.SaveCardAsync(_card, _meName);
+        if (Embedded) { await Drawer.NotifyChangedAsync(); await Drawer.CloseAsync(); }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_card is null) return;
+        if (!await Dialogs.ConfirmAsync("¿Eliminar esta tarjeta?")) return;
+        await Projects.DeleteCardAsync(_card.Id!, _meName);
+        if (Embedded) { await Drawer.NotifyChangedAsync(); await Drawer.CloseAsync(); }
+    }
+
+    // ---- Persistencia inmediata (checklist / comentarios / estado) ----
+    private async Task PersistAsync()
+    {
+        if (_card is null) return;
+        await Projects.SaveCardAsync(_card, _meName);
+        await Drawer.NotifyChangedAsync();
+    }
+
+    private async Task AddChecklistAsync()
+    {
+        if (_card is null || string.IsNullOrWhiteSpace(_newChecklist)) return;
+        _card.Checklist.Add(new ChecklistItem { Text = _newChecklist.Trim() });
+        _newChecklist = "";
+        await PersistAsync();
+    }
+
+    private async Task OnChecklistKeyAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await AddChecklistAsync();
+    }
+
+    private async Task ToggleChecklistAsync(ChecklistItem item, ChangeEventArgs e)
+    {
+        item.Done = e.Value is true;
+        await PersistAsync();
+    }
+
+    private async Task RemoveChecklistAsync(ChecklistItem item)
+    {
+        _card?.Checklist.Remove(item);
+        await PersistAsync();
+    }
+
+    private async Task AddCommentAsync()
+    {
+        if (_card is null || string.IsNullOrWhiteSpace(_newComment)) return;
+        _card.Comments.Add(new CardComment { Author = _meName, Text = _newComment.Trim() });
+        _newComment = "";
+        await PersistAsync();
+    }
+}

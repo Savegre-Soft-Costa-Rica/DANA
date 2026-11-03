@@ -32,6 +32,7 @@ public class PaymentLink : Entity
     public string? DealId { get; set; }
     public string? QuoteId { get; set; }
     public string? InvoiceId { get; set; }
+    public string? LeadId { get; set; }
     public string? ContactId { get; set; }
     public string? CompanyId { get; set; }
 

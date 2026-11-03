@@ -1,0 +1,10 @@
+@* Medidor de prioridad (score 0-100 + nivel). *@
+<span class="score-badge" title="Prioridad @Result.Tier (@Result.Score/100)">
+    <span class="score-meter"><span style="width:@(Result.Score)%;background:@Result.Color"></span></span>
+    <strong style="color:@Result.Color">@Result.Tier</strong>
+    <span class="muted small">@Result.Score</span>
+</span>
+
+@code {
+    [Parameter, EditorRequired] public ScoreResult Result { get; set; } = default!;
+}

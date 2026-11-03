@@ -55,6 +55,8 @@ public class MongoContext
         nameof(DocumentTemplateEntity) => "documenttemplates",
         nameof(ElectronicInvoice) => "invoices",
         nameof(TelegramLink) => "telegramlinks",
+        nameof(ProjectBoard) => "projectboards",
+        nameof(ProjectCard) => "projectcards",
         var n => n.ToLowerInvariant() + "s"
     };
 

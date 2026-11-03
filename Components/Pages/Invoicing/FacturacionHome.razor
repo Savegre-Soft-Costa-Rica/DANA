@@ -1,0 +1,137 @@
+@page "/facturacion"
+@using Dana.Services.Invoicing
+@using Dana.Services.Integrations
+@inject InvoiceService Invoices
+@inject TilopayService Tilopay
+
+<PageTitle>Dana · Facturación</PageTitle>
+
+<PageHeader Title="Facturación" Subtitle="@(Invoices.Sandbox ? "🧪 Modo pruebas (Sandbox) · nada se envía a Hacienda ni a Tilopay." : $"Proveedor: {Invoices.ProviderName}")">
+    <Actions>
+        <a class="btn-secondary" href="facturacion/export.csv" target="_blank">⬇ Exportar CSV</a>
+        <a class="btn-secondary" href="facturacion/recurrentes">🔁 Recurrentes</a>
+        <a class="btn-secondary" href="facturas">Facturas</a>
+        <a class="btn-primary" href="facturas">+ Nueva factura</a>
+    </Actions>
+</PageHeader>
+
+@if (_loading) { <p class="muted">Cargando…</p> }
+else
+{
+    <div class="kpi-row">
+        <div class="kpi-card"><div class="kpi-label">Facturado este mes</div><div class="kpi-value">@Money(_facturadoMes)</div></div>
+        <div class="kpi-card"><div class="kpi-label">Pendiente de cobro</div><div class="kpi-value" style="color:var(--warning)">@Money(_pendiente)</div></div>
+        <div class="kpi-card"><div class="kpi-label">Cobrado</div><div class="kpi-value" style="color:var(--success)">@Money(_cobrado)</div></div>
+        <div class="kpi-card"><div class="kpi-label">Facturas aceptadas</div><div class="kpi-value">@_accepted<span class="kpi-sub"> / @_invoices.Count</span></div></div>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-header">Facturado por mes <span class="muted small fw-normal">(últimos 12 meses, facturas emitidas/aceptadas)</span></div>
+        <div class="card-body">
+            @{ var max = _months.Count == 0 ? 0 : _months.Max(m => m.Total); }
+            <div class="bar-chart">
+                @foreach (var (month, total) in _months)
+                {
+                    <div class="bar-col" title="@month.ToString("MMM yyyy"): @total.ToString("N0")">
+                        <div class="bar-val">@(total > 0 ? total.ToString("N0") : "")</div>
+                        <div class="bar" style="height:@(max > 0 ? (int)(total / max * 100) : 0)%"></div>
+                        <div class="bar-label">@month.ToString("MMM")</div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mt-1">
+        <div class="col-lg-7">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between"><span>Últimas facturas</span><a class="small" href="facturas">Ver todas</a></div>
+                <div class="card-body">
+                    @if (_invoices.Count == 0) { <div class="muted small">Aún no hay facturas. Cree una desde una cotización o manual.</div> }
+                    <table class="table table-sm align-middle mb-0">
+                        <tbody>
+                            @foreach (var inv in _invoices.OrderByDescending(i => i.Date).Take(6))
+                            {
+                                var st = InvoiceStatuses.Get(inv.Status);
+                                <tr>
+                                    <td class="small text-nowrap">@inv.Date.ToLocalTime().ToString("dd/MM")</td>
+                                    <td>@inv.ReceiverName</td>
+                                    <td class="text-end text-nowrap">@inv.Total.ToString("N0") @inv.Currency</td>
+                                    <td><Badge Text="@st.Label" Color="@st.Color" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-header">Por estado</div>
+                <div class="card-body">
+                    @foreach (var (id, label, color) in InvoiceStatuses.All)
+                    {
+                        var n = _invoices.Count(i => i.Status == id);
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="nav-dot" style="background:@color"></span>
+                            <span class="flex-grow-1 small">@label</span>
+                            <strong>@n</strong>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="card mt-3">
+                <div class="card-header d-flex justify-content-between"><span>Pagos pendientes</span><a class="small" href="facturas">Ver enlaces</a></div>
+                <div class="card-body">
+                    @{ var pend = _links.Where(l => l.Status == PaymentStatuses.Pending && !l.IsExpired).OrderByDescending(l => l.CreatedAt).Take(5).ToList(); }
+                    @if (pend.Count == 0) { <div class="muted small">Sin pagos pendientes.</div> }
+                    @foreach (var p in pend)
+                    {
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="flex-grow-1 small text-truncate">@p.Description</span>
+                            <strong class="text-nowrap">@p.Amount.ToString("N0") @p.Currency</strong>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ElectronicInvoice> _invoices = new();
+    private List<PaymentLink> _links = new();
+    private Dictionary<string, decimal> _facturadoMes = new(), _pendiente = new(), _cobrado = new();
+    private int _accepted;
+    private List<(DateTime Month, decimal Total)> _months = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _invoices = await Invoices.GetAllAsync();
+        _links = await Tilopay.GetAllAsync();
+
+        var monthStart = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+        _facturadoMes = Sum(_invoices.Where(i => i.Status is "submitted" or "accepted" && i.Date.ToLocalTime() >= monthStart), i => i.Kind == "credit" ? -i.Total : i.Total, i => i.Currency);
+        _pendiente = Sum(_links.Where(l => l.Status == PaymentStatuses.Pending && !l.IsExpired), l => l.Amount, l => l.Currency);
+        _cobrado = Sum(_links.Where(l => l.Status == PaymentStatuses.Paid), l => l.Amount, l => l.Currency);
+        _accepted = _invoices.Count(i => i.Status == "accepted");
+
+        var billed = _invoices.Where(i => i.Status is "submitted" or "accepted").ToList();
+        _months = Enumerable.Range(0, 12).Select(i => monthStart.AddMonths(-11 + i))
+            .Select(m => (m, billed.Where(inv => { var d = inv.Date.ToLocalTime(); return d.Year == m.Year && d.Month == m.Month; }).Sum(inv => inv.Kind == "credit" ? -inv.Total : inv.Total)))
+            .ToList();
+
+        _loading = false;
+    }
+
+    private static Dictionary<string, decimal> Sum<T>(IEnumerable<T> items, Func<T, decimal> amount, Func<T, string> currency)
+    {
+        var d = new Dictionary<string, decimal>();
+        foreach (var i in items) { var c = currency(i); d[c] = d.GetValueOrDefault(c) + amount(i); }
+        return d;
+    }
+
+    private static string Money(Dictionary<string, decimal> byCur) =>
+        byCur.Count == 0 ? "0" : string.Join(" · ", byCur.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Value:N0} {kv.Key}"));
+}

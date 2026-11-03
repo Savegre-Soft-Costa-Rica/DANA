@@ -29,6 +29,10 @@ public class InvoiceLine
 public class ElectronicInvoice : Entity
 {
     public string Status { get; set; } = "draft";
+    /// <summary>invoice = factura; credit = nota de crédito (referencia a una factura).</summary>
+    public string Kind { get; set; } = "invoice";
+    /// <summary>Id de la factura original (para notas de crédito).</summary>
+    public string? ReferenceId { get; set; }
 
     /// <summary>Clave numérica de 50 dígitos que asigna el proveedor al enviar el comprobante.</summary>
     public string? Clave { get; set; }

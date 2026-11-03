@@ -3,6 +3,7 @@
 @inject DealService Deals
 @inject QuoteService Quotes
 @inject PipelineService Pipelines
+@inject IScoringService Score
 @inject IRepository<Contact> Contacts
 @inject IRepository<Company> Companies
 @inject UserService Users
@@ -33,8 +34,8 @@
     <div class="actions">
         @if (!Embedded) { <a class="btn-secondary" href="deals/board/@_model.PipelineId">← Tablero</a> }
         @if (!IsNew) { <CopyLink Path="@($"deals/{_model.Id}")" /> }
-        @if (!IsNew && _model.Amount > 0) { <PayLinkButton Amount="_model.Amount" Currency="@_model.Currency" Description="@_model.Title" DealId="@_model.Id" ContactId="@_model.ContactId" CompanyId="@_model.CompanyId" /> }
-        @if (!IsNew) { <button class="btn-secondary" @onclick="() => _emailOpen = true" disabled="@string.IsNullOrWhiteSpace(DealEmail)">✉ Correo al contacto</button> <button class="btn-secondary" @onclick="DuplicateAsync" disabled="@_busy">⧉ Duplicar</button> <button class="btn-secondary" @onclick="ArchiveAsync">@(_model.IsArchived ? "↩ Restaurar" : "🗂 Archivar")</button> <button class="btn-danger" @onclick="DeleteAsync">Eliminar</button> }
+        @if (!ReadOnly && !IsNew && _model.Amount > 0) { <PayLinkButton Amount="_model.Amount" Currency="@_model.Currency" Description="@_model.Title" DealId="@_model.Id" ContactId="@_model.ContactId" CompanyId="@_model.CompanyId" /> }
+        @if (!ReadOnly && !IsNew) { <button class="btn-secondary" @onclick="() => _emailOpen = true" disabled="@string.IsNullOrWhiteSpace(DealEmail)">✉ Correo al contacto</button> <button class="btn-secondary" @onclick="DuplicateAsync" disabled="@_busy">⧉ Duplicar</button> <button class="btn-secondary" @onclick="ArchiveAsync">@(_model.IsArchived ? "↩ Restaurar" : "🗂 Archivar")</button> <button class="btn-danger" @onclick="DeleteAsync">Eliminar</button> }
     </div>
 </div>
 
@@ -49,7 +50,7 @@
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <span>Información</span>
-                    @if (!_editing) { <button type="button" class="btn-secondary btn-sm" @onclick="() => _editing = true">✎ Editar</button> }
+                    @if (!_editing && !ReadOnly) { <button type="button" class="btn-secondary btn-sm" @onclick="() => _editing = true">✎ Editar</button> }
                 </div>
                 <div class="card-body">
                     @if (_editing)
@@ -152,6 +153,7 @@
                             <FieldView Label="Tipo" Value="@_model.Type" />
                             <FieldView Label="Embudo" Value="@CurrentPipeline?.Name" />
                             <FieldView Label="Etapa">@if (CurrentStage is not null) { <Badge Text="@CurrentStage.Name" Color="@CurrentStage.Color" /> } else { <span>—</span> }</FieldView>
+                            <FieldView Label="Prioridad" Wide="true">@{ var _sc = Score.ScoreDeal(_model, CurrentPipeline); }<ScoreBadge Result="_sc" /> <span class="muted small ms-2">💡 @_sc.NextAction</span></FieldView>
                             <FieldView Label="Contacto" Value="@(_contacts.FirstOrDefault(c => c.Id == _model.ContactId)?.FullName)" />
                             <FieldView Label="Compañía" Value="@(_companies.FirstOrDefault(c => c.Id == _model.CompanyId)?.Title)" />
                             <FieldView Label="Importe"><Money Amount="_model.Amount" Currency="@_model.Currency" /></FieldView>
@@ -236,6 +238,7 @@
     private List<Quote> _quotes = new();
     private string? DealEmail => _contacts.FirstOrDefault(c => c.Id == _model.ContactId)?.Email ?? _companies.FirstOrDefault(c => c.Id == _model.CompanyId)?.Email;
     [Parameter] public string? Id { get; set; }
+    [CascadingParameter(Name = "ReadOnly")] private bool ReadOnly { get; set; }
     [Parameter] public bool Embedded { get; set; }
     [SupplyParameterFromQuery(Name = "pipelineId")] public string? QueryPipelineId { get; set; }
     [SupplyParameterFromQuery(Name = "contactId")] public string? QueryContactId { get; set; }

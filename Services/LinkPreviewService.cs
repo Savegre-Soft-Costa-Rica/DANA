@@ -25,7 +25,7 @@ public partial class LinkPreviewService
         _leads = leads; _deals = deals; _quotes = quotes; _docs = docs; _contacts = contacts; _companies = companies; _tilopay = tilopay;
     }
 
-    [GeneratedRegex(@"(?:https?://[^/\s]+)?/?(leads|deals|contacts|companies|cotizaciones|documentos)/([0-9a-fA-F]{24})", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(?:https?://[^/\s]+)?/?(leads|deals|contacts|companies|cotizaciones|documentos|productos)/([0-9a-fA-F]{24})", RegexOptions.IgnoreCase)]
     private static partial Regex LinkRegex();
 
     [GeneratedRegex(@"(?:https?://[^/\s]+)?/?pagar/([0-9a-fA-F]{8,32})", RegexOptions.IgnoreCase)]
@@ -34,7 +34,7 @@ public partial class LinkPreviewService
     private static readonly Dictionary<string, string> SegmentToType = new(StringComparer.OrdinalIgnoreCase)
     {
         ["leads"] = "lead", ["deals"] = "deal", ["contacts"] = "contact",
-        ["companies"] = "company", ["cotizaciones"] = "quote", ["documentos"] = "document",
+        ["companies"] = "company", ["cotizaciones"] = "quote", ["documentos"] = "document", ["productos"] = "product",
     };
 
     /// <summary>Extrae referencias a elementos internos de un texto. Path canónico = "segmento/id".</summary>
@@ -86,6 +86,10 @@ public partial class LinkPreviewService
                 case "document":
                     var doc = await _docs.GetAsync(id);
                     return doc is null ? null : new("Documento", DocumentKinds.Get(doc.Kind).Emoji, "#7e3b8a", doc.Title, $"{DocumentKinds.Get(doc.Kind).Label} · {DocumentStatuses.Get(doc.Status).Label}", path);
+                case "product":
+                    var prod = await _quotes.GetProductAsync(id);
+                    return prod is null ? null : new("Producto", "📦", "#00d2d2", prod.Name,
+                        prod.QuoteOnly ? "A cotizar" : $"{prod.Price:N0} {prod.Currency}", path);
                 case "payment":
                     var pl = await _tilopay.FindByTokenAsync(id);
                     if (pl is null) return null;

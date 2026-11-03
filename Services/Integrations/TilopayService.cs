@@ -121,6 +121,12 @@ public class TilopayService
                 if (deal is not null)
                     await activities.LogAsync("deal", deal.Id!, deal.Title, ActivityKinds.System, $"💳 Pago recibido: {link.Amount:N2} {link.Currency}" + (string.IsNullOrEmpty(payerName) ? "" : $" ({payerName})"), by);
             }
+            if (link.LeadId is not null)
+            {
+                var lead = await _sp.GetRequiredService<IRepository<Lead>>().GetByIdAsync(link.LeadId);
+                if (lead is not null)
+                    await activities.LogAsync("lead", lead.Id!, lead.Title, ActivityKinds.System, $"💳 Pago recibido: {link.Amount:N2} {link.Currency}" + (string.IsNullOrEmpty(payerName) ? "" : $" ({payerName})"), by);
+            }
             if (link.QuoteId is not null)
             {
                 var quote = await _sp.GetRequiredService<QuoteService>().GetAsync(link.QuoteId);

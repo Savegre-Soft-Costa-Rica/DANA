@@ -90,7 +90,7 @@
         </div>
         <div class="agent-chat-foot">
             <label class="icon-btn file-btn" title="Adjuntar archivo para que el agente lo lea (pdf, docx, xlsx, txt…)">📎<InputFile OnChange="OnFilesAsync" multiple /></label>
-            <textarea class="form-control" rows="2" placeholder="Escribe un mensaje… (Enter para enviar, Shift+Enter salto de línea)" @bind="_text" @bind:event="oninput" @onkeydown="OnKey" disabled="@_sending"></textarea>
+            <SmartText Multiline="true" Rows="2" Class="form-control" Placeholder="Escribe un mensaje… (Enter para enviar, Shift+Enter salto de línea)" Value="_text" ValueChanged="@(v => _text = v)" OnKeyDown="OnKey" Disabled="_sending" />
             @if (_sending) { <button class="btn-secondary" @onclick="Cancel" title="Detener la respuesta">■ Detener</button> }
             else { <button class="btn-primary" disabled="@(string.IsNullOrWhiteSpace(_text))" @onclick="SendAsync">Enviar</button> }
         </div>

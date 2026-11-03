@@ -1,16 +1,36 @@
+@implements IDisposable
 @inject NavService Navs
 @inject CurrentUser Me
+@inject ChatService Chat
 @inject IJSRuntime JS
 @inject DialogService Dialogs
+@inject NavigationManager Nav
 
 <div class="brand">
     <a href="" class="brand-link"><span class="brand-logo">D</span><span class="brand-name">Dana</span></a>
     <button class="icon-btn sidebar-toggle" title="@(Collapsed ? "Expandir menú" : "Contraer menú")" @onclick="OnToggle">@(Collapsed ? "»" : "«")</button>
 </div>
 
-<div class="workspace" title="CRM · Espacio de trabajo">
-    <span class="ws-ico">C</span>
-    <div class="ws-text"><div class="ws-name">CRM</div><div class="ws-sub">Espacio de trabajo</div></div>
+<div class="workspace-wrap">
+    <button class="workspace" title="Cambiar de espacio de trabajo" @onclick="() => _wsOpen = !_wsOpen">
+        <span class="ws-ico" style="background:@_workspace.Color">@_workspace.Icon</span>
+        <div class="ws-text"><div class="ws-name">@_workspace.Name</div><div class="ws-sub">Espacio de trabajo</div></div>
+        <span class="ws-caret">▾</span>
+    </button>
+    @if (_wsOpen)
+    {
+        <div class="ws-backdrop" @onclick="() => _wsOpen = false"></div>
+        <div class="ws-menu">
+            @foreach (var ws in NavService.Workspaces)
+            {
+                <button class="ws-menu-item @(ws.Id == _workspace.Id ? "active" : "")" @onclick="() => SelectWorkspace(ws)">
+                    <span class="ws-ico sm" style="background:@ws.Color">@ws.Icon</span>
+                    <span class="ws-menu-name">@ws.Name</span>
+                    @if (ws.Id == _workspace.Id) { <span class="ws-check">✓</span> }
+                </button>
+            }
+        </div>
+    }
 </div>
 
 <nav class="nav-list">
@@ -18,13 +38,32 @@
     {
         var items = _items.Where(i => i.Section == section && !i.Hidden).ToList();
         if (items.Count == 0) continue;
-        @if (section != "Principal") { <div class="nav-section">@section</div> }
-        @foreach (var it in items)
+        var collapsible = section != "Principal" && Collapsible.Contains(section);
+        var collapsed = !Collapsed && collapsible && _collapsedSections.Contains(section);
+        @if (section != "Principal")
         {
-            <NavLink class="nav-item" href="@it.Href" Match="@(it.MatchAll ? NavLinkMatch.All : NavLinkMatch.Prefix)" title="@it.Label" target="@(it.NewTab ? "_blank" : null)">
-                @Icon(it.Icon)
-                <span>@it.Label</span>
-            </NavLink>
+            @if (collapsible)
+            {
+                <button class="nav-section toggle @(collapsed ? "collapsed" : "")" @onclick="() => ToggleSectionAsync(section)">
+                    <span>@section</span>
+                    <span class="nav-section-caret">▾</span>
+                </button>
+            }
+            else
+            {
+                <div class="nav-section">@section</div>
+            }
+        }
+        @if (!collapsed)
+        {
+            @foreach (var it in items)
+            {
+                <NavLink class="nav-item" href="@it.Href" Match="@(it.MatchAll ? NavLinkMatch.All : NavLinkMatch.Prefix)" title="@it.Label" target="@(it.NewTab ? "_blank" : null)">
+                    @Icon(it.Icon)
+                    <span>@it.Label</span>
+                    @if (it.Id == "chat" && _chatUnread > 0) { <span class="nav-badge">@(_chatUnread > 99 ? "99+" : _chatUnread.ToString())</span> }
+                </NavLink>
+            }
         }
     }
 </nav>
@@ -106,17 +145,85 @@
     private string _me = "";
     private string _newIcon = "🔗", _newLabel = "", _newUrl = "", _newSection = "Principal";
 
+    private int _chatUnread;
+
+    private string _ws = NavService.DefaultWorkspace;
+    private bool _wsOpen;
+    private Workspace _workspace => NavService.GetWorkspace(_ws);
+
+    // Secciones que se pueden plegar; arrancan plegadas.
+    private static readonly string[] Collapsible = ["Proyectos", "Configuración"];
+    private HashSet<string> _collapsedSections = new() { "Proyectos", "Configuración" };
+
     protected override async Task OnInitializedAsync()
     {
         _me = await Me.NameAsync();
         _isAdmin = await Me.IsAdminAsync();
+        _ws = NavService.WorkspaceForPath(Nav.Uri);
         await LoadAsync();
+        try { _chatUnread = await Chat.TotalUnreadAsync(_me); } catch { }
+        Chat.MessageSent += OnChatSignal;
+        Chat.ReadChanged += OnReadSignal;
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", "dana.nav.collapsed");
+            if (saved is not null)
+            {
+                _collapsedSections = saved.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet();
+                StateHasChanged();
+            }
+        }
+        catch { }
+    }
+
+    private async Task ToggleSectionAsync(string section)
+    {
+        if (!_collapsedSections.Remove(section)) _collapsedSections.Add(section);
+        try { await JS.InvokeVoidAsync("localStorage.setItem", "dana.nav.collapsed", string.Join(',', _collapsedSections)); } catch { }
+    }
+
+    // Mantener el menú sincronizado con el espacio de la ruta actual.
+    private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        if (NavService.IsSharedPath(e.Location)) return;  // páginas compartidas: conservar el espacio actual
+        var ws = NavService.WorkspaceForPath(e.Location);
+        if (ws == _ws) return;
+        _ws = ws;
+        await LoadAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void SelectWorkspace(Workspace ws)
+    {
+        _wsOpen = false;
+        if (ws.Id == _ws) return;
+        Nav.NavigateTo(ws.Home);   // OnLocationChanged recarga el menú
+    }
+
+    private void OnChatSignal(string channelId) => _ = RefreshUnreadAsync();
+    private void OnReadSignal() => _ = RefreshUnreadAsync();
+    private async Task RefreshUnreadAsync()
+    {
+        try { _chatUnread = await Chat.TotalUnreadAsync(_me); await InvokeAsync(StateHasChanged); } catch { }
+    }
+
+    public void Dispose()
+    {
+        Chat.MessageSent -= OnChatSignal;
+        Chat.ReadChanged -= OnReadSignal;
+        Nav.LocationChanged -= OnLocationChanged;
     }
 
     private async Task LoadAsync()
     {
         var cfg = await Navs.GetAsync(_me);
-        _items = NavService.Resolve(cfg, _isAdmin);
+        _items = NavService.Resolve(cfg, _isAdmin, _ws);
         _sections = NavService.SectionOrder(cfg);
     }
 
@@ -174,7 +281,8 @@
             var n = 0;
             foreach (var it in _draft.Where(i => i.Section == s).OrderBy(i => i.Sort).ToList()) Replace(it, it with { Sort = n += 10 });
         }
-        await Navs.SaveAsync(_me, NavService.ToConfig(_draft, _draftSections));
+        var existing = await Navs.GetAsync(_me);
+        await Navs.SaveAsync(_me, NavService.ToConfig(_draft, _draftSections, _ws, existing));
         _editing = false;
         await OnOverlayChange.InvokeAsync(false);
         await LoadAsync();

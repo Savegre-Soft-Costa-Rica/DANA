@@ -1,0 +1,241 @@
+@page "/proyectos/{BoardId}"
+@inject ProjectService Projects
+@inject CurrentUser Me
+@inject DialogService Dialogs
+@inject DrawerService Drawer
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Dana · @(_board?.Name ?? "Tablero")</PageTitle>
+
+@if (_board is null)
+{
+    <p class="muted">Cargando…</p>
+}
+else
+{
+    <div class="page-head">
+        <div class="d-flex align-items-center gap-2">
+            <a class="btn-ghost" href="proyectos" title="Volver a tableros">←</a>
+            <h3 class="proj-title" @onclick="RenameBoardAsync" title="Clic para renombrar">@_board.Name</h3>
+        </div>
+        <div class="actions">
+            <button class="btn-ghost" @onclick="DeleteBoardAsync" title="Eliminar tablero">🗑 Eliminar</button>
+        </div>
+    </div>
+
+    <div class="proj-board">
+        @foreach (var list in _board.OrderedLists)
+        {
+            var cards = CardsOf(list.Id);
+            <div class="proj-list @(_dragOverList == list.Id ? "drag-over" : "")"
+                 ondragover="event.preventDefault();"
+                 @ondragenter="() => _dragOverList = list.Id"
+                 @ondrop="() => DropAsync(list.Id, cards.Count)">
+                <div class="proj-list-head">
+                    <span class="proj-list-name" @onclick="() => RenameListAsync(list)" title="Clic para renombrar">@list.Name</span>
+                    <span class="proj-list-count">@cards.Count</span>
+                    <span class="proj-list-actions">
+                        <button class="icon-btn tiny" title="Mover a la izquierda" @onclick="() => MoveListAsync(list.Id, -1)">←</button>
+                        <button class="icon-btn tiny" title="Mover a la derecha" @onclick="() => MoveListAsync(list.Id, +1)">→</button>
+                        <button class="icon-btn tiny" title="Eliminar lista" @onclick="() => DeleteListAsync(list)">✕</button>
+                    </span>
+                </div>
+
+                <div class="proj-cards">
+                    @foreach (var card in cards)
+                    {
+                        <div class="proj-card @(_draggingId == card.Id ? "dragging" : "") @(card.IsDone ? "done" : "")"
+                             draggable="true"
+                             @ondragstart="() => _draggingId = card.Id"
+                             @ondragend="() => { _draggingId = null; _dragOverList = null; }"
+                             @onclick="() => OpenCard(card)">
+                            @if (!string.IsNullOrEmpty(card.Label)) { <span class="proj-card-label" style="background:@CardLabels.ColorOf(card.Label)"></span> }
+                            <div class="proj-card-title">
+                                @if (card.Priority != "none") { <span class="prio-dot" style="background:@CardPriorities.ColorOf(card.Priority)" title="@CardPriorities.NameOf(card.Priority)"></span> }
+                                @card.Title
+                            </div>
+                            @if (card.HasChecklist || card.Comments.Count > 0 || !string.IsNullOrWhiteSpace(card.Description))
+                            {
+                                <div class="proj-card-badges">
+                                    @if (!string.IsNullOrWhiteSpace(card.Description)) { <span class="cb" title="Tiene descripción">≡</span> }
+                                    @if (card.HasChecklist) { <span class="cb @(card.ChecklistDone == card.Checklist.Count ? "ok" : "")" title="Lista de verificación">✓ @card.ChecklistDone/@card.Checklist.Count</span> }
+                                    @if (card.Comments.Count > 0) { <span class="cb" title="Comentarios">💬 @card.Comments.Count</span> }
+                                </div>
+                            }
+                            <div class="proj-card-foot">
+                                @if (card.DueAt is not null)
+                                {
+                                    <span class="proj-card-due @(card.IsOverdue ? "overdue" : "")">📅 @card.DueAt.Value.ToLocalTime().ToString("dd MMM")</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(card.AssignedTo))
+                                {
+                                    <span class="proj-card-person"><PersonChip Name="@card.AssignedTo" ShowName="false" /></span>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                @if (_addingToList == list.Id)
+                {
+                    <div class="proj-add-card">
+                        <textarea class="form-control form-control-sm" @bind="_newCardTitle" @bind:event="oninput"
+                                  placeholder="Título de la tarjeta…" rows="2"
+                                  @onkeydown="e => OnAddKeyAsync(e, list.Id)" @ref="_addInput"></textarea>
+                        <div class="d-flex gap-1 mt-1">
+                            <button class="btn-primary btn-sm" @onclick="() => AddCardAsync(list.Id)">Añadir</button>
+                            <button class="btn-ghost btn-sm" @onclick="CancelAdd">Cancelar</button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <button class="proj-add-btn" @onclick="() => StartAdd(list.Id)">+ Añadir tarjeta</button>
+                }
+            </div>
+        }
+
+        <div class="proj-list-new">
+            @if (_addingList)
+            {
+                <input class="form-control form-control-sm" @bind="_newListName" placeholder="Nombre de la lista…"
+                       @onkeydown="OnAddListKeyAsync" @ref="_listInput" />
+                <div class="d-flex gap-1 mt-1">
+                    <button class="btn-primary btn-sm" @onclick="AddListAsync">Añadir lista</button>
+                    <button class="btn-ghost btn-sm" @onclick="() => _addingList = false">Cancelar</button>
+                </div>
+            }
+            else
+            {
+                <button class="proj-add-list-btn" @onclick="StartAddList">+ Añadir lista</button>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string BoardId { get; set; } = "";
+
+    private ProjectBoard? _board;
+    private List<ProjectCard> _cards = new();
+
+    private string? _draggingId, _dragOverList;
+    private string? _addingToList;
+    private string _newCardTitle = "";
+    private bool _addingList;
+    private string _newListName = "";
+    private ElementReference _addInput, _listInput;
+    private bool _focusAddCard, _focusAddList;
+
+    protected override void OnInitialized() => Drawer.StateChanged += OnDrawerChanged;
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _board = await Projects.GetBoardAsync(BoardId);
+        if (_board is null) { Nav.NavigateTo("proyectos"); return; }
+        _cards = await Projects.GetCardsAsync(BoardId);
+    }
+
+    private List<ProjectCard> CardsOf(string listId) => _cards.Where(c => c.ListId == listId).OrderBy(c => c.Sort).ToList();
+
+    private string? _author;
+    private async Task<string> AuthorAsync() => _author ??= await Me.NameAsync();
+
+    // ---- Drag & drop ----
+    private async Task DropAsync(string listId, int index)
+    {
+        _dragOverList = null;
+        var id = _draggingId;
+        _draggingId = null;
+        if (id is null) return;
+        await Projects.MoveCardAsync(BoardId, id, listId, index, await AuthorAsync());
+        _cards = await Projects.GetCardsAsync(BoardId);
+    }
+
+    // ---- Tarjetas ----
+    private void StartAdd(string listId) { _addingToList = listId; _newCardTitle = ""; _focusAddCard = true; }
+    private void CancelAdd() { _addingToList = null; _newCardTitle = ""; }
+
+    private async Task AddCardAsync(string listId)
+    {
+        if (string.IsNullOrWhiteSpace(_newCardTitle)) { CancelAdd(); return; }
+        await Projects.AddCardAsync(BoardId, listId, _newCardTitle, await AuthorAsync());
+        _newCardTitle = "";
+        _cards = await Projects.GetCardsAsync(BoardId);
+        _focusAddCard = true; // seguir añadiendo
+    }
+
+    private async Task OnAddKeyAsync(KeyboardEventArgs e, string listId)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey) await AddCardAsync(listId);
+        else if (e.Key == "Escape") CancelAdd();
+    }
+
+    private void OpenCard(ProjectCard card)
+        => Drawer.Open<ProjectCardEdit>(card.Id, "Tarjeta", LoadAndRenderAsync);
+
+    // ---- Listas ----
+    private void StartAddList() { _addingList = true; _newListName = ""; _focusAddList = true; }
+
+    private async Task AddListAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newListName)) { _addingList = false; return; }
+        _board = await Projects.AddListAsync(BoardId, _newListName, await AuthorAsync());
+        _newListName = ""; _addingList = false;
+    }
+
+    private async Task OnAddListKeyAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await AddListAsync();
+        else if (e.Key == "Escape") _addingList = false;
+    }
+
+    private async Task MoveListAsync(string listId, int dir)
+        => _board = await Projects.MoveListAsync(BoardId, listId, dir, await AuthorAsync());
+
+    private async Task RenameListAsync(BoardList list)
+    {
+        var name = await Dialogs.PromptAsync("Renombrar lista", list.Name);
+        if (string.IsNullOrWhiteSpace(name)) return;
+        _board = await Projects.RenameListAsync(BoardId, list.Id, name, await AuthorAsync());
+    }
+
+    private async Task DeleteListAsync(BoardList list)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar la lista «{list.Name}» y sus tarjetas?")) return;
+        _board = await Projects.DeleteListAsync(BoardId, list.Id, await AuthorAsync());
+        _cards = await Projects.GetCardsAsync(BoardId);
+    }
+
+    // ---- Tablero ----
+    private async Task RenameBoardAsync()
+    {
+        if (_board is null) return;
+        var name = await Dialogs.PromptAsync("Renombrar tablero", _board.Name);
+        if (string.IsNullOrWhiteSpace(name)) return;
+        _board.Name = name.Trim();
+        await Projects.SaveBoardAsync(_board, await AuthorAsync());
+    }
+
+    private async Task DeleteBoardAsync()
+    {
+        if (_board is null) return;
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar el tablero «{_board.Name}» con todas sus tarjetas?")) return;
+        await Projects.DeleteBoardAsync(_board.Id!, await AuthorAsync());
+        Nav.NavigateTo("proyectos");
+    }
+
+    private async Task LoadAndRenderAsync() { await LoadAsync(); await InvokeAsync(StateHasChanged); }
+    private void OnDrawerChanged() => InvokeAsync(StateHasChanged);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusAddCard) { _focusAddCard = false; try { await _addInput.FocusAsync(); } catch { } }
+        if (_focusAddList) { _focusAddList = false; try { await _listInput.FocusAsync(); } catch { } }
+    }
+
+    public void Dispose() => Drawer.StateChanged -= OnDrawerChanged;
+}

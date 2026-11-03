@@ -22,6 +22,7 @@ builder.Services.AddRazorComponents()
 
 // ---------- MongoDB ----------
 builder.Services.Configure<MongoSettings>(builder.Configuration.GetSection("Mongo"));
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<MongoContext>();
 builder.Services.AddSingleton<ChangeNotifier>();
 builder.Services.AddSingleton<SettingsService>();
@@ -38,8 +39,10 @@ builder.Services.AddSingleton<ActivityService>();
 builder.Services.AddSingleton<BoardConfigService>();
 builder.Services.AddSingleton<NotificationService>();
 builder.Services.AddSingleton<TaskService>();
+builder.Services.AddSingleton<ProjectService>();
 builder.Services.AddSingleton<AttachmentService>();
 builder.Services.AddSingleton(builder.Configuration.GetSection(EmailOptions.Section).Get<EmailOptions>() ?? new EmailOptions());
+builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddSingleton<EmailService>();
 builder.Services.AddSingleton(builder.Configuration.GetSection(TwilioOptions.Section).Get<TwilioOptions>() ?? new TwilioOptions());
 builder.Services.AddSingleton<TwilioMessagingService>();
@@ -51,6 +54,9 @@ builder.Services.AddSingleton<IElectronicInvoiceProvider, SendaInvoiceProvider>(
 builder.Services.AddSingleton<Dana.Services.Invoicing.SandboxInvoiceProvider>();
 builder.Services.AddSingleton<InvoiceService>();
 builder.Services.AddSingleton<Dana.Services.Integrations.TilopayService>();
+builder.Services.AddSingleton<Dana.Services.Invoicing.RecurringInvoiceService>();
+// Catálogo CABYS: búsqueda contra la API pública de Hacienda (sin credenciales).
+builder.Services.AddSingleton<Dana.Services.Invoicing.CabysService>();
 // Telegram: bot con long polling (sin URL pública). Sin token no se inicia.
 builder.Services.AddSingleton(builder.Configuration.GetSection(TelegramOptions.Section).Get<TelegramOptions>() ?? new TelegramOptions());
 builder.Services.AddHttpClient("telegram", c =>
@@ -68,6 +74,9 @@ builder.Services.AddSingleton<ShareLinkService>();
 builder.Services.AddSingleton<PresenceService>();
 builder.Services.AddSingleton<ChatService>();
 builder.Services.AddSingleton<LinkPreviewService>();
+// Priorización: heurística por defecto. Para usar ML.NET, cambia a MlScoringService (entrena los modelos primero).
+builder.Services.AddSingleton<IScoringService, HeuristicScoringService>();
+// builder.Services.AddSingleton<IScoringService, MlScoringService>();
 builder.Services.AddSingleton<PermissionService>();
 builder.Services.AddSingleton<NavService>();
 builder.Services.AddSingleton<QuoteService>();
@@ -387,6 +396,28 @@ app.MapPost("/api/tilopay/webhook", async (HttpContext ctx, Dana.Services.Integr
     }
     catch { return Results.Ok(new { ok = false }); }
 }).AllowAnonymous().DisableAntiforgery();
+
+// Exportación del libro de ventas (CSV). Requiere sesión (no anónimo).
+app.MapGet("/facturacion/export.csv", async (Dana.Services.Invoicing.InvoiceService invoices) =>
+{
+    var all = (await invoices.GetAllAsync()).OrderBy(i => i.Date).ToList();
+    var sb = new System.Text.StringBuilder();
+    sb.AppendLine("Fecha,Tipo,Clave,Receptor,Identificacion,Moneda,Subtotal,Impuesto,Total,Estado");
+    static string Q(string? s) => "\"" + (s ?? "").Replace("\"", "\"\"") + "\"";
+    foreach (var i in all)
+    {
+        var total = i.Kind == "credit" ? -i.Total : i.Total;
+        sb.AppendLine(string.Join(",",
+            i.Date.ToLocalTime().ToString("yyyy-MM-dd"),
+            i.Kind == "credit" ? "NotaCredito" : "Factura",
+            Q(i.Clave), Q(i.ReceiverName), Q(i.ReceiverId), i.Currency,
+            i.Subtotal.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture),
+            i.Tax.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture),
+            total.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture),
+            i.Status));
+    }
+    return Results.File(System.Text.Encoding.UTF8.GetBytes(sb.ToString()), "text/csv", $"libro-ventas-{DateTime.Now:yyyyMMdd}.csv");
+});
 
 // Salud (Docker / balanceadores): comprueba la conexión a MongoDB
 app.MapGet("/health", async (MongoContext mongo) =>

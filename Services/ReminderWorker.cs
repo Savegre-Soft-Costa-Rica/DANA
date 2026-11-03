@@ -111,7 +111,12 @@ public class ReminderWorker : BackgroundService
             }
         }
 
-        if (soon.Count + overdue.Count + late.Count + inactiveFired > 0)
-            _logger.LogInformation("Recordatorios: {Soon} próximas, {Overdue} vencidas, {Late} cierres vencidos, {Inactive} inactivos", soon.Count, overdue.Count, late.Count, inactiveFired);
+        // 5. Facturación recurrente (genera las facturas vencidas)
+        var recurring = 0;
+        try { recurring = await _sp.GetRequiredService<Dana.Services.Invoicing.RecurringInvoiceService>().GenerateDueAsync(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Error al generar facturas recurrentes"); }
+
+        if (soon.Count + overdue.Count + late.Count + inactiveFired + recurring > 0)
+            _logger.LogInformation("Recordatorios: {Soon} próximas, {Overdue} vencidas, {Late} cierres vencidos, {Inactive} inactivos, {Recurring} recurrentes", soon.Count, overdue.Count, late.Count, inactiveFired, recurring);
     }
 }

@@ -6,6 +6,7 @@
 @using Microsoft.AspNetCore.Authentication.Cookies
 @inject UserService Users
 @inject AuthOptions Auth
+@inject DemoDataService Demo
 @inject NavigationManager Nav
 
 <PageTitle>Dana · Iniciar sesión</PageTitle>
@@ -50,6 +51,15 @@
         </a>
     }
 
+    @if (Auth.AllowDemo)
+    {
+        <div class="auth-sep"><span>o</span></div>
+        <EditForm Model="_demo" method="post" OnValidSubmit="DemoLoginAsync" FormName="demo">
+            <button type="submit" class="btn btn-outline-success w-100">🧪 Probar en modo demo</button>
+        </EditForm>
+        <p class="text-center small text-muted mt-2 mb-0">Entra como invitado, con datos de prueba. No necesitas cuenta.</p>
+    }
+
     @if (Auth.AllowRegistration || _noUsers)
     {
         <p class="text-center small text-muted mt-3 mb-0">
@@ -92,6 +102,17 @@
         await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, UserService.CreatePrincipal(user),
             new AuthenticationProperties { IsPersistent = Input.RememberMe });
         Nav.NavigateTo(SafeReturnUrl);
+    }
+
+    private readonly DemoModel _demo = new();
+    private sealed class DemoModel { }
+
+    private async Task DemoLoginAsync()
+    {
+        try { if (await Demo.IsEmptyAsync()) await Demo.SeedAsync(); } catch { }
+        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, UserService.CreateDemoPrincipal(),
+            new AuthenticationProperties { IsPersistent = false });
+        Nav.NavigateTo("/");
     }
 
     private sealed class InputModel

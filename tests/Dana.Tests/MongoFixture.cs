@@ -51,6 +51,7 @@ public class MongoFixture : IDisposable
         services.AddSingleton<IHostEnvironment>(new TestEnv());
         services.AddSingleton<AttachmentService>();
         services.AddSingleton(new EmailOptions());
+        services.AddSingleton<SecretProtector>();
         services.AddSingleton<EmailService>();
         services.AddSingleton<InboundLeadService>();
         services.AddSingleton<LeadFormService>();

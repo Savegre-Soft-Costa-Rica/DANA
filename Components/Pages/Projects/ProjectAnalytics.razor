@@ -1,0 +1,155 @@
+@page "/proyectos/analitica"
+@inject ProjectService Projects
+
+<PageTitle>Dana · Analítica de proyectos</PageTitle>
+
+<PageHeader Title="Analítica" Subtitle="Resumen de todos sus tableros de proyectos. Excluye elementos archivados.">
+    <Actions>
+        <a class="btn-secondary" href="proyectos">← Tableros</a>
+    </Actions>
+</PageHeader>
+
+@if (_loading)
+{
+    <p class="muted">Cargando…</p>
+}
+else if (_cards.Count == 0 && _boards.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-ico">📊</div>
+        <h4>Aún no hay datos</h4>
+        <p class="muted">Cree tableros y tarjetas para ver su analítica aquí.</p>
+        <a class="btn-primary" href="proyectos">Ir a tableros</a>
+    </div>
+}
+else
+{
+    <div class="widgets">
+        <div class="widget w-3 report-widget">
+            <div class="widget-title"><span>Tableros</span></div>
+            <div class="hero-number">@_boards.Count.ToString("N0")</div>
+            <div class="muted small">@_lists lista(s) en total</div>
+        </div>
+        <div class="widget w-3 report-widget">
+            <div class="widget-title"><span>Tarjetas</span></div>
+            <div class="hero-number">@_cards.Count.ToString("N0")</div>
+            <div class="muted small">@_pending pendiente(s)</div>
+        </div>
+        <div class="widget w-3 report-widget">
+            <div class="widget-title"><span>Completadas</span></div>
+            <div class="hero-number">@_done.ToString("N0")</div>
+            <div class="muted small">@DonePct % del total</div>
+        </div>
+        <div class="widget w-3 report-widget">
+            <div class="widget-title"><span>Vencidas</span></div>
+            <div class="hero-number @(_overdue > 0 ? "text-danger" : "")">@_overdue.ToString("N0")</div>
+            <div class="muted small">con fecha pasada sin completar</div>
+        </div>
+
+        <div class="widget w-4 report-widget">
+            <div class="widget-title"><span>Estado</span></div>
+            <Chart Data="_statusChart" Type="@WidgetTypes.Donut" />
+        </div>
+
+        <div class="widget w-8 report-widget">
+            <div class="widget-title"><span>Tarjetas por tablero</span></div>
+            <Chart Data="_byBoardChart" Type="@WidgetTypes.Bar" />
+        </div>
+
+        <div class="widget w-6 report-widget">
+            <div class="widget-title"><span>Tarjetas por responsable</span></div>
+            @if (_byPersonChart.Labels.Count == 0) { <div class="chart-empty">Sin responsables asignados.</div> }
+            else { <Chart Data="_byPersonChart" Type="@WidgetTypes.Bar" /> }
+        </div>
+
+        <div class="widget w-6 report-widget">
+            <div class="widget-title"><span>Tarjetas por etiqueta</span></div>
+            @if (_byLabelChart.Labels.Count == 0) { <div class="chart-empty">Sin etiquetas.</div> }
+            else { <Chart Data="_byLabelChart" Type="@WidgetTypes.Donut" /> }
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private List<ProjectBoard> _boards = new();
+    private List<ProjectCard> _cards = new();
+    private int _lists, _done, _pending, _overdue;
+
+    private ChartData _statusChart = new();
+    private ChartData _byBoardChart = new();
+    private ChartData _byPersonChart = new();
+    private ChartData _byLabelChart = new();
+
+    private string DonePct => _cards.Count == 0 ? "0" : (100.0 * _done / _cards.Count).ToString("N0");
+
+    protected override async Task OnInitializedAsync()
+    {
+        _boards = await Projects.GetBoardsAsync();
+        _cards = await Projects.GetAllCardsAsync();
+        _lists = _boards.Sum(b => b.Lists.Count);
+        _done = _cards.Count(c => c.IsDone);
+        _pending = _cards.Count - _done;
+        _overdue = _cards.Count(c => c.IsOverdue);
+        BuildCharts();
+        _loading = false;
+    }
+
+    private void BuildCharts()
+    {
+        // Estado (donut)
+        _statusChart = new ChartData
+        {
+            Labels = ["Completadas", "Pendientes"],
+            Series = [new ChartSeries { Name = "Tarjetas", Values = [_done, _pending], Colors = ["#00c875", "#c3c6d4"] }],
+        };
+
+        // Por tablero (barras), coloreado por el color del tablero
+        var boards = _boards.OrderByDescending(b => _cards.Count(c => c.BoardId == b.Id)).ToList();
+        _byBoardChart = new ChartData
+        {
+            Labels = boards.Select(b => b.Name).ToList(),
+            Series = [new ChartSeries
+            {
+                Name = "Tarjetas",
+                Values = boards.Select(b => (decimal)_cards.Count(c => c.BoardId == b.Id)).ToList(),
+                Colors = boards.Select(b => b.Color).ToList(),
+            }],
+        };
+
+        // Por responsable (barras)
+        var people = _cards.Where(c => !string.IsNullOrWhiteSpace(c.AssignedTo))
+            .GroupBy(c => c.AssignedTo!)
+            .OrderByDescending(g => g.Count())
+            .Select(g => (Name: g.Key, Count: g.Count()))
+            .ToList();
+        _byPersonChart = new ChartData
+        {
+            Labels = people.Select(p => p.Name).ToList(),
+            Series = [new ChartSeries
+            {
+                Name = "Tarjetas",
+                Values = people.Select(p => (decimal)p.Count).ToList(),
+                Colors = people.Select(p => Avatar.ColorFor(p.Name)).ToList(),
+            }],
+        };
+
+        // Por etiqueta (dona)
+        var labels = CardLabels.All
+            .Select(l => (l.Name, l.Color, Count: _cards.Count(c => c.Label == l.Id)))
+            .Where(x => x.Count > 0)
+            .ToList();
+        var noLabel = _cards.Count(c => string.IsNullOrEmpty(c.Label));
+        if (noLabel > 0) labels.Add(("Sin etiqueta", "#c3c6d4", noLabel));
+        _byLabelChart = new ChartData
+        {
+            Labels = labels.Select(x => x.Name).ToList(),
+            Series = [new ChartSeries
+            {
+                Name = "Tarjetas",
+                Values = labels.Select(x => (decimal)x.Count).ToList(),
+                Colors = labels.Select(x => x.Color).ToList(),
+            }],
+        };
+    }
+}

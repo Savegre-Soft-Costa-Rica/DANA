@@ -22,6 +22,7 @@ else
     [Parameter] public string Description { get; set; } = "";
     [Parameter] public string? DealId { get; set; }
     [Parameter] public string? QuoteId { get; set; }
+    [Parameter] public string? LeadId { get; set; }
     [Parameter] public string? ContactId { get; set; }
     [Parameter] public string? CompanyId { get; set; }
 
@@ -31,9 +32,12 @@ else
     protected override async Task OnParametersSetAsync()
     {
         // Reutiliza un enlace ya creado para esta cotización/negociación en vez de duplicar.
-        if (_link is not null || (QuoteId is null && DealId is null)) return;
+        if (_link is not null || (QuoteId is null && DealId is null && LeadId is null)) return;
         var all = await Tilopay.GetAllAsync();
-        _link = all.FirstOrDefault(l => (QuoteId is not null && l.QuoteId == QuoteId) || (DealId is not null && l.DealId == DealId && QuoteId is null));
+        _link = all.FirstOrDefault(l =>
+            (QuoteId is not null && l.QuoteId == QuoteId) ||
+            (QuoteId is null && DealId is not null && l.DealId == DealId) ||
+            (QuoteId is null && DealId is null && LeadId is not null && l.LeadId == LeadId));
     }
 
     private async Task CreateAsync()
@@ -44,7 +48,7 @@ else
             _link = await Tilopay.CreateAsync(new PaymentLink
             {
                 Amount = Amount, Currency = Currency, Description = Description,
-                DealId = DealId, QuoteId = QuoteId, ContactId = ContactId, CompanyId = CompanyId,
+                DealId = DealId, QuoteId = QuoteId, LeadId = LeadId, ContactId = ContactId, CompanyId = CompanyId,
             }, Nav.BaseUri, await Me.NameAsync());
         }
         finally { _busy = false; }

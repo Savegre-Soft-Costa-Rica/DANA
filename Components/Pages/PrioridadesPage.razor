@@ -1,0 +1,70 @@
+@page "/prioridades"
+@inject LeadService Leads
+@inject DealService Deals
+@inject PipelineService Pipelines
+@inject IScoringService Score
+
+<PageTitle>Dana · Prioridades</PageTitle>
+
+<PageHeader Title="Prioridades de hoy" Subtitle="Lo más importante ahora, ordenado por una puntuación de cierre y con la siguiente mejor acción." />
+
+@if (_loading) { <p class="muted">Calculando…</p> }
+else
+{
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header"><span class="nav-dot" style="background:#a25ddc"></span> Prospectos a trabajar</div>
+                <div class="card-body">
+                    @if (_leads.Count == 0) { <div class="muted small">Sin prospectos abiertos.</div> }
+                    @foreach (var (l, sc) in _leads)
+                    {
+                        <a class="prio-row" href="leads/@l.Id">
+                            <div class="min-w-0 flex-grow-1">
+                                <div class="fw-600 text-truncate">@l.Title</div>
+                                <div class="small muted">💡 @sc.NextAction</div>
+                            </div>
+                            <ScoreBadge Result="sc" />
+                        </a>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header"><span class="nav-dot" style="background:#0073ea"></span> Negociaciones a mover</div>
+                <div class="card-body">
+                    @if (_deals.Count == 0) { <div class="muted small">Sin negociaciones abiertas.</div> }
+                    @foreach (var (d, sc) in _deals)
+                    {
+                        <a class="prio-row" href="deals/@d.Id">
+                            <div class="min-w-0 flex-grow-1">
+                                <div class="fw-600 text-truncate">@d.Title <span class="muted small">· @d.Amount.ToString("N0") @d.Currency</span></div>
+                                <div class="small muted">💡 @sc.NextAction</div>
+                            </div>
+                            <ScoreBadge Result="sc" />
+                        </a>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<(Lead L, ScoreResult Sc)> _leads = new();
+    private List<(Deal D, ScoreResult Sc)> _deals = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var leads = (await Leads.GetAllAsync()).Where(l => l.Status != LeadStatuses.Converted && l.Status != LeadStatuses.Junk && !l.IsArchived);
+        _leads = leads.Select(l => (l, Score.ScoreLead(l))).OrderByDescending(x => x.Item2.Score).Take(12).ToList();
+
+        var pipes = await Pipelines.GetAllAsync();
+        var deals = (await Deals.GetAllAsync()).Where(d => !d.IsArchived && d.ClosedAt == null);
+        _deals = deals.Select(d => (d, Score.ScoreDeal(d, pipes.FirstOrDefault(p => p.Id == d.PipelineId)))).OrderByDescending(x => x.Item2.Score).Take(12).ToList();
+
+        _loading = false;
+    }
+}

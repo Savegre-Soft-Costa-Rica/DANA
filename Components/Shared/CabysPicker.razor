@@ -1,0 +1,180 @@
+@inject CabysService Cabys
+@implements IDisposable
+
+@* Selector del código CABYS con búsqueda en vivo contra el catálogo de Hacienda.
+   Escriba una descripción (mín. 3 letras) o un código; seleccione una opción de la lista. *@
+<div class="@(_open ? "search-select open" : "search-select")">
+    <div class="ss-field">
+        <input class="form-control ss-input" type="text" autocomplete="off" inputmode="search"
+               placeholder="@Placeholder"
+               value="@_query"
+               @oninput="OnInput"
+               @onfocus="OnFocus"
+               @onblur="OnBlur"
+               @onkeydown="OnKey" />
+        @if (!string.IsNullOrEmpty(Value))
+        {
+            <button type="button" class="ss-clear" tabindex="-1" title="Quitar"
+                    @onmousedown="ClearAsync" @onmousedown:preventDefault>✕</button>
+        }
+        <span class="ss-caret" aria-hidden="true">@(_loading ? "…" : "▾")</span>
+    </div>
+    @if (_open)
+    {
+        <div class="ss-menu" role="listbox">
+            @if (_loading)
+            {
+                <div class="ss-empty">Buscando…</div>
+            }
+            else if (_query.Trim().Length < 3)
+            {
+                <div class="ss-empty">Escriba al menos 3 caracteres (descripción o código).</div>
+            }
+            else if (_results.Count == 0)
+            {
+                <div class="ss-empty">Sin coincidencias en el catálogo CABYS.</div>
+            }
+            else
+            {
+                @for (var i = 0; i < _results.Count; i++)
+                {
+                    var item = _results[i];
+                    var cls = "list-opt" + (i == _highlight ? " active" : "") + (item.Codigo == Value ? " selected" : "");
+                    <button type="button" role="option" class="@cls"
+                            @onmousedown="() => SelectAsync(item)" @onmousedown:preventDefault>
+                        <span class="ss-opt-text">
+                            <span class="ss-opt-label">@item.Descripcion</span>
+                            <span class="ss-opt-sub">@item.Codigo · IVA @item.Impuesto%@(string.IsNullOrEmpty(item.Categoria) ? "" : " · " + item.Categoria)</span>
+                        </span>
+                    </button>
+                }
+            }
+        </div>
+    }
+</div>
+@if (!_open && !string.IsNullOrEmpty(Value))
+{
+    <div class="small muted text-truncate mt-1" title="@_selected?.Descripcion">
+        @(_selected is null ? Value : $"{Value} · {_selected.Descripcion}")
+    </div>
+}
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    /// <summary>Se dispara al elegir un código, con el detalle (incluida la tarifa de IVA).</summary>
+    [Parameter] public EventCallback<CabysItem> OnPicked { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Buscar en catálogo CR…";
+
+    private bool _open, _loading;
+    private string _query = "";
+    private int _highlight;
+    private List<CabysItem> _results = new();
+    private CabysItem? _selected;
+    private string? _fetchedFor;       // código ya resuelto para mostrar su descripción
+    private int _seq;                  // antirrebote de la búsqueda remota
+    private CancellationTokenSource? _cts;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Al abrir el editor con un CABYS ya guardado, trae su descripción para mostrarla.
+        if (!_open && !string.IsNullOrEmpty(Value) && Value != _fetchedFor)
+        {
+            _fetchedFor = Value;
+            _selected = await Cabys.GetByCodeAsync(Value);
+        }
+        else if (string.IsNullOrEmpty(Value))
+        {
+            _selected = null;
+            _fetchedFor = null;
+        }
+    }
+
+    private void OnFocus()
+    {
+        _open = true;
+        _query = "";
+        _results = new();
+        _highlight = 0;
+    }
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        _query = e.Value?.ToString() ?? "";
+        _open = true;
+        _highlight = 0;
+        var term = _query.Trim();
+        if (term.Length < 3) { _results = new(); _loading = false; return; }
+
+        // Antirrebote: espera 300 ms sin nuevas pulsaciones antes de llamar a Hacienda.
+        var mine = ++_seq;
+        _loading = true;
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+        var token = _cts.Token;
+        try
+        {
+            await Task.Delay(300, token);
+            if (mine != _seq) return;
+            var res = await Cabys.SearchAsync(term, 25, token);
+            if (mine != _seq) return;
+            _results = res;
+        }
+        catch (OperationCanceledException) { return; }
+        finally
+        {
+            if (mine == _seq) { _loading = false; await InvokeAsync(StateHasChanged); }
+        }
+    }
+
+    private void OnBlur()
+    {
+        _open = false;
+        _loading = false;
+        _query = Value ?? "";
+    }
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (!_open) return;
+        switch (e.Key)
+        {
+            case "ArrowDown": _highlight = _results.Count == 0 ? 0 : Math.Min(_highlight + 1, _results.Count - 1); break;
+            case "ArrowUp": _highlight = Math.Max(_highlight - 1, 0); break;
+            case "Enter":
+                if (_highlight >= 0 && _highlight < _results.Count) await SelectAsync(_results[_highlight]);
+                break;
+            case "Escape": _open = false; _query = Value ?? ""; break;
+        }
+    }
+
+    private async Task SelectAsync(CabysItem item)
+    {
+        _open = false;
+        _selected = item;
+        _fetchedFor = item.Codigo;
+        _query = item.Codigo;
+        if (Value != item.Codigo)
+        {
+            Value = item.Codigo;
+            await ValueChanged.InvokeAsync(item.Codigo);
+        }
+        await OnPicked.InvokeAsync(item);
+    }
+
+    private async Task ClearAsync()
+    {
+        _open = false;
+        _query = "";
+        _selected = null;
+        _fetchedFor = null;
+        _results = new();
+        if (Value != null)
+        {
+            Value = null;
+            await ValueChanged.InvokeAsync(null);
+        }
+    }
+
+    public void Dispose() => _cts?.Cancel();
+}

@@ -47,6 +47,43 @@ else
                     <div class="col-12"><label class="form-label">Términos y condiciones (pie de la cotización)</label><InputTextArea class="form-control" rows="3" @bind-Value="_s.QuoteTerms" /></div>
                 </div>
             </div>
+
+            <div class="widget w-12">
+                <div class="widget-title">Datos fiscales · Hacienda — Factura electrónica 4.4 @if (!_s.Hacienda.IsComplete) { <span class="badge-soft danger">incompleto</span> }</div>
+                <div class="small muted mb-2">Se usan como <strong>emisor</strong> en los comprobantes electrónicos. La razón social, identificación, correo, teléfono y dirección generales se toman de "Datos de la empresa"; aquí van los campos específicos de Hacienda.</div>
+                <div class="row g-2">
+                    <div class="col-md-3"><label class="form-label">Tipo de identificación</label>
+                        <InputSelect class="form-select" @bind-Value="_s.Hacienda.TipoIdentificacion">@foreach (var t in AppSettings.TiposIdentificacion) { <option value="@t.Id">@t.Id · @t.Label</option> }</InputSelect></div>
+                    <div class="col-md-3"><label class="form-label">Identificación (cédula)</label><InputText class="form-control" @bind-Value="_s.Hacienda.Identificacion" placeholder="cédula del emisor (sólo dígitos)" /></div>
+                    <div class="col-md-3"><label class="form-label">Nombre comercial</label><InputText class="form-control" @bind-Value="_s.Hacienda.NombreComercial" /></div>
+                    <div class="col-md-3"><label class="form-label">Correo para comprobantes</label><InputText class="form-control" @bind-Value="_s.Hacienda.CorreoFacturas" placeholder="correo del emisor" /></div>
+
+                    <div class="col-md-2"><label class="form-label">Cód. país (tel.)</label><InputText class="form-control" @bind-Value="_s.Hacienda.CodigoPaisTel" /></div>
+                    <div class="col-md-4"><label class="form-label">Teléfono</label><InputText class="form-control" @bind-Value="_s.Hacienda.Telefono" /></div>
+
+                    <div class="col-12">
+                        <label class="form-label">Actividades económicas <span class="muted">(códigos de 6 dígitos ante Hacienda; la 4.4 admite varias)</span></label>
+                        <div class="d-flex flex-wrap gap-2 align-items-center">
+                            @for (var i = 0; i < _s.Hacienda.ActividadesEconomicas.Count; i++)
+                            {
+                                var idx = i;
+                                <span class="d-inline-flex align-items-center gap-1">
+                                    <input class="form-control form-control-sm" style="width:120px" value="@_s.Hacienda.ActividadesEconomicas[idx]" @onchange="e => SetActividad(idx, e.Value?.ToString())" placeholder="620100" />
+                                    <button type="button" class="icon-btn tiny" title="Quitar" @onclick="() => _s.Hacienda.ActividadesEconomicas.RemoveAt(idx)">✕</button>
+                                </span>
+                            }
+                            <button type="button" class="btn-secondary btn-sm" @onclick="() => _s.Hacienda.ActividadesEconomicas.Add(string.Empty)">+ Actividad</button>
+                        </div>
+                    </div>
+
+                    <div class="col-12 mt-2"><strong class="small">Ubicación del emisor (códigos de Hacienda)</strong></div>
+                    <div class="col-md-2"><label class="form-label">Provincia</label><InputText class="form-control" @bind-Value="_s.Hacienda.Provincia" placeholder="1" /></div>
+                    <div class="col-md-2"><label class="form-label">Cantón</label><InputText class="form-control" @bind-Value="_s.Hacienda.Canton" placeholder="01" /></div>
+                    <div class="col-md-2"><label class="form-label">Distrito</label><InputText class="form-control" @bind-Value="_s.Hacienda.Distrito" placeholder="01" /></div>
+                    <div class="col-md-2"><label class="form-label">Barrio</label><InputText class="form-control" @bind-Value="_s.Hacienda.Barrio" placeholder="(opcional)" /></div>
+                    <div class="col-md-4"><label class="form-label">Otras señas</label><InputText class="form-control" @bind-Value="_s.Hacienda.OtrasSenas" /></div>
+                </div>
+            </div>
         </div>
         <div class="d-flex justify-content-end gap-2 mt-3 align-items-center">
             <span class="muted small">@(_saved ? "✓ Guardado" : "")</span>
@@ -61,9 +98,12 @@ else
 
     protected override async Task OnInitializedAsync() => _s = await Settings.GetAsync();
 
+    private void SetActividad(int idx, string? value) => _s!.Hacienda.ActividadesEconomicas[idx] = value ?? string.Empty;
+
     private async Task SaveAsync()
     {
         _s!.Rates[_s.BaseCurrency] = 1m;
+        _s.Hacienda.ActividadesEconomicas = _s.Hacienda.ActividadesEconomicas.Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a.Trim()).ToList();
         _s.UpdatedBy = await Me.NameAsync();
         await Settings.SaveAsync(_s);
         _saved = true;

@@ -32,6 +32,8 @@ public class AgentTools
             new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "contact", "company", "deal" } } }, required = new[] { "tipo" } }),
         new("estadisticas", "Estadísticas", "Resumen numérico del CRM: prospectos por estado, negociaciones abiertas/ganadas/perdidas y montos (moneda base), tareas pendientes y vencidas.",
             new { type = "object", properties = new { }, required = Array.Empty<string>() }),
+        new("priorizar", "Priorizar", "Devuelve los prospectos o negociaciones MÁS prioritarios ahora mismo, con su puntuación (0-100), nivel (Alta/Media/Baja) y la siguiente mejor acción recomendada. Úsala para decidir en qué enfocarse hoy o para reactivar lo estancado. tipo: lead | deal.",
+            new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "deal" } }, limite = new { type = "integer", @default = 10 } }, required = new[] { "tipo" } }),
         new("resumen_embudo", "Resumen de embudo", "Negociaciones de un embudo agrupadas por etapa, con cantidad y monto por etapa. Sin pipelineId usa el embudo por defecto.",
             new { type = "object", properties = new { pipelineId = new { type = "string" } }, required = Array.Empty<string>() }),
         new("listar_embudos", "Listar embudos", "Lista los embudos (pipelines) y sus etapas con ids.",
@@ -54,6 +56,8 @@ public class AgentTools
             new { type = "object", properties = new { quoteId = new { type = "string" }, cedulaReceptor = new { type = "string" }, emitir = new { type = "boolean", @default = true } }, required = new[] { "quoteId" } }, Write: true),
         new("crear_enlace_pago", "Crear enlace de pago", "Genera un enlace de pago (Tilopay; en Sandbox se simula) por un monto, para enviar al cliente (p. ej. por el chat o correo). Puedes ligarlo a una negociación (dealId), cotización (quoteId) o factura (facturaId). Devuelve la URL.",
             new { type = "object", properties = new { monto = new { type = "number" }, moneda = new { type = "string", @default = "CRC" }, descripcion = new { type = "string" }, dealId = new { type = "string" }, quoteId = new { type = "string" }, facturaId = new { type = "string" } }, required = new[] { "monto", "descripcion" } }, Write: true),
+        new("solicitar_firma", "Solicitar firma de documento", "Agrega un firmante a un documento del sistema y devuelve su enlace de firma (firmar/{token}) para enviárselo al cliente. Indica el id del documento y el nombre del firmante; correo y rol opcionales. Puedes repetirla para varios firmantes.",
+            new { type = "object", properties = new { documentoId = new { type = "string" }, nombre = new { type = "string" }, correo = new { type = "string" }, rol = new { type = "string" } }, required = new[] { "documentoId", "nombre" } }, Write: true),
         new("cotizaciones_buscar", "Buscar cotizaciones", "Lista cotizaciones por texto, estado (draft|sent|accepted|rejected|expired) o negociación (dealId), con número, total, vencimiento y estado.",
             new { type = "object", properties = new { texto = new { type = "string" }, estado = new { type = "string" }, dealId = new { type = "string" }, limite = new { type = "integer", @default = 20 } }, required = Array.Empty<string>() }),
         new("cotizacion_obtener", "Obtener cotización", "Devuelve una cotización completa: líneas (producto, cantidad, precio, descuento, impuesto), totales, estado, vigencia y negociación asociada. Úsala para revisar o corregir una cotización.",
@@ -179,6 +183,7 @@ public class AgentTools
                 "obtener" => await GetAsync(Str(input, "tipo"), Str(input, "id")),
                 "campos" => await FieldsAsync(Str(input, "tipo")),
                 "estadisticas" => await StatsAsync(),
+                "priorizar" => await PrioritizeAsync(Str(input, "tipo"), Int(input, "limite", 10)),
                 "resumen_embudo" => await PipelineSummaryAsync(Str(input, "pipelineId")),
                 "listar_embudos" => await ListPipelinesAsync(),
                 "listar_usuarios" => Ser((await _users.GetAllAsync()).Where(u => u.IsActive).Select(u => new { u.Name, u.Email, u.Role })),
@@ -190,6 +195,7 @@ public class AgentTools
                 "eliminar" => await DeleteRecordAsync(Str(input, "tipo"), Str(input, "id"), author),
                 "emitir_factura" => await EmitInvoiceAsync(input, author),
                 "crear_enlace_pago" => await CreatePaymentLinkAsync(input, author),
+                "solicitar_firma" => await RequestSignatureAsync(input, author),
                 _ => throw new InvalidOperationException("Herramienta no implementada")
             };
             return new(output);
@@ -912,6 +918,35 @@ public class AgentTools
             InvoiceId = fact.Length > 0 ? fact : null,
         }, baseUrl, author);
         return Ser(new { ok = link.Url is not null, url = link.Url, estado = link.Status, sandbox = tilopay.Sandbox, error = link.LastError });
+    }
+
+    private async Task<string> PrioritizeAsync(string tipo, int limit)
+    {
+        limit = Math.Clamp(limit, 1, 30);
+        var score = _sp.GetRequiredService<IScoringService>();
+        if (tipo == "lead")
+        {
+            var leads = (await _leads.GetAllAsync()).Where(l => l.Status != LeadStatuses.Converted && l.Status != LeadStatuses.Junk && !l.IsArchived);
+            return Ser(leads.Select(l => new { l, sc = score.ScoreLead(l) }).OrderByDescending(x => x.sc.Score).Take(limit)
+                .Select(x => new { id = x.l.Id, titulo = x.l.Title, puntuacion = x.sc.Score, nivel = x.sc.Tier, siguienteAccion = x.sc.NextAction, enlace = $"leads/{x.l.Id}" }));
+        }
+        if (tipo == "deal")
+        {
+            var pipes = await _pipelines.GetAllAsync();
+            var deals = (await _deals.GetAllAsync()).Where(d => !d.IsArchived && d.ClosedAt == null);
+            return Ser(deals.Select(d => new { d, sc = score.ScoreDeal(d, pipes.FirstOrDefault(p => p.Id == d.PipelineId)) }).OrderByDescending(x => x.sc.Score).Take(limit)
+                .Select(x => new { id = x.d.Id, titulo = x.d.Title, importe = x.d.Amount, puntuacion = x.sc.Score, nivel = x.sc.Tier, siguienteAccion = x.sc.NextAction, enlace = $"deals/{x.d.Id}" }));
+        }
+        throw new ArgumentException("tipo debe ser 'lead' o 'deal'");
+    }
+
+    private async Task<string> RequestSignatureAsync(JsonElement input, string author)
+    {
+        var docs = _sp.GetRequiredService<DocumentService>();
+        var d = await docs.GetAsync(Str(input, "documentoId")) ?? throw new ArgumentException("Documento no encontrado");
+        var correo = Str(input, "correo"); var rol = Str(input, "rol");
+        var signer = await docs.RequestSignatureAsync(d, Str(input, "nombre"), correo.Length > 0 ? correo : null, rol.Length > 0 ? rol : null, author);
+        return Ser(new { ok = true, firmanteId = signer.Id, nombre = signer.Name, enlace = $"firmar/{signer.Token}" });
     }
 
     private static string Ser(object o) => JsonSerializer.Serialize(o, Json);

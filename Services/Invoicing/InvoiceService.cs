@@ -89,6 +89,36 @@ public class InvoiceService
         return (true, null);
     }
 
+    /// <summary>Anula una factura (no genera otra factura; marca el estado como anulada).</summary>
+    public async Task<(bool Ok, string? Error)> CancelAsync(string id)
+    {
+        var invoice = await _invoices.GetByIdAsync(id);
+        if (invoice is null) return (false, "Factura no encontrada.");
+        if (invoice.Status == "cancelled") return (false, "La factura ya está anulada.");
+        invoice.Status = "cancelled";
+        await _invoices.UpdateAsync(invoice);
+        return (true, null);
+    }
+
+    /// <summary>Crea (en borrador) una nota de crédito que revierte una factura aceptada.</summary>
+    public async Task<(ElectronicInvoice? Note, string? Error)> CreateCreditNoteAsync(string id)
+    {
+        var inv = await _invoices.GetByIdAsync(id);
+        if (inv is null) return (null, "Factura no encontrada.");
+        if (inv.Kind == "credit") return (null, "No se puede acreditar una nota de crédito.");
+        if (inv.Status != "accepted") return (null, "Solo se emiten notas de crédito de facturas aceptadas.");
+        var note = new ElectronicInvoice
+        {
+            Kind = "credit", ReferenceId = inv.Id, Provider = _provider.Name,
+            ReceiverName = inv.ReceiverName, ReceiverId = inv.ReceiverId, ReceiverEmail = inv.ReceiverEmail,
+            Currency = inv.Currency, DealId = inv.DealId, QuoteId = inv.QuoteId, ContactId = inv.ContactId, CompanyId = inv.CompanyId,
+            Notes = $"Nota de crédito de la factura {inv.Clave ?? inv.Id}",
+            Lines = inv.Lines.Select(l => new InvoiceLine { Cabys = l.Cabys, Description = "NC: " + l.Description, Quantity = l.Quantity, Unit = l.Unit, UnitPrice = l.UnitPrice, DiscountPercent = l.DiscountPercent, TaxRate = l.TaxRate }).ToList(),
+        };
+        await _invoices.InsertAsync(note);
+        return (note, null);
+    }
+
     private (bool Ok, string? Error) Fail(ElectronicInvoice invoice, string error)
     {
         _logger.LogWarning("Factura {Id} no enviada: {Error}", invoice.Id, error);

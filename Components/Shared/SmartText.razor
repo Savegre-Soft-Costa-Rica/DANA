@@ -1,0 +1,72 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@* Input/textarea sin pérdida de caracteres en Blazor Server: se renderiza UNA sola vez
+   (ShouldRender=false tras inicializar) y el valor se sincroniza por JS. El valor del
+   servidor solo se reescribe cuando cambia por código (no en cada tecla). *@
+@if (Multiline)
+{
+    <textarea @ref="_el" class="@Class" placeholder="@Placeholder" rows="@Rows" disabled="@Disabled" @onkeydown="OnKeyDownAsync"></textarea>
+}
+else
+{
+    <input @ref="_el" class="@Class" type="@Type" placeholder="@Placeholder" disabled="@Disabled" @onkeydown="OnKeyDownAsync" />
+}
+
+@code {
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string Class { get; set; } = "form-control";
+    [Parameter] public string Placeholder { get; set; } = "";
+    [Parameter] public string Type { get; set; } = "text";
+    [Parameter] public int Rows { get; set; } = 2;
+    [Parameter] public bool Multiline { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public int DebounceMs { get; set; }
+    [Parameter] public EventCallback<KeyboardEventArgs> OnKeyDown { get; set; }
+
+    private ElementReference _el;
+    private IJSObjectReference? _mod;
+    private DotNetObjectReference<SmartText>? _ref;
+    private string _synced = "";
+    private bool _ready;
+
+    // Render una sola vez; después nunca, así Blazor no reescribe el value del elemento al teclear.
+    protected override bool ShouldRender() => !_ready;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _ref = DotNetObjectReference.Create(this);
+        _mod = await JS.InvokeAsync<IJSObjectReference>("import", "./js/smartinput.js");
+        await _mod.InvokeVoidAsync("init", _el, _ref, DebounceMs);
+        if (!string.IsNullOrEmpty(Value)) await _mod.InvokeVoidAsync("setValue", _el, Value, false);
+        _synced = Value;
+        _ready = true;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Cambios de valor por código (insertar mención, limpiar tras publicar): empujar al DOM.
+        if (_mod is not null && Value != _synced)
+        {
+            await _mod.InvokeVoidAsync("setValue", _el, Value, true);
+            _synced = Value;
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnInput(string value)
+    {
+        _synced = value;               // marcar como sincronizado antes de avisar al padre (evita eco)
+        await ValueChanged.InvokeAsync(value);
+    }
+
+    private Task OnKeyDownAsync(KeyboardEventArgs e) => OnKeyDown.InvokeAsync(e);
+
+    public async ValueTask DisposeAsync()
+    {
+        try { if (_mod is not null) { await _mod.InvokeVoidAsync("dispose", _el); await _mod.DisposeAsync(); } } catch { }
+        _ref?.Dispose();
+    }
+}

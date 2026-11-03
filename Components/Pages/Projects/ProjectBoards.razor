@@ -1,0 +1,64 @@
+@page "/proyectos"
+@inject ProjectService Projects
+@inject CurrentUser Me
+@inject DialogService Dialogs
+@inject NavigationManager Nav
+
+<PageTitle>Dana · Proyectos</PageTitle>
+
+<PageHeader Title="Tableros" Subtitle="Organice su trabajo en tableros tipo Trello: listas y tarjetas que puede arrastrar.">
+    <Actions>
+        <button class="btn-primary" @onclick="NewBoardAsync">+ Nuevo tablero</button>
+    </Actions>
+</PageHeader>
+
+@if (_boards is null)
+{
+    <p class="muted">Cargando…</p>
+}
+else if (_boards.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-ico">🗂️</div>
+        <h4>Aún no hay tableros</h4>
+        <p class="muted">Cree su primer tablero para empezar a organizar tareas en listas.</p>
+        <button class="btn-primary" @onclick="NewBoardAsync">+ Nuevo tablero</button>
+    </div>
+}
+else
+{
+    <div class="proj-boards-grid">
+        @foreach (var b in _boards)
+        {
+            <a class="proj-board-card" href="proyectos/@b.Id" style="--accent:@b.Color">
+                <div class="proj-board-bar"></div>
+                <div class="proj-board-body">
+                    <div class="proj-board-name">@b.Name</div>
+                    <div class="proj-board-meta muted small">@b.Lists.Count lista(s) · @(_counts.GetValueOrDefault(b.Id!)) tarjeta(s)</div>
+                </div>
+            </a>
+        }
+    </div>
+}
+
+@code {
+    private List<ProjectBoard>? _boards;
+    private Dictionary<string, int> _counts = new();
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _boards = await Projects.GetBoardsAsync();
+        _counts = new();
+        foreach (var b in _boards) _counts[b.Id!] = (await Projects.GetCardsAsync(b.Id!)).Count;
+    }
+
+    private async Task NewBoardAsync()
+    {
+        var name = await Dialogs.PromptAsync("Nuevo tablero", "", "Nombre del tablero");
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var board = await Projects.CreateBoardAsync(name, await Me.NameAsync());
+        Nav.NavigateTo($"proyectos/{board.Id}");
+    }
+}

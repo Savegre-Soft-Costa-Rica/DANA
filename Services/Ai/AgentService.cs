@@ -236,10 +236,24 @@ public class AgentService
         {
             var author = $"{user} · {agent.Name}";
             var reply = await _providers[provider].CompleteAsync(
-                new ChatRequest(key, model, BuildSystem(agent, user, await _settings.GetAsync(), tools) + await MemoryPromptAsync(agent, user), history, text, tools, Math.Max(1, ai.MaxToolCalls), string.IsNullOrEmpty(agent.Effort) ? null : agent.Effort, onDelta),
+                new ChatRequest(key, model, BuildSystem(agent, user, await _settings.GetAsync(), tools) + await MemoryPromptAsync(agent, user), history, text, tools, Math.Max(1, agent.MaxSteps > 0 ? agent.MaxSteps : ai.MaxToolCalls), string.IsNullOrEmpty(agent.Effort) ? null : agent.Effort, onDelta),
                 (name, input) => _tools.ExecuteAsync(name, input, new ToolContext(author, agent.AllowWrites, agent, user, false, conv)), progress, ct);
             foreach (var c in reply.ToolCalls)
                 conv.Messages.Add(new AgentMessage { Role = "tool", ToolName = c.Name, ToolInput = c.InputJson, Text = c.IsError ? "⚠ " + c.Output : Trim(c.Output, 400) });
+
+            // Registro de acciones (herramientas de escritura) para auditoría
+            try
+            {
+                var actionLog = _sp.GetRequiredService<IRepository<AgentAction>>();
+                foreach (var c in reply.ToolCalls.Where(c => AgentTools.Find(c.Name)?.Write ?? false))
+                    await actionLog.InsertAsync(new AgentAction
+                    {
+                        AgentId = agent.Id!, AgentName = agent.Name,
+                        Tool = c.Name, ToolTitle = AgentTools.Find(c.Name)?.Title ?? c.Name,
+                        Summary = Trim(c.Output, 240), Source = user, Success = !c.IsError,
+                    });
+            }
+            catch { }
             var msg = new AgentMessage { Role = "assistant", Text = string.IsNullOrWhiteSpace(reply.Text) ? "(sin respuesta)" : reply.Text, InputTokens = (int)reply.InputTokens, OutputTokens = (int)reply.OutputTokens };
             conv.Messages.Add(msg);
             agent.MessageCount++;

@@ -14,6 +14,9 @@ public class ChatService
     /// <summary>Se dispara al llegar un mensaje nuevo (channelId). Las páginas de chat abiertas se refrescan.</summary>
     public event Action<string>? MessageSent;
 
+    /// <summary>Se dispara al marcar leído (para refrescar contadores como el badge del menú). No lo escucha la página de chat (evita bucles).</summary>
+    public event Action? ReadChanged;
+
     public ChatService(IRepository<ChatChannel> channels, IRepository<ChatMessage> messages, NotificationService notifications)
     {
         _channels = channels;
@@ -89,6 +92,14 @@ public class ChatService
     {
         ch.LastRead[user] = DateTime.UtcNow;
         await _channels.UpdateAsync(ch);
+        ReadChanged?.Invoke();
+    }
+
+    /// <summary>Total de mensajes sin leer del usuario (para el badge del menú).</summary>
+    public async Task<int> TotalUnreadAsync(string user)
+    {
+        var chs = await GetChannelsForAsync(user);
+        return chs.Sum(c => UnreadCount(c, user));
     }
 
     public int UnreadCount(ChatChannel ch, string user)

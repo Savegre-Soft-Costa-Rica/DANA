@@ -1,0 +1,64 @@
+@page "/productos/{Id}"
+@inject QuoteService Quotes
+@inject NavigationManager Nav
+
+<PageTitle>Dana · @(_p?.Name ?? "Producto")</PageTitle>
+
+@if (_loading) { <p class="muted">Cargando…</p> }
+else if (_p is null) { <div class="empty-state">Producto no encontrado.</div> }
+else
+{
+    <div class="page-head">
+        <div>
+            <h3>@_p.Name</h3>
+            <div class="sub">@(_cat?.Name ?? _p.Category) @(string.IsNullOrEmpty(_p.Sku) ? "" : $"· SKU {_p.Sku}")</div>
+        </div>
+        <div class="actions">
+            <a class="btn-secondary" href="productos">← Productos</a>
+            <CopyLink Path="@($"productos/{_p.Id}")" />
+        </div>
+    </div>
+
+    <div class="item-view">
+        <div class="card">
+            <div class="card-header">Información</div>
+            <div class="card-body">
+                <div class="info-grid">
+                    <FieldView Label="Precio">@if (_p.QuoteOnly) { <span class="pubc-quote">A cotizar</span> } else { <text>@_p.Price.ToString("N2") @_p.Currency <span class="muted">/ @_p.Unit</span></text> }</FieldView>
+                    <FieldView Label="Impuesto" Value="@($"{_p.TaxRate}%")" />
+                    <FieldView Label="Código CABYS" Value="@_p.Cabys" />
+                    <FieldView Label="SKU" Value="@_p.Sku" />
+                    <FieldView Label="Categoría" Value="@(_cat?.Name ?? _p.Category)" />
+                    <FieldView Label="Stock" Value="@(_p.Stock < 0 ? "Sin control" : _p.Stock.ToString())" />
+                    <FieldView Label="Estado" Value="@(_p.IsActive ? "Activo" : "Inactivo")" />
+                    <FieldView Label="Publicado" Value="@(_p.IsPublic ? "Sí (catálogo)" : "No")" />
+                    @if (_p.Tags.Count > 0) { <FieldView Label="Etiquetas" Wide="true"><div class="tags">@foreach (var t in _p.Tags) { <span class="tag">@t</span> }</div></FieldView> }
+                    @if (!string.IsNullOrWhiteSpace(_p.Description)) { <FieldView Label="Descripción" Value="@_p.Description" Wide="true" /> }
+                </div>
+                @if (_p.ImageIds.Count > 0)
+                {
+                    <div class="tiles mt-3" style="grid-template-columns:repeat(auto-fill,minmax(120px,1fr))">
+                        @foreach (var id in _p.ImageIds) { <img src="catalog/images/@id" alt="@_p.Name" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:var(--radius-sm)" /> }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+    private Product? _p;
+    private ProductCategory? _cat;
+    private bool _loading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _p = await Quotes.GetProductAsync(Id);
+        if (_p is null) { _loading = false; return; }
+        if (!string.IsNullOrEmpty(_p.Category))
+            _cat = (await Quotes.GetCategoriesAsync()).FirstOrDefault(c => c.Name == _p.Category);
+        _loading = false;
+    }
+}

@@ -1,0 +1,133 @@
+@page "/facturacion/recurrentes"
+@using Dana.Services.Invoicing
+@inject RecurringInvoiceService Recurring
+@inject CurrentUser Me
+@inject DialogService Dialogs
+
+<PageTitle>Dana · Facturación recurrente</PageTitle>
+
+<PageHeader Title="Facturación recurrente" Subtitle="Plantillas que generan facturas periódicamente (y opcionalmente las emiten y cobran).">
+    <Actions>
+        <a class="btn-secondary" href="facturacion">← Facturación</a>
+        <button class="btn-primary" @onclick="New">+ Nueva recurrencia</button>
+    </Actions>
+</PageHeader>
+
+@if (_msg is not null) { <div class="alert alert-info py-2 small">@_msg</div> }
+@if (_err is not null) { <div class="alert alert-danger py-2 small">@_err</div> }
+
+@if (_edit is not null)
+{
+    <div class="card mb-3">
+        <div class="card-header">@(_edit.Id is null ? "Nueva recurrencia" : _edit.Name)</div>
+        <div class="card-body">
+            <div class="row g-2 mb-3">
+                <div class="col-md-4"><label class="form-label">Nombre *</label><input class="form-control" @bind="_edit.Name" placeholder="p. ej. Hosting mensual – Cliente X" /></div>
+                <div class="col-md-4"><label class="form-label">Receptor *</label><input class="form-control" @bind="_edit.ReceiverName" /></div>
+                <div class="col-md-4"><label class="form-label">Identificación *</label><input class="form-control" @bind="_edit.ReceiverId" /></div>
+                <div class="col-md-4"><label class="form-label">Correo</label><input class="form-control" @bind="_edit.ReceiverEmail" /></div>
+                <div class="col-md-2"><label class="form-label">Moneda</label><select class="form-select" @bind="_edit.Currency">@foreach (var c in Catalogs.Currencies) { <option value="@c">@c</option> }</select></div>
+                <div class="col-md-3"><label class="form-label">Frecuencia</label><select class="form-select" @bind="_edit.Frequency">@foreach (var (id, label) in RecurFrequencies.All) { <option value="@id">@label</option> }</select></div>
+                <div class="col-md-3"><label class="form-label">Próxima emisión</label><input type="date" class="form-control" @bind="_edit.NextRunAt" /></div>
+                <div class="col-12 d-flex gap-4 mt-1">
+                    <label><input type="checkbox" @bind="_edit.AutoEmit" /> Emitir automáticamente</label>
+                    <label><input type="checkbox" @bind="_edit.AutoCharge" /> Generar enlace de pago al emitir</label>
+                </div>
+            </div>
+
+            <table class="table table-sm align-middle">
+                <thead><tr><th style="width:150px">CABYS</th><th>Descripción</th><th style="width:80px">Cant.</th><th style="width:110px">P. unit.</th><th style="width:80px">Imp.%</th><th class="text-end">Total</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var l in _edit.Lines)
+                    {
+                        <tr>
+                            <td><input class="form-control form-control-sm" @bind="l.Cabys" /></td>
+                            <td><input class="form-control form-control-sm" @bind="l.Description" /></td>
+                            <td><input type="number" step="any" class="form-control form-control-sm" @bind="l.Quantity" /></td>
+                            <td><input type="number" step="any" class="form-control form-control-sm" @bind="l.UnitPrice" /></td>
+                            <td><input type="number" step="any" class="form-control form-control-sm" @bind="l.TaxRate" /></td>
+                            <td class="text-end">@l.Total.ToString("N2")</td>
+                            <td><button class="btn-danger btn-sm" @onclick="() => _edit.Lines.Remove(l)">✕</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <button class="btn-secondary btn-sm" @onclick="() => _edit.Lines.Add(new InvoiceLine())">+ Línea</button>
+            <div class="text-end mt-2"><strong>Total: @_edit.Total.ToString("N2") @_edit.Currency</strong></div>
+        </div>
+        <div class="card-footer d-flex justify-content-between">
+            <button class="btn-secondary" @onclick="() => _edit = null">Cerrar</button>
+            <button class="btn-primary" @onclick="SaveAsync">Guardar</button>
+        </div>
+    </div>
+}
+
+@if (_items is null) { <p class="muted">Cargando…</p> }
+else if (_items.Count == 0 && _edit is null) { <div class="empty-state">Sin facturación recurrente. Cree una plantilla (p. ej. una suscripción mensual).</div> }
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead><tr><th>Nombre</th><th>Receptor</th><th>Frecuencia</th><th>Próxima</th><th class="text-end">Total</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var r in _items)
+                {
+                    <tr class="@(r.Enabled ? "" : "text-muted")">
+                        <td><strong>@r.Name</strong></td>
+                        <td>@r.ReceiverName</td>
+                        <td>@RecurFrequencies.Label(r.Frequency)</td>
+                        <td class="small text-nowrap">@r.NextRunAt.ToLocalTime().ToString("dd/MM/yyyy")</td>
+                        <td class="text-end text-nowrap">@r.Total.ToString("N2") @r.Currency</td>
+                        <td class="small">
+                            @if (r.Enabled) { <span class="badge-soft ok">Activa</span> } else { <span class="badge-soft">Pausada</span> }
+                            @if (r.LastRunAt is not null) { <div class="muted">Últ.: @r.LastRunAt.Value.ToLocalTime().ToString("dd/MM") · @r.RunCount emitidas</div> }
+                            @if (r.LastError is not null) { <div class="text-danger">@r.LastError</div> }
+                        </td>
+                        <td class="text-end text-nowrap">
+                            <button class="btn-secondary btn-sm" @onclick="() => RunNowAsync(r)">Emitir ahora</button>
+                            <button class="btn-secondary btn-sm" @onclick="() => ToggleAsync(r)">@(r.Enabled ? "Pausar" : "Activar")</button>
+                            <button class="btn-secondary btn-sm" @onclick="() => Edit(r)">Editar</button>
+                            <button class="btn-danger btn-sm" @onclick="() => DeleteAsync(r)">Eliminar</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<RecurringInvoice>? _items;
+    private RecurringInvoice? _edit;
+    private string? _msg, _err;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+    private async Task LoadAsync() => _items = (await Recurring.GetAllAsync()).OrderBy(r => r.Name).ToList();
+
+    private void New() { _err = _msg = null; _edit = new RecurringInvoice { Lines = { new InvoiceLine() } }; }
+    private void Edit(RecurringInvoice r) { _err = _msg = null; _edit = r; }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_edit!.Name) || string.IsNullOrWhiteSpace(_edit.ReceiverName) || string.IsNullOrWhiteSpace(_edit.ReceiverId)) { _err = "Nombre, receptor e identificación son obligatorios."; return; }
+        await Recurring.SaveAsync(_edit, await Me.NameAsync());
+        _edit = null; _msg = "Guardado."; _err = null;
+        await LoadAsync();
+    }
+
+    private async Task ToggleAsync(RecurringInvoice r) { r.Enabled = !r.Enabled; await Recurring.SaveAsync(r, await Me.NameAsync()); await LoadAsync(); }
+
+    private async Task RunNowAsync(RecurringInvoice r)
+    {
+        try { var inv = await Recurring.GenerateOneAsync(r, await Me.NameAsync()); _msg = $"Factura generada ({inv.Status})."; _err = null; }
+        catch (System.Exception ex) { _err = ex.Message; }
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(RecurringInvoice r)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar la recurrencia \"{r.Name}\"?")) return;
+        await Recurring.DeleteAsync(r.Id!, await Me.NameAsync());
+        await LoadAsync();
+    }
+}

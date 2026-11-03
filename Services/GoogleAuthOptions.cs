@@ -8,6 +8,10 @@ public class AuthOptions
     /// <summary>Permite que cualquiera cree una cuenta desde /cuenta/registro. El primer usuario siempre puede registrarse.</summary>
     public bool AllowRegistration { get; set; } = true;
 
+    /// <summary>Muestra en el login un botón "Probar en modo demo" que entra como invitado (sin cuenta).
+    /// Actívelo solo en instancias de demostración: el invitado comparte los datos de prueba del sistema.</summary>
+    public bool AllowDemo { get; set; }
+
     public GoogleAuthOptions Google { get; set; } = new();
 }
 

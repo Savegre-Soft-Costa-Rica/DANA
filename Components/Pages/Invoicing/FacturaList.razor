@@ -28,6 +28,13 @@
 @if (_msg is not null) { <div class="alert alert-info py-2 small">@_msg</div> }
 @if (_err is not null) { <div class="alert alert-danger py-2 small">@_err</div> }
 
+<div class="view-tabs mb-3">
+    <button class="view-tab @(_tab == "facturas" ? "active" : "")" @onclick='() => _tab = "facturas"'>Facturas (@(_items?.Count ?? 0))</button>
+    <button class="view-tab @(_tab == "pagos" ? "active" : "")" @onclick='() => _tab = "pagos"'>Enlaces de pago (@_links.Count)</button>
+</div>
+
+@if (_tab == "facturas")
+{
 @if (_edit is not null)
 {
     <div class="card mb-3">
@@ -85,7 +92,7 @@ else
                     var pay = _links.FirstOrDefault(p => p.InvoiceId == inv.Id);
                     <tr>
                         <td class="small">@inv.Date.ToLocalTime().ToString("dd/MM/yyyy")</td>
-                        <td>@inv.ReceiverName <div class="small muted">@inv.ReceiverId</div></td>
+                        <td>@inv.ReceiverName @if (inv.Kind == "credit") { <span class="badge-soft">NC</span> }<div class="small muted">@inv.ReceiverId</div></td>
                         <td class="text-end text-nowrap">@inv.Total.ToString("N2") @inv.Currency</td>
                         <td><Badge Text="@st.Label" Color="@st.Color" /></td>
                         <td class="small"><div class="text-truncate" style="max-width:220px" title="@inv.Clave">@(inv.Clave ?? "—")</div><span class="muted">@inv.Provider</span>@if (inv.LastError is not null) { <div class="text-danger small">@inv.LastError</div> }</td>
@@ -101,6 +108,8 @@ else
                             @if (inv.Status is "draft" or "rejected") { <button class="btn-secondary btn-sm" @onclick="() => Edit(inv)">Editar</button> }
                             @if (inv.Status == "submitted") { <button class="btn-secondary btn-sm" @onclick="() => RefreshAsync(inv)">Actualizar estado</button> }
                             @if (inv.Status == "accepted" && pay is null) { <button class="btn-primary btn-sm" @onclick="() => CreatePayAsync(inv)">💳 Enlace de pago</button> }
+                            @if (inv.Status == "accepted" && inv.Kind == "invoice") { <button class="btn-secondary btn-sm" @onclick="() => CreditNoteAsync(inv)">Nota de crédito</button> }
+                            @if (inv.Status is "submitted" or "accepted") { <button class="btn-danger btn-sm" @onclick="() => CancelAsync(inv)">Anular</button> }
                         </td>
                     </tr>
                 }
@@ -108,8 +117,39 @@ else
         </table>
     </div>
 }
+}
+
+@if (_tab == "pagos")
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead><tr><th>Descripción</th><th class="text-end">Monto</th><th>Estado</th><th>Ligado a</th><th>Enlace</th></tr></thead>
+            <tbody>
+                @foreach (var p in _links.OrderByDescending(x => x.CreatedAt))
+                {
+                    var ps = PaymentStatuses.Get(p.Status);
+                    <tr>
+                        <td>@p.Description<div class="small muted">@p.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")@(p.PaidAt is not null ? $" · pagado {p.PaidAt.Value.ToLocalTime():dd/MM HH:mm}" : "")</div></td>
+                        <td class="text-end text-nowrap">@p.Amount.ToString("N2") @p.Currency</td>
+                        <td><Badge Text="@ps.Label" Color="@ps.Color" /></td>
+                        <td class="small muted">@LinkedLabel(p)</td>
+                        <td class="text-nowrap">
+                            @if (p.Url is not null) { <a class="btn-secondary btn-sm" href="@p.Url" target="_blank">Abrir</a> <button class="icon-btn" title="Copiar enlace" @onclick="() => CopyAsync(p.Url)">⧉</button> }
+                            else if (p.LastError is not null) { <span class="text-danger small">@p.LastError</span> }
+                        </td>
+                    </tr>
+                }
+                @if (_links.Count == 0) { <tr><td colspan="5" class="text-center muted py-3">Aún no hay enlaces de pago. Genéralos con el botón 💳 Cobrar en cotizaciones, negociaciones o prospectos.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+}
 
 @code {
+    private string _tab = "facturas";
+    private static string LinkedLabel(PaymentLink p) =>
+        p.InvoiceId is not null ? "Factura" : p.QuoteId is not null ? "Cotización" : p.DealId is not null ? "Negociación" : p.LeadId is not null ? "Prospecto" : "—";
+
     private List<ElectronicInvoice>? _items;
     private List<PaymentLink> _links = new();
     private List<Quote> _quotes = new();
@@ -184,6 +224,23 @@ else
     {
         var (ok, error) = await Invoices.RefreshStatusAsync(inv.Id!);
         if (!ok) _err = error; else _msg = "Estado actualizado.";
+        await LoadAsync();
+    }
+
+    private async Task CancelAsync(ElectronicInvoice inv)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Anular la factura de {inv.ReceiverName}?")) return;
+        var (ok, err) = await Invoices.CancelAsync(inv.Id!);
+        _err = ok ? null : err; _msg = ok ? "Factura anulada." : null;
+        await LoadAsync();
+    }
+
+    private async Task CreditNoteAsync(ElectronicInvoice inv)
+    {
+        var (note, err) = await Invoices.CreateCreditNoteAsync(inv.Id!);
+        if (note is null) { _err = err; return; }
+        _msg = "Nota de crédito creada (borrador). Revísela y emítala."; _err = null;
+        _tab = "facturas"; _edit = note;
         await LoadAsync();
     }
 

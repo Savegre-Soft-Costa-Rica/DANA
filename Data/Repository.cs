@@ -31,14 +31,25 @@ public class MongoRepository<T> : IRepository<T> where T : Entity
 
     private readonly IMongoCollection<AuditEntry> _audit;
     private readonly ChangeNotifier _notifier;
+    private readonly Microsoft.AspNetCore.Http.IHttpContextAccessor _http;
     private readonly string _name;
 
-    public MongoRepository(MongoContext context, ChangeNotifier notifier)
+    public MongoRepository(MongoContext context, ChangeNotifier notifier, Microsoft.AspNetCore.Http.IHttpContextAccessor http)
     {
         Collection = context.Collection<T>();
         _audit = context.Collection<AuditEntry>();
         _notifier = notifier;
+        _http = http;
         _name = MongoContext.CollectionName<T>();
+    }
+
+    /// <summary>Bloquea las escrituras si el usuario autenticado es de "Solo lectura" (los trabajos en segundo
+    /// plano y las acciones del sistema no tienen HttpContext, así que no se ven afectados).</summary>
+    private void GuardWrite()
+    {
+        var user = _http.HttpContext?.User;
+        if (user?.Identity?.IsAuthenticated == true && user.IsInRole(Roles.Viewer) && !user.IsInRole(Roles.Admin))
+            throw new InvalidOperationException("Su cuenta es de solo lectura: no puede crear, modificar ni eliminar datos.");
     }
 
     public IMongoCollection<T> Collection { get; }
@@ -69,6 +80,7 @@ public class MongoRepository<T> : IRepository<T> where T : Entity
 
     public async Task<T> InsertAsync(T entity)
     {
+        GuardWrite();
         entity.CreatedAt = DateTime.UtcNow;
         entity.UpdatedAt = entity.CreatedAt;
         entity.CreatedBy ??= entity.UpdatedBy;
@@ -80,6 +92,7 @@ public class MongoRepository<T> : IRepository<T> where T : Entity
 
     public async Task UpdateAsync(T entity)
     {
+        GuardWrite();
         entity.UpdatedAt = DateTime.UtcNow;
         List<AuditChange>? changes = null;
         if (Audited.Contains(_name))
@@ -94,6 +107,7 @@ public class MongoRepository<T> : IRepository<T> where T : Entity
 
     public async Task DeleteAsync(string id, string? by = null)
     {
+        GuardWrite();
         var entity = await GetByIdIncludingDeletedAsync(id);
         if (entity is null) return;
         await Collection.UpdateOneAsync(x => x.Id == id, Builders<T>.Update.Set(x => x.DeletedAt, DateTime.UtcNow).Set(x => x.DeletedBy, by));
@@ -103,6 +117,7 @@ public class MongoRepository<T> : IRepository<T> where T : Entity
 
     public async Task RestoreAsync(string id, string? by = null)
     {
+        GuardWrite();
         var entity = await GetByIdIncludingDeletedAsync(id);
         if (entity is null) return;
         await Collection.UpdateOneAsync(x => x.Id == id, Builders<T>.Update.Set(x => x.DeletedAt, null).Set(x => x.DeletedBy, null));
@@ -112,6 +127,7 @@ public class MongoRepository<T> : IRepository<T> where T : Entity
 
     public async Task PurgeAsync(string id, string? by = null)
     {
+        GuardWrite();
         var entity = await GetByIdIncludingDeletedAsync(id);
         await Collection.DeleteOneAsync(x => x.Id == id);
         if (entity is not null) await AuditAsync(entity, "purge", by, null);

@@ -21,8 +21,15 @@ public class AppSettings : Entity
     public decimal DefaultTaxRate { get; set; } = 13m;
     public AiSettings Ai { get; set; } = new();
     public IntegrationSettings Integrations { get; set; } = new();
+    /// <summary>Datos del emisor para la factura electrónica de Hacienda (Costa Rica), versión 4.4.</summary>
+    public HaciendaSettings Hacienda { get; set; } = new();
 
     public string? QuoteTerms { get; set; } = "Precios sujetos a cambio sin previo aviso. Validez de la oferta según fecha indicada.";
+
+    public static readonly (string Id, string Label)[] TiposIdentificacion =
+    [
+        ("01", "Cédula física"), ("02", "Cédula jurídica"), ("03", "DIMEX"), ("04", "NITE"), ("05", "Extranjero (no domiciliado)"),
+    ];
 
     public decimal ToBase(decimal amount, string? currency)
     {

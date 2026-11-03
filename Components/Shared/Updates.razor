@@ -1,5 +1,6 @@
 @inject ActivityService Activities
 @inject NotificationService Notifications
+@inject LinkPreviewService LinkPreview
 @inject AttachmentService Attachments
 @inject UserService Users
 @inject CurrentUser Me
@@ -7,10 +8,12 @@
 @inject DialogService Dialogs
 
 <div class="updates">
+    @if (!ReadOnly)
+    {
     <div class="composer">
         <div class="mention-wrap">
-            <textarea placeholder="Escriba una actualización… use @@ para mencionar a alguien (Ctrl+Enter para publicar)" rows="2"
-                      value="@_text" @oninput="OnInput" @onkeydown="OnKey"></textarea>
+            <SmartText Multiline="true" Rows="2" Class="" Placeholder="Escriba una actualización… use @@ para mencionar a alguien (Ctrl+Enter para publicar)"
+                       Value="_text" ValueChanged="OnInput" OnKeyDown="OnKey" />
             @if (_mentionOpen)
             {
                 <div class="mention-list">
@@ -33,6 +36,7 @@
         </div>
         @if (_error is not null) { <div class="text-danger small">@_error</div> }
     </div>
+    }
 
     @if (_items is null)
     {
@@ -64,6 +68,10 @@
                         }
                     </div>
                     <div class="update-text">@((MarkupString)Highlight(a.Text))</div>
+                    @foreach (var r in LinkPreviewService.ExtractRefs(a.Text))
+                    {
+                        @if (_cards.TryGetValue(r.Path, out var card)) { <ElementCard Card="card" /> }
+                    }
                     @if (files.Count > 0)
                     {
                         <div class="files">
@@ -98,6 +106,7 @@
 </div>
 
 @code {
+    [CascadingParameter(Name = "ReadOnly")] private bool ReadOnly { get; set; }
     [Parameter, EditorRequired] public string EntityType { get; set; } = "";
     [Parameter] public string? EntityId { get; set; }
     [Parameter] public string EntityTitle { get; set; } = "";
@@ -122,20 +131,27 @@
         _loadedFor = EntityId;
         _items = await Activities.GetForAsync(EntityType, EntityId);
         _attachments = await Attachments.GetForAsync(EntityType, EntityId);
+        await BuildCardsAsync();
+    }
+
+    private readonly Dictionary<string, LinkCard> _cards = new();
+    private async Task BuildCardsAsync()
+    {
+        foreach (var a in _items ?? new())
+            foreach (var r in LinkPreviewService.ExtractRefs(a.Text))
+            {
+                if (_cards.ContainsKey(r.Path)) continue;
+                var card = await LinkPreview.ResolveAsync(r.Type, r.Id, r.Path);
+                if (card is not null) _cards[r.Path] = card;
+            }
     }
 
     private string Link => EntityType switch { "lead" => $"leads/{EntityId}", "contact" => $"contacts/{EntityId}", "company" => $"companies/{EntityId}", _ => $"deals/{EntityId}" };
 
-    // Evita el re-render por cada tecla: así Blazor no reenvía el value del textarea y no se pierden
-    // caracteres al escribir (Blazor Server + latencia). Solo re-renderiza cuando cambia el menú de menciones.
-    private bool _render = true;
-    protected override bool ShouldRender() { var r = _render; _render = true; return r; }
-
-    private void OnInput(ChangeEventArgs e)
+    // El campo (SmartText) se sincroniza por JS y no se pierde texto. Aquí solo detectamos @menciones.
+    private void OnInput(string value)
     {
-        _text = e.Value?.ToString() ?? "";
-        var wasOpen = _mentionOpen;
-        var oldQuery = _mentionQuery;
+        _text = value;
         _mentionOpen = false;
         var at = _text.LastIndexOf('@');
         if (at >= 0 && (at == 0 || char.IsWhiteSpace(_text[at - 1])))
@@ -143,7 +159,6 @@
             var q = _text[(at + 1)..];
             if (!q.Contains('\n') && q.Length <= 30) { _mentionOpen = true; _mentionQuery = q; }
         }
-        _render = _mentionOpen != wasOpen || (_mentionOpen && _mentionQuery != oldQuery);
     }
 
     private void PickMention(string name)
@@ -187,6 +202,7 @@
             await Notifications.NotifyMentionsAsync(text, me, EntityTitle, Link);
             _items!.Insert(0, a);
             _text = ""; _pendingFiles.Clear();
+            await BuildCardsAsync();
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _busy = false; }

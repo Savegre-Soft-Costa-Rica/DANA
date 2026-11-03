@@ -9,6 +9,7 @@
 @inject IJSRuntime JS
 @inject DialogService Dialogs
 @inject BoardConfigService Configs
+@inject IScoringService Score
 
 <PageTitle>Dana · @(IsNew ? "Nuevo prospecto" : _model.Title)</PageTitle>
 
@@ -29,11 +30,12 @@
     <div class="actions">
         @if (!Embedded) { <a class="btn-secondary" href="leads">← Tablero</a> }
         @if (!IsNew) { <CopyLink Path="@($"leads/{_model.Id}")" /> }
-        @if (!IsNew && _model.Status != LeadStatuses.Converted)
+        @if (!ReadOnly && !IsNew && _model.Opportunity > 0) { <PayLinkButton Amount="_model.Opportunity" Currency="@_model.Currency" Description="@_model.Title" LeadId="@_model.Id" /> }
+        @if (!ReadOnly && !IsNew && _model.Status != LeadStatuses.Converted)
         {
             <button class="btn-primary" style="background:var(--success)" @onclick="() => _showConvert = !_showConvert">⇄ Convertir</button>
         }
-        @if (!IsNew)
+        @if (!ReadOnly && !IsNew)
         {
             <button class="btn-secondary" @onclick="() => _emailOpen = true" disabled="@string.IsNullOrWhiteSpace(_model.Email)">✉ Enviar correo</button>
             <button class="btn-secondary" @onclick="ArchiveAsync">@(_model.IsArchived ? "↩ Restaurar" : "🗂 Archivar")</button>
@@ -96,7 +98,7 @@
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Información</span>
-                @if (!_editing) { <button type="button" class="btn-secondary btn-sm" @onclick="() => _editing = true">✎ Editar</button> }
+                @if (!_editing && !ReadOnly) { <button type="button" class="btn-secondary btn-sm" @onclick="() => _editing = true">✎ Editar</button> }
             </div>
             <div class="card-body">
                 @if (_editing)
@@ -251,6 +253,7 @@
                     <div class="info-grid">
                         <FieldView Label="Título" Value="@_model.Title" Wide="true" />
                         <FieldView Label="Estado"><Badge Text="@_status.Name" Color="@_status.Color" /></FieldView>
+                        <FieldView Label="Prioridad" Wide="true">@{ var _sc = Score.ScoreLead(_model); }<ScoreBadge Result="_sc" /> <span class="muted small ms-2">💡 @_sc.NextAction</span></FieldView>
                         <FieldView Label="Nombre" Value="@_model.Name" />
                         <FieldView Label="Apellido" Value="@_model.LastName" />
                         <FieldView Label="Cargo" Value="@_model.Position" />
@@ -308,6 +311,7 @@
 
 @code {
     private bool _emailOpen;
+    [CascadingParameter(Name = "ReadOnly")] private bool ReadOnly { get; set; }
     [Parameter] public string? Id { get; set; }
     [Parameter] public bool Embedded { get; set; }
     private bool IsNew => string.IsNullOrEmpty(Id);

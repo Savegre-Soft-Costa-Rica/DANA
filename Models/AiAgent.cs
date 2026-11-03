@@ -17,8 +17,8 @@ public class AiSettings
     public string AnthropicModel { get; set; } = "claude-opus-5-5";
     public string OpenAiModel { get; set; } = "gpt-4o";
     public string DefaultProvider { get; set; } = AiProviders.Anthropic;
-    /// <summary>Máximo de llamadas a herramientas por respuesta.</summary>
-    public int MaxToolCalls { get; set; } = 12;
+    /// <summary>Máximo de llamadas a herramientas por respuesta (predeterminado del sistema).</summary>
+    public int MaxToolCalls { get; set; } = 25;
     /// <summary>Zona horaria para las rutinas programadas (IANA, p. ej. America/Costa_Rica).</summary>
     public string TimeZoneId { get; set; } = "America/Costa_Rica";
 }
@@ -75,6 +75,8 @@ public class AiAgent : Entity
     public bool AutoApprove { get; set; }
     /// <summary>Tope de envíos autónomos por día (0 = usar el valor por defecto, 20).</summary>
     public int DailySendLimit { get; set; } = 20;
+    /// <summary>Máximo de pasos (llamadas a herramientas) por respuesta de este agente. 0 = usar el valor global.</summary>
+    public int MaxSteps { get; set; }
     /// <summary>Contador de envíos autónomos del día (uso interno).</summary>
     public DateTime SendCountDate { get; set; }
     public int SendCountToday { get; set; }

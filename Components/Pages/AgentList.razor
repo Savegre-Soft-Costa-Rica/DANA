@@ -155,6 +155,8 @@
                         <div class="mb-2 ps-4"><label class="form-label small mb-1">Tope de envíos autónomos por día</label>
                             <InputNumber class="form-control form-control-sm" style="max-width:120px" @bind-Value="_edit.DailySendLimit" /></div>
                     }
+                    <div class="mb-2"><label class="form-label small mb-1">Pasos máximos por respuesta <span class="muted">(0 = usar el global; súbelo para tareas largas)</span></label>
+                        <InputNumber class="form-control form-control-sm" style="max-width:120px" @bind-Value="_edit.MaxSteps" /></div>
                     <label class="d-block mb-2"><InputCheckbox @bind-Value="_edit.IsBoss" /> <strong>👑 Jefe del equipo</strong>: coordina a los demás agentes, puede consultar a todos y recibe las escalaciones. Solo puede haber uno.</label>
                     <div class="collab mb-3">
                         <label class="d-block"><InputCheckbox @bind-Value="_edit.CanCollaborate" /> <strong>🤝 Puede comunicarse con otros agentes</strong> (requiere la herramienta "Consultar a otro agente").</label>

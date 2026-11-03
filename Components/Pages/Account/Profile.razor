@@ -8,6 +8,9 @@
 @inject UserService Users
 @inject PermissionService Perms
 @inject NavigationManager Nav
+@inject CurrentUser Me
+@inject SecretProtector Secrets
+@inject EmailService Email
 
 <PageTitle>Dana · Mi cuenta</PageTitle>
 
@@ -26,127 +29,196 @@
         @if (_ok is not null) { <div class="alert alert-success py-2 small">@_ok</div> }
         @if (_error is not null) { <div class="alert alert-danger py-2 small">@_error</div> }
 
-        <div class="profile-head">
-            @if (!string.IsNullOrEmpty(_user.Picture))
-            {
-                <img src="@_user.Picture" alt="" class="profile-avatar" referrerpolicy="no-referrer" />
-            }
-            else
-            {
-                <span class="profile-avatar profile-avatar-letter" style="background:@Avatar.ColorFor(_user.Name)">@Avatar.Initials(_user.Name)</span>
-            }
-            <div class="profile-id">
-                <div class="profile-name">@_user.Name</div>
-                <div class="profile-email">@_user.Email</div>
-                <div class="profile-badges">
-                    <span class="badge text-bg-primary">@_user.Role</span>
-                    @if (_user.IsActive) { <span class="badge text-bg-success">Activa</span> } else { <span class="badge text-bg-secondary">Inactiva</span> }
-                    @if (_user.PasswordHash is not null) { <span class="badge text-bg-light border">Contraseña</span> }
-                    @if (_user.HasGoogle) { <span class="badge text-bg-light border">Google vinculado</span> }
-                </div>
-                @{ var m = AgentMood.Describe(_user.Mood); }
-                <div class="profile-mood" title="Estado de ánimo">@m.Emoji <span>@(string.IsNullOrWhiteSpace(_user.MoodNote) ? m.Label : _user.MoodNote)</span></div>
-            </div>
-        </div>
-
-        <dl class="profile-meta">
-            <dt>Último ingreso</dt>
-            <dd>@(_user.LastLoginAt is { } d ? d.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "—")</dd>
-
-            <dt>Equipos</dt>
-            <dd>
-                @if (_teams.Count == 0) { <span class="text-muted">Sin equipo</span> }
-                else
+        <section class="psec psec-identity">
+            <div class="profile-head">
+                @if (!string.IsNullOrEmpty(_user.Picture))
                 {
-                    @foreach (var t in _teams)
-                    {
-                        <span class="badge border me-1" style="background:transparent;color:inherit;border-color:@t.Color">
-                            <span class="stage-dot" style="background:@t.Color"></span> @t.Name
-                        </span>
-                    }
-                }
-            </dd>
-
-            <dt>Permisos por tablero</dt>
-            <dd>
-                @if (_user.Role == Roles.Admin)
-                {
-                    <span class="text-muted">Administrador: acceso total a todos los tableros.</span>
+                    <img src="@_user.Picture" alt="" class="profile-avatar" referrerpolicy="no-referrer" />
                 }
                 else
                 {
-                    <div class="perm-summary">
-                        @foreach (var (key, label) in Boards)
-                        {
-                            var lvl = _user.Permissions.GetValueOrDefault(key, AccessLevels.Edit);
-                            <span><strong>@label:</strong> @LevelLabel(lvl)</span>
-                        }
+                    <span class="profile-avatar profile-avatar-letter" style="background:@Avatar.ColorFor(_user.Name)">@Avatar.Initials(_user.Name)</span>
+                }
+                <div class="profile-id">
+                    <div class="profile-name">@_user.Name</div>
+                    <div class="profile-email">@_user.Email</div>
+                    <div class="profile-badges">
+                        <span class="badge text-bg-primary">@_user.Role</span>
+                        @if (_user.IsActive) { <span class="badge text-bg-success">Activa</span> } else { <span class="badge text-bg-secondary">Inactiva</span> }
+                        @if (_user.PasswordHash is not null) { <span class="badge text-bg-light border">Contraseña</span> }
+                        @if (_user.HasGoogle) { <span class="badge text-bg-light border">Google vinculado</span> }
+                        @if (_user.EmailSettings is { IsConfigured: true }) { <span class="badge text-bg-info">✉ Correo conectado</span> }
                     </div>
-                }
-            </dd>
-        </dl>
+                    @{ var m = AgentMood.Describe(_user.Mood); }
+                    <div class="profile-mood" title="Estado de ánimo">@m.Emoji <span>@(string.IsNullOrWhiteSpace(_user.MoodNote) ? m.Label : _user.MoodNote)</span></div>
+                </div>
+            </div>
+
+            <dl class="profile-meta mb-0">
+                <dt>Último ingreso</dt>
+                <dd>@(_user.LastLoginAt is { } d ? d.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "—")</dd>
+
+                <dt>Equipos</dt>
+                <dd>
+                    @if (_teams.Count == 0) { <span class="text-muted">Sin equipo</span> }
+                    else
+                    {
+                        @foreach (var t in _teams)
+                        {
+                            <span class="badge border me-1" style="background:transparent;color:inherit;border-color:@t.Color">
+                                <span class="stage-dot" style="background:@t.Color"></span> @t.Name
+                            </span>
+                        }
+                    }
+                </dd>
+
+                <dt>Permisos por tablero</dt>
+                <dd>
+                    @if (_user.Role == Roles.Admin)
+                    {
+                        <span class="text-muted">Administrador: acceso total a todos los tableros.</span>
+                    }
+                    else
+                    {
+                        <div class="perm-summary">
+                            @foreach (var (key, label) in Boards)
+                            {
+                                var lvl = _user.Permissions.GetValueOrDefault(key, AccessLevels.Edit);
+                                <span><strong>@label:</strong> @LevelLabel(lvl)</span>
+                            }
+                        </div>
+                    }
+                </dd>
+            </dl>
+        </section>
 
         <EditForm Model="Input" method="post" OnValidSubmit="SaveAsync" FormName="profile">
             <DataAnnotationsValidator />
+            <ValidationSummary class="small" />
 
-            <h6 class="profile-section-title">Datos personales</h6>
-            <div class="mb-3">
-                <label class="form-label">Nombre</label>
-                <InputText class="form-control" @bind-Value="Input.Name" />
-                <ValidationMessage For="() => Input.Name" />
-            </div>
-            <div class="mb-3">
-                <label class="form-label">Foto (URL)</label>
-                <InputText class="form-control" @bind-Value="Input.Picture" placeholder="https://…" />
-                <div class="form-text">Opcional. Enlace a una imagen para su avatar.</div>
-            </div>
+            <div class="ptabs">
+                @* Tabs solo-CSS: todos los paneles permanecen en el DOM y se envían juntos *@
+                <input type="radio" name="ptab" id="ptab-datos" class="ptab-radio" checked />
+                <input type="radio" name="ptab" id="ptab-animo" class="ptab-radio" />
+                <input type="radio" name="ptab" id="ptab-seg" class="ptab-radio" />
+                <input type="radio" name="ptab" id="ptab-correo" class="ptab-radio" />
 
-            <h6 class="profile-section-title">Estado de ánimo</h6>
-            <p class="small text-muted mb-2">Cómo se siente hoy. Lo verán sus compañeros en Usuarios y en el Chat.</p>
-            <InputRadioGroup @bind-Value="Input.Mood" Name="mood">
-                <div class="mood-choices mb-2">
-                    @foreach (var (val, emoji, label) in Moods)
+                <div class="ptab-nav">
+                    <label for="ptab-datos">👤 Datos</label>
+                    <label for="ptab-animo">🙂 Ánimo</label>
+                    <label for="ptab-seg">🔒 Seguridad</label>
+                    <label for="ptab-correo">✉ Correo @if (_user.EmailSettings is { IsConfigured: true }) { <span class="tab-dot" title="Conectado"></span> }</label>
+                </div>
+
+                <div class="ptab-panel" id="panel-datos">
+                    <div class="mb-3">
+                        <label class="form-label">Nombre</label>
+                        <InputText class="form-control" @bind-Value="Input.Name" />
+                        <ValidationMessage For="() => Input.Name" />
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label">Foto (URL)</label>
+                        <InputText class="form-control" @bind-Value="Input.Picture" placeholder="https://…" />
+                        <div class="form-text">Opcional. Enlace a una imagen para su avatar.</div>
+                    </div>
+                </div>
+
+                <div class="ptab-panel" id="panel-animo">
+                    <p class="small text-muted mb-2">Cómo se siente hoy. Lo verán sus compañeros en Usuarios y en el Chat.</p>
+                    <InputRadioGroup @bind-Value="Input.Mood" Name="mood">
+                        <div class="mood-choices mb-2">
+                            @foreach (var (val, emoji, label) in Moods)
+                            {
+                                <label class="mood-choice">
+                                    <InputRadio Value="val" Name="mood" />
+                                    <span class="mc-emoji">@emoji</span>
+                                    <span>@label</span>
+                                </label>
+                            }
+                        </div>
+                    </InputRadioGroup>
+                    <div class="mb-0">
+                        <label class="form-label">Nota de estado (opcional)</label>
+                        <InputText class="form-control" @bind-Value="Input.MoodNote" placeholder="p. ej. En reunión hasta las 3" />
+                    </div>
+                </div>
+
+                <div class="ptab-panel" id="panel-seg">
+                    <p class="small text-muted mb-2">@(_user.PasswordHash is null ? "Defina una contraseña para poder entrar también sin Google." : "Cambiar contraseña (opcional). Déjelo en blanco para no modificarla.")</p>
+                    @if (_user.PasswordHash is not null)
                     {
-                        <label class="mood-choice">
-                            <InputRadio Value="val" Name="mood" />
-                            <span class="mc-emoji">@emoji</span>
-                            <span>@label</span>
-                        </label>
+                        <div class="mb-3">
+                            <label class="form-label">Contraseña actual</label>
+                            <InputText class="form-control" @bind-Value="Input.CurrentPassword" type="password" autocomplete="current-password" />
+                        </div>
                     }
+                    <div class="row g-2 mb-0">
+                        <div class="col-md-6">
+                            <label class="form-label">Nueva contraseña</label>
+                            <InputText class="form-control" @bind-Value="Input.NewPassword" type="password" autocomplete="new-password" />
+                            <ValidationMessage For="() => Input.NewPassword" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Confirmar nueva contraseña</label>
+                            <InputText class="form-control" @bind-Value="Input.ConfirmPassword" type="password" autocomplete="new-password" />
+                            <ValidationMessage For="() => Input.ConfirmPassword" />
+                        </div>
+                    </div>
                 </div>
-            </InputRadioGroup>
-            <div class="mb-3">
-                <label class="form-label">Nota de estado (opcional)</label>
-                <InputText class="form-control" @bind-Value="Input.MoodNote" placeholder="p. ej. En reunión hasta las 3" />
+
+                <div class="ptab-panel" id="panel-correo">
+                    <p class="small text-muted mb-3">
+                        Conecte su correo para enviar desde el CRM (negociaciones, prospectos, contactos) con su propia dirección.
+                        Su contraseña se guarda <strong>cifrada</strong>. Con Gmail/Outlook use una <strong>contraseña de aplicación</strong>.
+                        @if (_user.EmailSettings is { IsConfigured: true }) { <span class="badge text-bg-success ms-1">Conectado</span> } else { <span class="badge text-bg-secondary ms-1">No conectado</span> }
+                    </p>
+                    <div class="form-check mb-3">
+                        <InputCheckbox class="form-check-input" id="smtp-enabled" @bind-Value="Input.EmailEnabled" />
+                        <label class="form-check-label" for="smtp-enabled">Enviar correos desde mi cuenta por SMTP</label>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-8">
+                            <label class="form-label">Servidor SMTP</label>
+                            <InputText class="form-control" @bind-Value="Input.SmtpHost" placeholder="smtp.gmail.com" />
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Puerto</label>
+                            <InputNumber class="form-control" @bind-Value="Input.SmtpPort" />
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Usuario</label>
+                        <InputText class="form-control" @bind-Value="Input.SmtpUser" placeholder="su.correo@empresa.com" autocomplete="off" />
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Contraseña / clave de aplicación</label>
+                        <InputText class="form-control" @bind-Value="Input.SmtpPassword" type="password" autocomplete="new-password"
+                                   placeholder="@(_user.EmailSettings?.PasswordEnc is not null ? "•••••••• (dejar en blanco para conservar)" : "")" />
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-md-6">
+                            <label class="form-label">Correo remitente (De)</label>
+                            <InputText class="form-control" @bind-Value="Input.SmtpFromEmail" placeholder="su.correo@empresa.com" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Nombre remitente</label>
+                            <InputText class="form-control" @bind-Value="Input.SmtpFromName" placeholder="@_user.Name" />
+                        </div>
+                    </div>
+                    <div class="form-check mb-0">
+                        <InputCheckbox class="form-check-input" id="smtp-tls" @bind-Value="Input.SmtpStartTls" />
+                        <label class="form-check-label" for="smtp-tls">Usar STARTTLS (recomendado para el puerto 587)</label>
+                    </div>
+                </div>
             </div>
 
-            <h6 class="profile-section-title">Seguridad</h6>
-            <p class="small text-muted mb-2">@(_user.PasswordHash is null ? "Defina una contraseña para poder entrar también sin Google." : "Cambiar contraseña (opcional). Déjelo en blanco para no modificarla.")</p>
-            @if (_user.PasswordHash is not null)
-            {
-                <div class="mb-3">
-                    <label class="form-label">Contraseña actual</label>
-                    <InputText class="form-control" @bind-Value="Input.CurrentPassword" type="password" autocomplete="current-password" />
-                </div>
-            }
-            <div class="mb-3">
-                <label class="form-label">Nueva contraseña</label>
-                <InputText class="form-control" @bind-Value="Input.NewPassword" type="password" autocomplete="new-password" />
-                <ValidationMessage For="() => Input.NewPassword" />
-            </div>
-            <div class="mb-3">
-                <label class="form-label">Confirmar nueva contraseña</label>
-                <InputText class="form-control" @bind-Value="Input.ConfirmPassword" type="password" autocomplete="new-password" />
-                <ValidationMessage For="() => Input.ConfirmPassword" />
-            </div>
-
-            <button type="submit" class="btn btn-primary w-100">Guardar cambios</button>
+            <button type="submit" class="btn btn-primary w-100 mt-3">Guardar cambios</button>
         </EditForm>
     }
 </div>
 
 @code {
-    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
     [SupplyParameterFromForm] private InputModel Input { get; set; } = default!;
 
     private static readonly (string Key, string Label)[] Boards =
@@ -165,23 +237,62 @@
     protected override async Task OnInitializedAsync()
     {
         Input ??= new();
-        _user = await Users.GetAsync(HttpContext.User.FindFirstValue(ClaimTypes.NameIdentifier));
+
+        // HttpContext solo está disponible en render estático (SSR); en circuito interactivo es null.
+        var principal = HttpContext?.User ?? await Me.PrincipalAsync();
+        _user = await Users.GetAsync(principal.FindFirstValue(ClaimTypes.NameIdentifier));
         if (_user is null) { Nav.NavigateTo("cuenta/login"); return; }
 
         _teams = (await Perms.GetTeamsAsync()).Where(t => t.Members.Contains(_user.Name)).ToList();
 
-        if (HttpContext.Request.Method == "GET")
+        if (HttpContext is null || HttpContext.Request.Method == "GET")
         {
             Input.Name = _user.Name;
             Input.Picture = _user.Picture;
             Input.Mood = _user.Mood;
             Input.MoodNote = _user.MoodNote;
+
+            var es = _user.EmailSettings;
+            Input.EmailEnabled = es?.Enabled ?? false;
+            Input.SmtpHost = es?.Host;
+            Input.SmtpPort = es?.Port ?? 587;
+            Input.SmtpUser = es?.Username;
+            Input.SmtpFromEmail = es?.FromEmail ?? _user.Email;
+            Input.SmtpFromName = es?.FromName ?? _user.Name;
+            Input.SmtpStartTls = es?.UseStartTls ?? true;
         }
     }
 
     private async Task SaveAsync()
     {
         if (_user is null) return;
+        _error = _ok = null;
+
+        // ---- Correo SMTP personal (se prueba antes de guardar nada) ----
+        var es = _user.EmailSettings ?? new UserEmailSettings();
+        es.Enabled = Input.EmailEnabled;
+        es.Host = Input.SmtpHost?.Trim();
+        es.Port = Input.SmtpPort <= 0 ? 587 : Input.SmtpPort;
+        es.Username = Input.SmtpUser?.Trim();
+        es.FromEmail = string.IsNullOrWhiteSpace(Input.SmtpFromEmail) ? _user.Email : Input.SmtpFromEmail.Trim();
+        es.FromName = string.IsNullOrWhiteSpace(Input.SmtpFromName) ? _user.Name : Input.SmtpFromName.Trim();
+        es.UseStartTls = Input.SmtpStartTls;
+        if (!string.IsNullOrWhiteSpace(Input.SmtpPassword)) es.PasswordEnc = Secrets.Protect(Input.SmtpPassword.Trim());
+
+        var smtpNote = "";
+        if (es.Enabled)
+        {
+            if (string.IsNullOrWhiteSpace(es.Host) || string.IsNullOrWhiteSpace(es.Username) || string.IsNullOrWhiteSpace(es.PasswordEnc) || string.IsNullOrWhiteSpace(es.FromEmail))
+            {
+                _error = "Para enviar desde su cuenta complete servidor, usuario, contraseña y correo remitente.";
+                return;
+            }
+            var pwd = Secrets.Unprotect(es.PasswordEnc);
+            var (ok, err) = await Email.TestSmtpAsync(es.Host!, es.Port, es.Username, pwd, es.UseStartTls);
+            if (!ok) { _error = $"No se pudo conectar a su SMTP: {err}"; return; }
+            smtpNote = " Correo conectado correctamente.";
+        }
+        _user.EmailSettings = es;
 
         if (!string.IsNullOrEmpty(Input.NewPassword))
         {
@@ -196,12 +307,13 @@
         _user.MoodNote = string.IsNullOrWhiteSpace(Input.MoodNote) ? null : Input.MoodNote.Trim();
         await Users.UpdateProfileAsync(_user);
 
-        // Refrescar la cookie con el nuevo nombre y foto
-        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, UserService.CreatePrincipal(_user),
-            new AuthenticationProperties { IsPersistent = true });
+        // Refrescar la cookie con el nuevo nombre y foto (solo en render estático).
+        if (HttpContext is not null)
+            await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, UserService.CreatePrincipal(_user),
+                new AuthenticationProperties { IsPersistent = true });
 
-        _ok = string.IsNullOrEmpty(Input.NewPassword) ? "Cambios guardados." : "Cambios guardados. Contraseña actualizada.";
-        Input.CurrentPassword = Input.NewPassword = Input.ConfirmPassword = "";
+        _ok = (string.IsNullOrEmpty(Input.NewPassword) ? "Cambios guardados." : "Cambios guardados. Contraseña actualizada.") + smtpNote;
+        Input.CurrentPassword = Input.NewPassword = Input.ConfirmPassword = Input.SmtpPassword = "";
     }
 
     private sealed class InputModel
@@ -215,5 +327,15 @@
         public string NewPassword { get; set; } = "";
         [Compare(nameof(NewPassword), ErrorMessage = "Las contraseñas no coinciden")]
         public string ConfirmPassword { get; set; } = "";
+
+        // Correo SMTP personal
+        public bool EmailEnabled { get; set; }
+        public string? SmtpHost { get; set; }
+        public int SmtpPort { get; set; } = 587;
+        public string? SmtpUser { get; set; }
+        public string? SmtpPassword { get; set; }
+        public string? SmtpFromEmail { get; set; }
+        public string? SmtpFromName { get; set; }
+        public bool SmtpStartTls { get; set; } = true;
     }
 }

@@ -99,7 +99,7 @@ else
                         <div class="row g-2">
                             <div class="col-md-6"><label class="form-label">Nombre *</label><InputText class="form-control" @bind-Value="_edit.Name" /><ValidationMessage For="() => _edit.Name" /></div>
                             <div class="col-md-3"><label class="form-label">SKU</label><InputText class="form-control" @bind-Value="_edit.Sku" /></div>
-                            <div class="col-md-3"><label class="form-label">Código CABYS</label><InputText class="form-control" @bind-Value="_edit.Cabys" placeholder="Catálogo CR" /></div>
+                            <div class="col-md-3"><label class="form-label">Código CABYS</label><CabysPicker @bind-Value="_edit.Cabys" OnPicked="OnCabysPicked" /></div>
                             <div class="col-md-6"><label class="form-label">Categoría</label>
                                 <InputSelect class="form-select" @bind-Value="_edit.Category"><option value="">— Sin categoría —</option>@foreach (var c in _categories) { <option value="@c.Name">@c.Name</option> }</InputSelect></div>
                             <div class="col-md-3"><label class="form-label">Unidad</label><InputText class="form-control" @bind-Value="_edit.Unit" /></div>
@@ -140,7 +140,7 @@ else
                     </div>
                 </div>
                 <div class="d-flex justify-content-between align-items-center mt-3">
-                    <span class="muted small">@(_edit.Id is null ? "" : $"Id: {_edit.Id}")</span>
+                    <span>@if (_edit.Id is not null) { <CopyLink Path="@($"productos/{_edit.Id}")" /> <a class="btn-ghost btn-sm" href="productos/@_edit.Id" target="_blank">Ver ficha ↗</a> }</span>
                     <span class="d-flex gap-2"><button type="button" class="btn-secondary" @onclick="() => _edit = null">Cancelar</button><button type="submit" class="btn-primary" disabled="@_uploading">Guardar</button></span>
                 </div>
             </EditForm>
@@ -280,6 +280,9 @@ else
     private static Product Restore(Product c, Product p) { c.Id = p.Id; c.CreatedAt = p.CreatedAt; c.CreatedBy = p.CreatedBy; return c; }
 
     private async Task NewAsync() { var s = await Settings.GetAsync(); _edit = new Product { Currency = s.BaseCurrency, TaxRate = s.DefaultTaxRate, Category = string.IsNullOrEmpty(_category) || _category == "__none" ? null : _category }; }
+
+    // Al elegir un CABYS, toma la tarifa de IVA que Hacienda asocia a ese código.
+    private void OnCabysPicked(CabysItem item) { if (_edit is not null) _edit.TaxRate = item.Impuesto; }
 
     private async Task SaveAsync()
     {

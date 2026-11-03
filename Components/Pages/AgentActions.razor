@@ -1,0 +1,45 @@
+@page "/agentes/acciones"
+@attribute [Authorize(Policy = "Admin")]
+@inject IRepository<AgentAction> Actions
+
+<PageTitle>Dana · Acciones de agentes</PageTitle>
+
+<PageHeader Title="Acciones de agentes" Subtitle="Registro de todo lo que los agentes crearon, actualizaron, enviaron o cobraron.">
+    <Actions>
+        <a class="btn-secondary" href="agentes">← Agentes</a>
+        <button class="btn-secondary" @onclick="LoadAsync">↻ Actualizar</button>
+    </Actions>
+</PageHeader>
+
+@if (_items is null) { <p class="muted">Cargando…</p> }
+else if (_items.Count == 0) { <div class="empty-state">Aún no hay acciones registradas. Aparecerán aquí cuando un agente cree, actualice, envíe, facture o cobre algo.</div> }
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead><tr><th>Fecha</th><th>Agente</th><th>Acción</th><th>Resultado</th><th>Origen</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var a in _items)
+                {
+                    <tr class="@(a.Success ? "" : "text-muted")">
+                        <td class="small text-nowrap">@a.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                        <td><span class="avatar avatar-letter avatar-sm" style="background:@Avatar.ColorFor(a.AgentName)">@Avatar.Initials(a.AgentName)</span> @a.AgentName</td>
+                        <td><span class="badge-soft">@a.ToolTitle</span></td>
+                        <td class="small"><div class="text-truncate" style="max-width:420px" title="@a.Summary">@a.Summary</div></td>
+                        <td class="small muted">@a.Source</td>
+                        <td>@if (!a.Success) { <span class="badge-soft danger">falló</span> }</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<AgentAction>? _items;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() =>
+        _items = (await Actions.GetAllAsync()).OrderByDescending(a => a.CreatedAt).Take(300).ToList();
+}

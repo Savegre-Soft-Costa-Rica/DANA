@@ -193,4 +193,15 @@ public class UserService
         if (!string.IsNullOrEmpty(user.Picture)) identity.AddClaim(new Claim("picture", user.Picture));
         return new ClaimsPrincipal(identity);
     }
+
+    /// <summary>Principal de invitado para el modo demo (no requiere cuenta en la base de datos).</summary>
+    public static ClaimsPrincipal CreateDemoPrincipal()
+    {
+        var identity = new ClaimsIdentity(CookieAuthenticationDefaults.AuthenticationScheme, ClaimTypes.Name, ClaimTypes.Role);
+        identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, "demo"));
+        identity.AddClaim(new Claim(ClaimTypes.Name, "Invitado (Demo)"));
+        identity.AddClaim(new Claim(ClaimTypes.Role, Roles.Admin));
+        identity.AddClaim(new Claim("demo", "1"));
+        return new ClaimsPrincipal(identity);
+    }
 }
