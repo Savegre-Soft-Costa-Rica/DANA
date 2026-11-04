@@ -1,0 +1,107 @@
+@page "/contabilidad/estados"
+@using Dana.Services.Accounting
+@inject AccountingService Accounting
+
+<PageTitle>Dana · Estados financieros</PageTitle>
+
+<PageHeader Title="Estados financieros" Subtitle="Estado de Resultados y Balance General a partir de los asientos registrados.">
+    <Actions>
+        <input type="date" class="form-control mw-filter" @bind="_from" @bind:after="LoadAsync" title="Desde" />
+        <input type="date" class="form-control mw-filter" @bind="_to" @bind:after="LoadAsync" title="Hasta" />
+        @if (_from is not null || _to is not null) { <button class="btn-secondary" @onclick="ClearDates">Limpiar</button> }
+    </Actions>
+</PageHeader>
+
+@if (_rows is null) { <p class="muted">Cargando…</p> }
+else
+{
+    var ingresos = _rows.Where(r => r.Account.Type == AccountType.Ingreso).ToList();
+    var gastos = _rows.Where(r => r.Account.Type == AccountType.Gasto).ToList();
+    var activos = _rows.Where(r => r.Account.Type == AccountType.Activo).ToList();
+    var pasivos = _rows.Where(r => r.Account.Type == AccountType.Pasivo).ToList();
+    var patrimonio = _rows.Where(r => r.Account.Type == AccountType.Patrimonio).ToList();
+
+    var totalIngresos = ingresos.Sum(r => r.Balance);
+    var totalGastos = gastos.Sum(r => r.Balance);
+    var utilidad = totalIngresos - totalGastos;
+
+    var totalActivo = activos.Sum(r => r.Balance);
+    var totalPasivo = pasivos.Sum(r => r.Balance);
+    var totalPatrimonio = patrimonio.Sum(r => r.Balance) + utilidad; // la utilidad del periodo suma al patrimonio
+
+    <div class="kpi-row mb-3">
+        <div class="kpi-card"><div class="kpi-label">Ingresos</div><div class="kpi-value" style="color:var(--success)">@totalIngresos.ToString("N2")</div></div>
+        <div class="kpi-card"><div class="kpi-label">Gastos</div><div class="kpi-value" style="color:var(--warning)">@totalGastos.ToString("N2")</div></div>
+        <div class="kpi-card"><div class="kpi-label">Utilidad / pérdida</div><div class="kpi-value" style="color:@(utilidad >= 0 ? "var(--success)" : "var(--danger)")">@utilidad.ToString("N2")</div></div>
+        <div class="kpi-card"><div class="kpi-label">Total activo</div><div class="kpi-value">@totalActivo.ToString("N2")</div></div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">Estado de Resultados</div>
+                <div class="card-body p-0">
+                    <table class="table table-sm align-middle mb-0">
+                        <tbody>
+                            <tr class="section-row"><td colspan="2" class="fw-semibold">Ingresos</td></tr>
+                            @foreach (var r in ingresos) { <tr><td class="ps-4 small">@r.Account.Name</td><td class="text-end">@r.Balance.ToString("N2")</td></tr> }
+                            <tr class="fw-semibold"><td>Total ingresos</td><td class="text-end">@totalIngresos.ToString("N2")</td></tr>
+                            <tr class="section-row"><td colspan="2" class="fw-semibold">Gastos y costos</td></tr>
+                            @foreach (var r in gastos) { <tr><td class="ps-4 small">@r.Account.Name</td><td class="text-end">@r.Balance.ToString("N2")</td></tr> }
+                            <tr class="fw-semibold"><td>Total gastos</td><td class="text-end">@totalGastos.ToString("N2")</td></tr>
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-bold" style="border-top:2px solid var(--border)">
+                                <td>@(utilidad >= 0 ? "Utilidad neta" : "Pérdida neta")</td>
+                                <td class="text-end" style="color:@(utilidad >= 0 ? "var(--success)" : "var(--danger)")">@utilidad.ToString("N2")</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">Balance General</div>
+                <div class="card-body p-0">
+                    <table class="table table-sm align-middle mb-0">
+                        <tbody>
+                            <tr class="section-row"><td colspan="2" class="fw-semibold">Activos</td></tr>
+                            @foreach (var r in activos) { <tr><td class="ps-4 small">@r.Account.Name</td><td class="text-end">@r.Balance.ToString("N2")</td></tr> }
+                            <tr class="fw-semibold"><td>Total activo</td><td class="text-end">@totalActivo.ToString("N2")</td></tr>
+                            <tr class="section-row"><td colspan="2" class="fw-semibold">Pasivos</td></tr>
+                            @foreach (var r in pasivos) { <tr><td class="ps-4 small">@r.Account.Name</td><td class="text-end">@r.Balance.ToString("N2")</td></tr> }
+                            <tr class="fw-semibold"><td>Total pasivo</td><td class="text-end">@totalPasivo.ToString("N2")</td></tr>
+                            <tr class="section-row"><td colspan="2" class="fw-semibold">Patrimonio</td></tr>
+                            @foreach (var r in patrimonio) { <tr><td class="ps-4 small">@r.Account.Name</td><td class="text-end">@r.Balance.ToString("N2")</td></tr> }
+                            <tr><td class="ps-4 small">Utilidad / pérdida del periodo</td><td class="text-end">@utilidad.ToString("N2")</td></tr>
+                            <tr class="fw-semibold"><td>Total patrimonio</td><td class="text-end">@totalPatrimonio.ToString("N2")</td></tr>
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-bold" style="border-top:2px solid var(--border)">
+                                <td>Pasivo + Patrimonio</td>
+                                <td class="text-end">@((totalPasivo + totalPatrimonio).ToString("N2"))</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    @{ var diff = Math.Round(totalActivo - (totalPasivo + totalPatrimonio), 2); }
+                    <div class="p-2 small @(diff == 0 ? "text-success" : "text-danger")">
+                        @(diff == 0 ? "✓ El balance cuadra: Activo = Pasivo + Patrimonio." : $"⚠ Diferencia de {diff:N2}. Revise que todos los asientos estén cuadrados.")
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <p class="muted small mt-2">Nota: el Estado de Resultados suele verse por periodo (desde/hasta); el Balance General, a una fecha de corte (use “Hasta”).</p>
+}
+
+@code {
+    private List<AccountBalance>? _rows;
+    private DateTime? _from, _to;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => _rows = await Accounting.TrialBalanceAsync(_from, _to);
+
+    private async Task ClearDates() { _from = _to = null; await LoadAsync(); }
+}

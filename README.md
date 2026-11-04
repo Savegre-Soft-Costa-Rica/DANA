@@ -31,6 +31,11 @@ dotnet test                              # pruebas unitarias e integración (usa
 | **Embudos** (`/pipelines`) | Deal pipelines / categorías | Varios embudos, cada uno con sus etapas (nombre, color, tipo: en proceso / ganada / perdida). Un embudo predeterminado. |
 | **Panel** (`/`) | Dashboard | Totales, embudo visual por etapa, prospectos por estado, negociaciones recientes, carga de datos de ejemplo. |
 | **Usuarios** (`/usuarios`) | Usuarios | Solo Admin: roles (Admin / Usuario), activar/desactivar, eliminar. |
+| **Cotizaciones** (`/cotizaciones`) | Quotes | Cotizaciones con líneas del catálogo (precio, unidad, impuesto), subtotal/IVA/total, vigencia, estados (Borrador, Enviada, Aceptada, Rechazada) e impresión en PDF. |
+| **Facturación** (`/facturacion`) | Invoices | Facturas electrónicas de Costa Rica (emisión desde cotización, envío a Hacienda vía proveedor, estados), **suscripciones** SaaS y **planes de pago** (formas de pago: contado, tractos, crédito). |
+| **Suscripciones** (`/suscripciones`) | Recurring deals | Relación de cobro recurrente (mensual, anual…) con estados (Activa, En prueba, Pausada, Cancelada, Finalizada), MRR/ARR y ciclo de vida (pausar, reanudar, cancelar, generar la factura del periodo). |
+| **Planes de pago** (`/planes-de-pago`) | — | Cómo se cobra una venta única: **contado**, **tractos** (cuotas) o **crédito** (neto X días), con una cuota por tracto, su factura y su enlace de pago. |
+| **Contabilidad** (`/contabilidad`) | — | Plan de cuentas, asientos de partida doble, libro mayor, balance de comprobación, estados financieros y cuentas por cobrar (aging), con posteo automático u manual de facturas y cobros. |
 
 ## Interfaz tipo monday
 
@@ -67,7 +72,52 @@ Dana incluye **agentes** (asistentes de IA con un rol) que trabajan sobre los da
 
 **Firma electrónica.** Desde el editor de un documento se añaden firmantes (nombre, correo, cargo); cada uno recibe un enlace público único (`/firmar/{token}`) donde lee el documento, dibuja su firma y acepta. Se registran fecha, hora e IP; la firma aparece en la vista previa, la impresión y el Word, y con todas las firmas el documento pasa a "Firmado". El enlace se copia o se envía por correo (si hay SMTP). Además: los agentes pueden adjuntar un documento en Word o un archivo al enviar correos (`enviar_correo` con `documentoId` / `adjuntoId`), las rutinas pueden enviar su informe también por correo, y la búsqueda global incluye documentos.
 
-Herramientas disponibles para los agentes (función calling): `buscar`, `obtener`, `estadisticas`, `resumen_embudo`, `listar_embudos`, `listar_usuarios` (lectura) y `crear`, `actualizar`, `agregar_nota` (escritura, solo si el agente tiene permiso), `cotizaciones_buscar`, `cotizacion_obtener`, `cotizacion_crear`, `cotizacion_actualizar` (cotizaciones con precios del catálogo), `buscar_web`, `leer_pagina` (internet) y `consultar_agente` (otros agentes). Los registros creados por un agente quedan auditados como `usuario · agente`.
+Herramientas disponibles para los agentes (función calling): `buscar`, `obtener`, `estadisticas`, `resumen_embudo`, `listar_embudos`, `listar_usuarios` (lectura) y `crear`, `actualizar`, `agregar_nota` (escritura, solo si el agente tiene permiso), `cotizaciones_buscar`, `cotizacion_obtener`, `cotizacion_crear`, `cotizacion_actualizar` (cotizaciones con precios del catálogo), `buscar_web`, `leer_pagina` (internet) y `consultar_agente` (otros agentes). Para facturación y contabilidad hay además herramientas opt-in que se otorgan a cada perfil: `facturas_buscar`, `factura_obtener`, `emitir_factura`, `crear_enlace_pago`, `suscripciones_buscar`, `suscripcion_crear`, `suscripcion_estado`, `suscripcion_generar` y la familia `contabilidad_*` (plan de cuentas, asientos, mayor, balance, estados financieros). Los agentes de ejemplo que las usan son **Nico** (cotizador), **Vera** (seguimiento y cobranza) y **Tomás** (contabilidad). Los registros creados por un agente quedan auditados como `usuario · agente`.
+
+## Facturación, suscripciones y formas de pago
+
+Dana cobra dos naturalezas de ingreso que se combinan libremente en una misma negociación (p. ej. implementación + licencia mensual):
+
+- **Venta única** (`BillingModel.OneTime` en el producto): sitio web, software a medida, un proyecto. Se cobra una sola vez según su **forma de pago**.
+- **Suscripción** (`BillingModel.Recurring`, con una frecuencia): licencia o servicio SaaS que se factura por periodo y aporta **MRR** (ingreso recurrente mensual).
+
+Son dos ejes ortogonales: la **naturaleza del ingreso** vive en el producto/línea; la **forma de pago** vive en la venta.
+
+### Formas de pago (planes de pago · `/planes-de-pago`)
+
+Una venta única se cobra con una de tres formas de pago (`PaymentTerm`), que genera un **plan de pago** con sus cuotas (`Installment`):
+
+| Forma de pago | Cuotas que genera |
+|---|---|
+| **Contado** | Una sola cuota con vencimiento hoy. |
+| **Tractos** | N cuotas mensuales (mínimo 2); la última cuadra el total al céntimo. En Costa Rica **cada tracto genera su propia factura** (no se usan anticipos). |
+| **Crédito** | Una cuota a **neto X días** (30 / 60 / 90; 30 por defecto). |
+
+Cada cuota avanza por los estados **Pendiente → Facturado → Pagado** (y **Vencido** si pasa su fecha sin pagarse), y guarda su factura electrónica y su enlace de cobro. Desde la página de planes de pago se construye el plan a partir de una cotización, se **factura una cuota** (crea la factura electrónica en borrador: una línea, impuesto 0 y CABYS en blanco, porque el detalle ya se facturó en la cotización), se **cobra** (genera un enlace de pago de Tilopay) y se **marca como pagada**.
+
+### Suscripciones (`/suscripciones`)
+
+Una suscripción es la relación de cobro recurrente que sobrevive a la negociación que la originó. Tiene estado (**Activa, En prueba, Pausada, Cancelada, Finalizada**), su **MRR** y un ciclo de vida: pausar, reanudar, cancelar y generar la factura del periodo. La lista muestra KPIs de **MRR/ARR**, titular, estado y filtros.
+
+### Enlaces de pago (Tilopay)
+
+`crear_enlace_pago` genera un **enlace de pago** (`/pagar/{token}`) para cobrar una factura o una cuota en línea mediante **Tilopay**. Cuando el pago se confirma, la cuota/factura se marca como pagada y se dispara el asiento contable del cobro.
+
+### Materializar una venta
+
+Al ganar una negociación, en su ficha (`/deals/{id}`) se desglosa el monto en parte **de una vez** y parte **recurrente**; el botón/banner **"Materializar venta"** abre `/deals/{id}/materializar`, que crea el **plan de pago** y/o la **suscripción** a partir de la negociación y su cotización. Si la compañía tiene **límite de crédito**, se avisa cuando la venta a crédito lo supera.
+
+### Facturación electrónica (Hacienda CR)
+
+Las facturas (`/facturas`) se emiten desde una cotización (`emitir_factura`). El envío a Hacienda y la consulta de estado se hacen a través de un proveedor (`IElectronicInvoiceProvider`); el adaptador **Senda** (facturación electrónica de Savegre) se configura en **Configuración → Integraciones**. Sin proveedor configurado, Dana solo permite **borradores**.
+
+### Contabilidad y cuentas por cobrar (`/contabilidad`)
+
+Módulo de contabilidad en partida doble: **plan de cuentas**, **asientos de diario** (un asiento solo se registra si los débitos igualan a los créditos), **libro mayor**, **balance de comprobación** y **estados financieros**. Las facturas y los cobros se contabilizan con asientos idempotentes (factura → CxC / Ingreso / IVA; cobro → Banco / CxC). El **posteo automático** se activa en **Configuración contable** (`/contabilidad/configuracion`, por defecto **desactivado**: el posteo es manual con el botón "Contabilizar"). **Cuentas por cobrar** (`/contabilidad/cxc`) muestra el aging a partir de las cuotas no pagadas de los planes de pago, y cada compañía puede tener un **límite de crédito**.
+
+### Panel de ingresos (`/ingresos`)
+
+Resumen de facturación con KPIs de **MRR/ARR**, suscripciones activas y **churn** del mes, montos **por cobrar / vencidos**, **renovaciones** de los próximos 30 días, cobros vencidos (días de atraso) y suscripciones por estado.
 
 ## Docker
 
@@ -265,7 +315,12 @@ Dana/
 - `reportdashboards` — `{ name, widgets[{ type, board, metric, groupBy, period, scope, person, width }] }`
 - `audit` — `{ user, action, collection, entityId, title, changes[{ field, old, new }] }`
 - `settings` — `{ companyName, taxId, address…, baseCurrency, rates{}, quotePrefix, nextQuoteNumber, quoteValidDays, defaultTaxRate, quoteTerms }`
-- `teams` — `{ name, color, members[] }` · `products` — `{ name, sku, price, currency, taxRate, unit, isActive }` · `quotes` — `{ number, title, status, dealId, contactId, companyId, currency, lines[], validUntil, notes, terms }` · `apitokens` — `{ name, key, userName, isAdmin, isEnabled }`
+- `teams` — `{ name, color, members[] }` · `products` — `{ name, sku, price, currency, taxRate, unit, isActive, billingModel: OneTime|Recurring, recurringFrequency? }` · `quotes` — `{ number, title, status, dealId, contactId, companyId, currency, lines[], validUntil, notes, terms }` · `apitokens` — `{ name, key, userName, isAdmin, isEnabled }`
+- `paymentplans` — `{ title, term: Contado|Tractos|Credito, totalAmount, currency, netDays?, dealId?, quoteId?, contactId?, companyId?, installments: [{ label, dueDate, amount, status: pending|invoiced|paid|overdue, invoiceId?, paymentLinkId?, paidAt? }] }`
+- `recurringinvoices` (suscripciones) — `{ title, status: Active|Trialing|Paused|Cancelled|Ended, mrr, currency, frequency, dealId?, contactId?, companyId?, nextRunAt?, … }`
+- `invoices` (facturas electrónicas) — `{ number, status, dealId?, quoteId?, companyId?, lines[{ description, cabys, quantity, unitPrice, taxRate }], currency, hacienda{clave, estado} }`
+- `paymentlinks` — `{ token, amount, currency, status, invoiceId?, payerName?, payerEmail?, paidAt? }` (Tilopay)
+- `accounts` — `{ code, name, type: Activo|Pasivo|Patrimonio|Ingreso|Gasto, isPostable, isActive, currency }` · `journalentries` — `{ number, date, description, reference?, status: draft|posted, source: manual|invoice|payment, sourceId?, currency, lines[{ accountCode, accountName, debit, credit }] }`
 
 Todas las entidades tienen además `createdBy`, `updatedBy`, `deletedAt`/`deletedBy` (papelera), `isArchived` y `custom`.
 
@@ -280,6 +335,10 @@ Las etapas van **embebidas** en el embudo (se leen siempre juntas); las negociac
 - Al cambiar una negociación de embudo, se ubica en la **primera etapa** del nuevo embudo.
 - Mover a una etapa **Ganada** fija probabilidad 100 % y fecha de cierre; **Perdida** fija 0 % y fecha de cierre; volver a una etapa en proceso reabre la negociación.
 - Un prospecto solo puede **convertirse una vez**; la negociación creada queda enlazada al contacto, la compañía y el prospecto de origen.
+- Un **asiento contable** solo se registra si los débitos igualan a los créditos (y el total es mayor que cero).
+- Los asientos generados desde una factura o un cobro son **idempotentes** (se identifican por `source` + `sourceId`): no se duplican al reintentar el posteo.
+- El **posteo automático** de facturas y cobros está **desactivado** por defecto; el posteo manual siempre está disponible.
+- En **tractos**, cada cuota se factura por separado (una factura por tracto); la última cuota cuadra el total para evitar diferencias por redondeo.
 
 ## Licencia
 

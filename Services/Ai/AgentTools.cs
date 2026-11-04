@@ -97,6 +97,55 @@ public class AgentTools
             new { type = "object", properties = new { tipo = new { type = "string", @enum = new[] { "lead", "contact", "company", "deal", "conversation" } }, id = new { type = "string" } }, required = new[] { "tipo", "id" } }),
         new("adjunto_leer", "Leer adjunto", "Extrae el texto de un archivo adjunto por su id (txt, md, csv, html, docx, pdf, xlsx) para revisarlo, resumirlo o usarlo como base de un documento nuevo.",
             new { type = "object", properties = new { id = new { type = "string" } }, required = new[] { "id" } }),
+        // ---------- Proyectos (tableros tipo kanban) ----------
+        new("proyectos_listar", "Listar tableros de proyecto", "Lista los tableros de proyecto con sus listas (columnas), el número de tarjetas por lista y cuántas están vencidas. Úsala para ubicar un tablero y su lista antes de crear o mover tarjetas.",
+            new { type = "object", properties = new { }, required = Array.Empty<string>() }),
+        new("proyecto_obtener", "Obtener tablero", "Devuelve un tablero con sus listas y todas sus tarjetas (título, responsable, prioridad, vencimiento, estado y avance de la lista de verificación). Indica el id del tablero.",
+            new { type = "object", properties = new { id = new { type = "string" } }, required = new[] { "id" } }),
+        new("proyecto_crear", "Crear tablero", "Crea un tablero de proyecto nuevo con las listas por defecto (Por hacer, En progreso, Hecho).",
+            new { type = "object", properties = new { nombre = new { type = "string" } }, required = new[] { "nombre" } }, Write: true),
+        new("tarjeta_crear", "Crear tarjeta", "Crea una tarjeta en una lista de un tablero. Indica boardId y listId (los da proyecto_obtener). Opcionales: description, assignedTo (nombre de usuario), dueAt (ISO), priority (none|low|medium|high|urgent), label (green|blue|purple|orange|red).",
+            new { type = "object", properties = new { boardId = new { type = "string" }, listId = new { type = "string" }, title = new { type = "string" }, description = new { type = "string" }, assignedTo = new { type = "string" }, dueAt = new { type = "string" }, priority = new { type = "string" }, label = new { type = "string" } }, required = new[] { "boardId", "listId", "title" } }, Write: true),
+        new("tarjeta_actualizar", "Actualizar tarjeta", "Modifica una tarjeta por su id: title, description, assignedTo, dueAt, priority, label, isDone (marcar hecha). Para moverla de lista usa tarjeta_mover.",
+            new { type = "object", properties = new { id = new { type = "string" }, title = new { type = "string" }, description = new { type = "string" }, assignedTo = new { type = "string" }, dueAt = new { type = "string" }, priority = new { type = "string" }, label = new { type = "string" }, isDone = new { type = "boolean" } }, required = new[] { "id" } }, Write: true),
+        new("tarjeta_mover", "Mover tarjeta", "Mueve una tarjeta a otra lista (y posición) de su tablero. Indica el id de la tarjeta, la listId destino y, opcional, posicion (0 = arriba del todo).",
+            new { type = "object", properties = new { id = new { type = "string" }, listId = new { type = "string" }, posicion = new { type = "integer", @default = 0 } }, required = new[] { "id", "listId" } }, Write: true),
+        // ---------- Contabilidad ----------
+        new("contabilidad_cuentas", "Plan de cuentas", "Lista el plan de cuentas (código, nombre, tipo: Activo/Pasivo/Patrimonio/Ingreso/Gasto y si acepta movimientos). soloMovibles=true devuelve solo las cuentas de detalle que aceptan asientos.",
+            new { type = "object", properties = new { soloMovibles = new { type = "boolean", @default = false } }, required = Array.Empty<string>() }),
+        new("contabilidad_cuenta_crear", "Crear cuenta contable", "Crea una cuenta en el plan de cuentas. code (p. ej. 1-01-06), name, type (Activo|Pasivo|Patrimonio|Ingreso|Gasto) e isPostable (true = acepta movimientos; false = título de agrupación).",
+            new { type = "object", properties = new { code = new { type = "string" }, name = new { type = "string" }, type = new { type = "string", @enum = new[] { "Activo", "Pasivo", "Patrimonio", "Ingreso", "Gasto" } }, isPostable = new { type = "boolean", @default = true } }, required = new[] { "code", "name", "type" } }, Write: true),
+        new("contabilidad_asientos", "Listar asientos de diario", "Lista asientos del libro diario por estado (draft|posted|void) y rango de fechas (desde/hasta, YYYY-MM-DD). Devuelve número, fecha, descripción, totales y si cuadra la partida doble.",
+            new { type = "object", properties = new { estado = new { type = "string" }, desde = new { type = "string" }, hasta = new { type = "string" }, limite = new { type = "integer", @default = 30 } }, required = Array.Empty<string>() }),
+        new("contabilidad_asiento_obtener", "Obtener asiento", "Devuelve un asiento completo con sus líneas (cuenta, débito, crédito) y totales. Indica el id.",
+            new { type = "object", properties = new { id = new { type = "string" } }, required = new[] { "id" } }),
+        new("contabilidad_asiento_crear", "Crear asiento de diario", "Crea un asiento de partida doble. Cada línea indica cuenta (código del plan de cuentas) y debito O credito (solo uno por línea), más description opcional. El total de débitos debe igualar al de créditos. Con registrar=true queda registrado (definitivo); si no, queda en borrador editable.",
+            new { type = "object", properties = new { fecha = new { type = "string", description = "YYYY-MM-DD (hoy si se omite)" }, description = new { type = "string" }, reference = new { type = "string", description = "N.º de factura, cheque o documento de respaldo" }, registrar = new { type = "boolean", @default = false },
+                lineas = new { type = "array", items = new { type = "object", properties = new { cuenta = new { type = "string" }, debito = new { type = "number" }, credito = new { type = "number" }, description = new { type = "string" } } } } }, required = new[] { "description", "lineas" } }, Write: true),
+        new("contabilidad_asiento_registrar", "Registrar asiento", "Registra (hace definitivo) un asiento en borrador: valida la partida doble y le asigna consecutivo. Indica el id.",
+            new { type = "object", properties = new { id = new { type = "string" } }, required = new[] { "id" } }, Write: true),
+        new("contabilidad_asiento_anular", "Anular asiento", "Anula un asiento ya registrado (no lo borra; deja de contar en los saldos). Indica el id.",
+            new { type = "object", properties = new { id = new { type = "string" } }, required = new[] { "id" } }, Write: true),
+        new("contabilidad_mayor", "Libro mayor de una cuenta", "Movimientos de una cuenta con saldo acumulado (libro mayor). Indica el código de la cuenta y, opcional, el rango de fechas (desde/hasta).",
+            new { type = "object", properties = new { cuenta = new { type = "string", description = "Código de la cuenta" }, desde = new { type = "string" }, hasta = new { type = "string" } }, required = new[] { "cuenta" } }),
+        new("contabilidad_balance", "Balance de comprobación", "Balance de comprobación: débitos, créditos y saldo por cuenta con movimiento. Rango de fechas opcional (desde/hasta, YYYY-MM-DD).",
+            new { type = "object", properties = new { desde = new { type = "string" }, hasta = new { type = "string" } }, required = Array.Empty<string>() }),
+        new("contabilidad_estados", "Estados financieros", "Estados financieros del periodo: estado de resultados (ingresos − gastos = utilidad) y balance general (activo, pasivo, patrimonio). Rango de fechas opcional (desde/hasta).",
+            new { type = "object", properties = new { desde = new { type = "string" }, hasta = new { type = "string" } }, required = Array.Empty<string>() }),
+        // ---------- Facturas electrónicas y suscripciones (facturación recurrente) ----------
+        new("facturas_buscar", "Buscar facturas electrónicas", "Lista facturas electrónicas por estado (draft|submitted|accepted|rejected|cancelled) y texto (nombre del receptor o clave). Devuelve receptor, total, estado, fecha y clave.",
+            new { type = "object", properties = new { texto = new { type = "string" }, estado = new { type = "string" }, limite = new { type = "integer", @default = 20 } }, required = Array.Empty<string>() }),
+        new("factura_obtener", "Obtener factura", "Devuelve una factura electrónica completa: receptor, líneas (CABYS, cantidad, precio, impuesto), totales, estado y clave. Indica el id.",
+            new { type = "object", properties = new { id = new { type = "string" } }, required = new[] { "id" } }),
+        new("suscripciones_buscar", "Listar suscripciones (facturación recurrente)", "Lista las suscripciones / facturación recurrente: nombre, receptor, frecuencia, próximo cobro, estado (Activa/Pausada/Cancelada), total del ciclo e ingreso recurrente mensual (MRR).",
+            new { type = "object", properties = new { }, required = Array.Empty<string>() }),
+        new("suscripcion_crear", "Crear suscripción recurrente", "Crea una suscripción que factura por periodo. nombre, receptorNombre, receptorId (cédula), frecuencia (weekly|monthly|yearly), currency; lineas: cada una con description, quantity, unitPrice, taxRate (y cabys si se emitirá a Hacienda). Opcionales: autoEmit (emitir al generar), autoCharge (crear enlace de pago), contactId/companyId/dealId.",
+            new { type = "object", properties = new { nombre = new { type = "string" }, receptorNombre = new { type = "string" }, receptorId = new { type = "string" }, receptorEmail = new { type = "string" }, frecuencia = new { type = "string", @enum = new[] { "weekly", "monthly", "yearly" } }, currency = new { type = "string", @default = "CRC" }, autoEmit = new { type = "boolean", @default = true }, autoCharge = new { type = "boolean", @default = false }, contactId = new { type = "string" }, companyId = new { type = "string" }, dealId = new { type = "string" },
+                lineas = new { type = "array", items = new { type = "object", properties = new { cabys = new { type = "string" }, description = new { type = "string" }, quantity = new { type = "number" }, unitPrice = new { type = "number" }, discountPercent = new { type = "number" }, taxRate = new { type = "number" } } } } }, required = new[] { "nombre", "receptorNombre", "lineas" } }, Write: true),
+        new("suscripcion_estado", "Cambiar estado de suscripción", "Pausa, reanuda o cancela una suscripción recurrente. accion: pausar | reanudar | cancelar.",
+            new { type = "object", properties = new { id = new { type = "string" }, accion = new { type = "string", @enum = new[] { "pausar", "reanudar", "cancelar" } } }, required = new[] { "id", "accion" } }, Write: true),
+        new("suscripcion_generar", "Generar factura de suscripción ahora", "Genera de inmediato una factura a partir de una suscripción (la emite y/o cobra según su configuración), sin esperar al próximo ciclo. Indica el id.",
+            new { type = "object", properties = new { id = new { type = "string" } }, required = new[] { "id" } }, Write: true),
         new("consultar_agente", "Consultar a otro agente", "Envía una pregunta o encargo a otro agente del equipo (por nombre) y devuelve su respuesta. Úsala para delegar en especialistas (cotizador, analista, redacción…) o pedir una segunda opinión.",
             new { type = "object", properties = new { agente = new { type = "string", description = "Nombre del agente" }, mensaje = new { type = "string" } }, required = new[] { "agente", "mensaje" } }),
     ];
@@ -196,6 +245,28 @@ public class AgentTools
                 "emitir_factura" => await EmitInvoiceAsync(input, author),
                 "crear_enlace_pago" => await CreatePaymentLinkAsync(input, author),
                 "solicitar_firma" => await RequestSignatureAsync(input, author),
+                "proyectos_listar" => await ProjectsListAsync(),
+                "proyecto_obtener" => await ProjectGetAsync(Str(input, "id")),
+                "proyecto_crear" => await ProjectCreateAsync(Str(input, "nombre"), author),
+                "tarjeta_crear" => await CardCreateAsync(input, author),
+                "tarjeta_actualizar" => await CardUpdateAsync(input, author),
+                "tarjeta_mover" => await CardMoveAsync(input, author),
+                "contabilidad_cuentas" => await AcctAccountsAsync(Bool(input, "soloMovibles", false)),
+                "contabilidad_cuenta_crear" => await AcctAccountCreateAsync(input),
+                "contabilidad_asientos" => await AcctEntriesAsync(Str(input, "estado"), Str(input, "desde"), Str(input, "hasta"), Int(input, "limite", 30)),
+                "contabilidad_asiento_obtener" => await AcctEntryGetAsync(Str(input, "id")),
+                "contabilidad_asiento_crear" => await AcctEntryCreateAsync(input, author),
+                "contabilidad_asiento_registrar" => await AcctEntryPostAsync(Str(input, "id")),
+                "contabilidad_asiento_anular" => await AcctEntryVoidAsync(Str(input, "id")),
+                "contabilidad_mayor" => await AcctLedgerAsync(Str(input, "cuenta"), Str(input, "desde"), Str(input, "hasta")),
+                "contabilidad_balance" => await AcctTrialBalanceAsync(Str(input, "desde"), Str(input, "hasta")),
+                "contabilidad_estados" => await AcctStatementsAsync(Str(input, "desde"), Str(input, "hasta")),
+                "facturas_buscar" => await InvoicesSearchAsync(Str(input, "texto"), Str(input, "estado"), Int(input, "limite", 20)),
+                "factura_obtener" => await InvoiceGetAsync(Str(input, "id")),
+                "suscripciones_buscar" => await SubscriptionsListAsync(),
+                "suscripcion_crear" => await SubscriptionCreateAsync(input, author),
+                "suscripcion_estado" => await SubscriptionStatusAsync(Str(input, "id"), Str(input, "accion"), author),
+                "suscripcion_generar" => await SubscriptionGenerateAsync(Str(input, "id"), author),
                 _ => throw new InvalidOperationException("Herramienta no implementada")
             };
             return new(output);
@@ -631,6 +702,10 @@ public class AgentTools
     // ---------- documentos y adjuntos ----------
     private DocumentService Docs => _sp.GetRequiredService<DocumentService>();
     private AttachmentService Files => _sp.GetRequiredService<AttachmentService>();
+    private ProjectService Projects => _sp.GetRequiredService<ProjectService>();
+    private Dana.Services.Accounting.AccountingService Accounting => _sp.GetRequiredService<Dana.Services.Accounting.AccountingService>();
+    private Dana.Services.Invoicing.InvoiceService Invoices => _sp.GetRequiredService<Dana.Services.Invoicing.InvoiceService>();
+    private Dana.Services.Invoicing.RecurringInvoiceService Recurring => _sp.GetRequiredService<Dana.Services.Invoicing.RecurringInvoiceService>();
 
     private async Task<string> DocsSearchAsync(string? texto, string? tipo, string? et, string? eid)
     {
@@ -947,6 +1022,254 @@ public class AgentTools
         var correo = Str(input, "correo"); var rol = Str(input, "rol");
         var signer = await docs.RequestSignatureAsync(d, Str(input, "nombre"), correo.Length > 0 ? correo : null, rol.Length > 0 ? rol : null, author);
         return Ser(new { ok = true, firmanteId = signer.Id, nombre = signer.Name, enlace = $"firmar/{signer.Token}" });
+    }
+
+    // ---------- proyectos (tableros kanban) ----------
+    private async Task<string> ProjectsListAsync()
+    {
+        var boards = await Projects.GetBoardsAsync();
+        var result = new List<object>();
+        foreach (var b in boards)
+        {
+            var cards = await Projects.GetCardsAsync(b.Id!);
+            result.Add(new { b.Id, b.Name, b.Description, totalTarjetas = cards.Count, vencidas = cards.Count(c => c.IsOverdue), listas = b.OrderedLists.Select(l => new { l.Id, l.Name, tarjetas = cards.Count(c => c.ListId == l.Id) }), enlace = $"proyectos/{b.Id}" });
+        }
+        return Ser(result);
+    }
+
+    private async Task<string> ProjectGetAsync(string id)
+    {
+        var b = await Projects.GetBoardAsync(id) ?? throw new ArgumentException("Tablero no encontrado");
+        var cards = await Projects.GetCardsAsync(b.Id!);
+        return Ser(new
+        {
+            b.Id, b.Name, b.Description, enlace = $"proyectos/{b.Id}",
+            listas = b.OrderedLists.Select(l => new
+            {
+                l.Id, l.Name,
+                tarjetas = cards.Where(c => c.ListId == l.Id).OrderBy(c => c.Sort).Select(c => new { c.Id, c.Title, c.AssignedTo, c.DueAt, vencida = c.IsOverdue, prioridad = CardPriorities.NameOf(c.Priority), c.IsDone, checklist = c.HasChecklist ? $"{c.ChecklistDone}/{c.Checklist.Count}" : null })
+            })
+        });
+    }
+
+    private async Task<string> ProjectCreateAsync(string nombre, string author)
+    {
+        if (string.IsNullOrWhiteSpace(nombre)) throw new ArgumentException("nombre es obligatorio");
+        var b = await Projects.CreateBoardAsync(nombre, author);
+        return Ser(new { ok = true, id = b.Id, listas = b.OrderedLists.Select(l => new { l.Id, l.Name }), enlace = $"proyectos/{b.Id}" });
+    }
+
+    private async Task<string> CardCreateAsync(JsonElement input, string author)
+    {
+        var boardId = Str(input, "boardId"); var listId = Str(input, "listId"); var title = Str(input, "title");
+        var board = await Projects.GetBoardAsync(boardId) ?? throw new ArgumentException("Tablero no encontrado");
+        if (board.Lists.All(l => l.Id != listId)) throw new ArgumentException("La lista indicada no existe en el tablero");
+        if (string.IsNullOrWhiteSpace(title)) throw new ArgumentException("title es obligatorio");
+        var card = await Projects.AddCardAsync(boardId, listId, title, author);
+        Apply(card, input);   // description, assignedTo, dueAt, priority, label
+        await Projects.SaveCardAsync(card, author);
+        return Ser(new { ok = true, id = card.Id, enlace = $"proyectos/{boardId}" });
+    }
+
+    private async Task<string> CardUpdateAsync(JsonElement input, string author)
+    {
+        var card = await Projects.GetCardAsync(Str(input, "id")) ?? throw new ArgumentException("Tarjeta no encontrada");
+        Apply(card, input);
+        await Projects.SaveCardAsync(card, author);
+        return Ser(new { ok = true, id = card.Id, enlace = $"proyectos/{card.BoardId}" });
+    }
+
+    private async Task<string> CardMoveAsync(JsonElement input, string author)
+    {
+        var card = await Projects.GetCardAsync(Str(input, "id")) ?? throw new ArgumentException("Tarjeta no encontrada");
+        var listId = Str(input, "listId");
+        var board = await Projects.GetBoardAsync(card.BoardId) ?? throw new ArgumentException("Tablero no encontrado");
+        if (board.Lists.All(l => l.Id != listId)) throw new ArgumentException("La lista destino no existe en el tablero");
+        await Projects.MoveCardAsync(card.BoardId, card.Id!, listId, Int(input, "posicion", 0), author);
+        return Ser(new { ok = true, id = card.Id, listId, enlace = $"proyectos/{card.BoardId}" });
+    }
+
+    // ---------- contabilidad ----------
+    private static DateTime? ParseDate(string s) => DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var d) ? d.Date : null;
+
+    private async Task<string> AcctAccountsAsync(bool onlyPostable)
+    {
+        var accounts = onlyPostable ? await Accounting.GetPostableAsync() : (await Accounting.GetAccountsAsync()).OrderBy(a => a.Code).ToList();
+        return Ser(accounts.Select(a => new { a.Id, a.Code, a.Name, tipo = AccountTypes.Label(a.Type), aceptaMovimientos = a.IsPostable, a.IsActive, a.Currency }));
+    }
+
+    private async Task<string> AcctAccountCreateAsync(JsonElement input)
+    {
+        if (!Enum.TryParse<AccountType>(Str(input, "type"), true, out var type)) throw new ArgumentException("type debe ser Activo, Pasivo, Patrimonio, Ingreso o Gasto");
+        var acc = new Account { Code = Str(input, "code"), Name = Str(input, "name"), Type = type, IsPostable = Bool(input, "isPostable", true) };
+        var (ok, err) = await Accounting.SaveAccountAsync(acc);
+        if (!ok) throw new ArgumentException(err);
+        return Ser(new { ok = true, id = acc.Id, acc.Code, acc.Name, enlace = "contabilidad/cuentas" });
+    }
+
+    private async Task<string> AcctEntriesAsync(string estado, string desde, string hasta, int limit)
+    {
+        var from = ParseDate(desde); var to = ParseDate(hasta);
+        var list = (await Accounting.GetEntriesAsync())
+            .Where(e => (estado.Length == 0 || e.Status == estado) && (from is null || e.Date.Date >= from) && (to is null || e.Date.Date <= to))
+            .OrderByDescending(e => e.Date).ThenByDescending(e => e.Number).Take(Math.Clamp(limit, 1, 100));
+        return Ser(list.Select(e => new { e.Id, e.Number, e.Date, e.Description, e.Reference, estado = JournalStatuses.Get(e.Status).Label, e.Currency, debitos = e.TotalDebit, creditos = e.TotalCredit, cuadra = e.IsBalanced, enlace = "contabilidad/asientos" }));
+    }
+
+    private async Task<string> AcctEntryGetAsync(string id)
+    {
+        var e = await Accounting.GetEntryAsync(id) ?? throw new ArgumentException("Asiento no encontrado");
+        return Ser(new { e.Id, e.Number, e.Date, e.Description, e.Reference, estado = JournalStatuses.Get(e.Status).Label, e.Currency, e.Source,
+            lineas = e.Lines.Select(l => new { l.AccountCode, l.AccountName, l.Description, l.Debit, l.Credit }),
+            debitos = e.TotalDebit, creditos = e.TotalCredit, diferencia = e.Difference, cuadra = e.IsBalanced, enlace = "contabilidad/asientos" });
+    }
+
+    private async Task<string> AcctEntryCreateAsync(JsonElement input, string author)
+    {
+        var entry = new JournalEntry { Description = Str(input, "description"), CreatedBy = author };
+        if (Str(input, "reference") is { Length: > 0 } r) entry.Reference = r;
+        if (ParseDate(Str(input, "fecha")) is DateTime dt) entry.Date = dt;
+        var lines = Obj(input, "lineas");
+        if (lines.ValueKind == JsonValueKind.Array)
+            foreach (var l in lines.EnumerateArray())
+                entry.Lines.Add(new JournalLine { AccountCode = Str(l, "cuenta"), Description = Str(l, "description") is { Length: > 0 } d ? d : null, Debit = Dec(l, "debito"), Credit = Dec(l, "credito") });
+        var (ok, err) = await Accounting.SaveDraftAsync(entry);
+        if (!ok) throw new ArgumentException(err);
+        if (Bool(input, "registrar", false))
+        {
+            var (pok, perr) = await Accounting.PostAsync(entry.Id!);
+            if (!pok) return Ser(new { ok = true, id = entry.Id, estado = "draft", aviso = "Guardado en borrador pero NO registrado: " + perr, enlace = "contabilidad/asientos" });
+            var posted = await Accounting.GetEntryAsync(entry.Id);
+            return Ser(new { ok = true, id = entry.Id, numero = posted?.Number, estado = "posted", enlace = "contabilidad/asientos" });
+        }
+        return Ser(new { ok = true, id = entry.Id, estado = "draft", cuadra = entry.IsBalanced, enlace = "contabilidad/asientos" });
+    }
+
+    private async Task<string> AcctEntryPostAsync(string id)
+    {
+        var (ok, err) = await Accounting.PostAsync(id);
+        if (!ok) throw new ArgumentException(err);
+        var e = await Accounting.GetEntryAsync(id);
+        return Ser(new { ok = true, id, numero = e?.Number, estado = "posted" });
+    }
+
+    private async Task<string> AcctEntryVoidAsync(string id)
+    {
+        var (ok, err) = await Accounting.VoidAsync(id);
+        if (!ok) throw new ArgumentException(err);
+        return Ser(new { ok = true, id, estado = "void" });
+    }
+
+    private async Task<string> AcctLedgerAsync(string cuenta, string desde, string hasta)
+    {
+        if (string.IsNullOrWhiteSpace(cuenta)) throw new ArgumentException("Indique el código de la cuenta");
+        var rows = await Accounting.LedgerAsync(cuenta, ParseDate(desde), ParseDate(hasta));
+        var acc = (await Accounting.GetAccountsAsync()).FirstOrDefault(a => a.Code == cuenta);
+        return Ser(new { cuenta = new { codigo = cuenta, nombre = acc?.Name, tipo = acc is null ? null : AccountTypes.Label(acc.Type) },
+            movimientos = rows.Select(x => new { x.Entry.Number, x.Entry.Date, descripcion = x.Line.Description ?? x.Entry.Description, x.Line.Debit, x.Line.Credit, saldo = x.Running }),
+            saldoFinal = rows.Count == 0 ? 0 : rows[^1].Running, enlace = "contabilidad/mayor" });
+    }
+
+    private async Task<string> AcctTrialBalanceAsync(string desde, string hasta)
+    {
+        var bal = await Accounting.TrialBalanceAsync(ParseDate(desde), ParseDate(hasta));
+        return Ser(new
+        {
+            cuentas = bal.Select(b => new { b.Account.Code, b.Account.Name, tipo = AccountTypes.Label(b.Account.Type), debitos = b.Debit, creditos = b.Credit, saldo = b.Balance }),
+            totalDebitos = bal.Sum(b => b.Debit), totalCreditos = bal.Sum(b => b.Credit), enlace = "contabilidad/balance"
+        });
+    }
+
+    private async Task<string> AcctStatementsAsync(string desde, string hasta)
+    {
+        var bal = await Accounting.TrialBalanceAsync(ParseDate(desde), ParseDate(hasta));
+        decimal Total(AccountType t) => bal.Where(b => b.Account.Type == t).Sum(b => b.Balance);
+        object Detalle(AccountType t) => bal.Where(b => b.Account.Type == t).Select(b => new { b.Account.Code, b.Account.Name, saldo = b.Balance });
+        var ingresos = Total(AccountType.Ingreso); var gastos = Total(AccountType.Gasto); var utilidad = ingresos - gastos;
+        var activo = Total(AccountType.Activo); var pasivo = Total(AccountType.Pasivo); var patrimonio = Total(AccountType.Patrimonio);
+        return Ser(new
+        {
+            estadoResultados = new { ingresos, gastos, utilidadNeta = utilidad, detalleIngresos = Detalle(AccountType.Ingreso), detalleGastos = Detalle(AccountType.Gasto) },
+            balanceGeneral = new { activo, pasivo, patrimonio, patrimonioMasResultado = patrimonio + utilidad, cuadra = Math.Round(activo - (pasivo + patrimonio + utilidad), 2) == 0, detalleActivo = Detalle(AccountType.Activo), detallePasivo = Detalle(AccountType.Pasivo), detallePatrimonio = Detalle(AccountType.Patrimonio) },
+            enlace = "contabilidad/estados"
+        });
+    }
+
+    // ---------- facturas electrónicas y suscripciones ----------
+    private async Task<string> InvoicesSearchAsync(string texto, string estado, int limit)
+    {
+        var q = texto.Trim();
+        var list = (await Invoices.GetAllAsync())
+            .Where(x => (estado.Length == 0 || x.Status == estado) && (q.Length == 0 || x.ReceiverName.Contains(q, StringComparison.OrdinalIgnoreCase) || (x.Clave ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(x => x.Date).Take(Math.Clamp(limit, 1, 100));
+        return Ser(list.Select(x => new { x.Id, x.ReceiverName, x.ReceiverId, estado = InvoiceStatuses.Get(x.Status).Label, x.Currency, total = x.Total, x.Date, x.Clave, lineas = x.Lines.Count, x.DealId, enlace = "facturas" }));
+    }
+
+    private async Task<string> InvoiceGetAsync(string id)
+    {
+        var x = await Invoices.GetAsync(id) ?? throw new ArgumentException("Factura no encontrada");
+        return Ser(new { x.Id, x.ReceiverName, x.ReceiverId, x.ReceiverEmail, estado = InvoiceStatuses.Get(x.Status).Label, x.Currency, x.Date, x.Clave, x.Notes,
+            lineas = x.Lines.Select(l => new { l.Cabys, l.Description, l.Quantity, l.Unit, l.UnitPrice, l.DiscountPercent, l.TaxRate, subtotal = l.Subtotal, total = l.Total }),
+            subtotal = x.Subtotal, impuestos = x.Tax, total = x.Total, enlace = "facturas" });
+    }
+
+    private async Task<string> SubscriptionsListAsync()
+    {
+        var list = (await Recurring.GetAllAsync()).OrderByDescending(r => r.Status == SubscriptionStatus.Active).ThenBy(r => r.NextRunAt);
+        return Ser(list.Select(r => new { r.Id, r.Name, r.ReceiverName, frecuencia = RecurFrequencies.Label(r.Frequency), estado = SubscriptionStatuses.Get(r.Status).Label, proximoCobro = r.NextRunAt, total = r.Total, mrr = r.Mrr, r.Currency, r.AutoEmit, r.AutoCharge, r.LastRunAt, r.RunCount, enlace = "suscripciones" }));
+    }
+
+    private async Task<string> SubscriptionCreateAsync(JsonElement input, string author)
+    {
+        var r = new RecurringInvoice
+        {
+            Name = Str(input, "nombre"),
+            ReceiverName = Str(input, "receptorNombre"),
+            ReceiverId = Str(input, "receptorId"),
+            ReceiverEmail = Str(input, "receptorEmail") is { Length: > 0 } em ? em : null,
+            Currency = Str(input, "currency") is { Length: > 0 } cur ? cur : "CRC",
+            Frequency = Str(input, "frecuencia") is { Length: > 0 } f ? f : RecurFrequencies.Monthly,
+            AutoEmit = Bool(input, "autoEmit", true),
+            AutoCharge = Bool(input, "autoCharge", false),
+            ContactId = Str(input, "contactId") is { Length: > 0 } c ? c : null,
+            CompanyId = Str(input, "companyId") is { Length: > 0 } k ? k : null,
+            DealId = Str(input, "dealId") is { Length: > 0 } d ? d : null,
+            CreatedBy = author,
+        };
+        var lines = Obj(input, "lineas");
+        if (lines.ValueKind == JsonValueKind.Array)
+            foreach (var l in lines.EnumerateArray())
+            {
+                var qty = Dec(l, "quantity");
+                r.Lines.Add(new InvoiceLine { Cabys = Str(l, "cabys"), Description = Str(l, "description"), Quantity = qty > 0 ? qty : 1, UnitPrice = Dec(l, "unitPrice"), DiscountPercent = Dec(l, "discountPercent"), TaxRate = l.ValueKind == JsonValueKind.Object && l.TryGetProperty("taxRate", out _) ? Dec(l, "taxRate") : 13m });
+            }
+        if (r.Lines.Count == 0) throw new ArgumentException("La suscripción necesita al menos una línea");
+        r.NextRunAt = DateTime.UtcNow.Date.AddDays(1);
+        await Recurring.SaveAsync(r, author);
+        return Ser(new { ok = true, id = r.Id, r.Name, total = r.Total, mrr = r.Mrr, proximoCobro = r.NextRunAt, enlace = "suscripciones" });
+    }
+
+    private async Task<string> SubscriptionStatusAsync(string id, string accion, string author)
+    {
+        var (ok, err) = accion switch
+        {
+            "pausar" => await Recurring.PauseAsync(id, author),
+            "reanudar" => await Recurring.ResumeAsync(id, author),
+            "cancelar" => await Recurring.CancelAsync(id, author),
+            _ => (false, "accion debe ser pausar, reanudar o cancelar")
+        };
+        if (!ok) throw new ArgumentException(err);
+        var r = await Recurring.GetAsync(id);
+        return Ser(new { ok = true, id, estado = r is null ? null : SubscriptionStatuses.Get(r.Status).Label });
+    }
+
+    private async Task<string> SubscriptionGenerateAsync(string id, string author)
+    {
+        var r = await Recurring.GetAsync(id) ?? throw new ArgumentException("Suscripción no encontrada");
+        var inv = await Recurring.GenerateOneAsync(r, author);
+        r.LastRunAt = DateTime.UtcNow; r.RunCount++;
+        await Recurring.SaveAsync(r, author);
+        return Ser(new { ok = true, facturaId = inv.Id, estado = InvoiceStatuses.Get(inv.Status).Label, total = inv.Total, clave = inv.Clave, enlace = "facturas" });
     }
 
     private static string Ser(object o) => JsonSerializer.Serialize(o, Json);

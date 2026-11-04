@@ -57,6 +57,9 @@ public class MongoContext
         nameof(TelegramLink) => "telegramlinks",
         nameof(ProjectBoard) => "projectboards",
         nameof(ProjectCard) => "projectcards",
+        nameof(Account) => "accounts",
+        nameof(JournalEntry) => "journalentries",
+        nameof(PaymentPlan) => "paymentplans",
         var n => n.ToLowerInvariant() + "s"
     };
 

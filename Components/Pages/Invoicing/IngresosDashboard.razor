@@ -1,0 +1,159 @@
+@page "/ingresos"
+@using Dana.Services.Invoicing
+@inject RecurringInvoiceService Recurring
+@inject PaymentPlanService Plans
+@inject IRepository<Company> Companies
+@inject IRepository<Contact> Contacts
+
+<PageTitle>Dana · Panel de ingresos</PageTitle>
+
+<PageHeader Title="Panel de ingresos" Subtitle="Ingresos recurrentes, renovaciones y cobros pendientes.">
+    <Actions>
+        <a class="btn-secondary" href="suscripciones">Suscripciones</a>
+        <a class="btn-secondary" href="facturacion/planes">Planes de pago</a>
+    </Actions>
+</PageHeader>
+
+@if (_loading) { <p class="muted">Cargando…</p> }
+else
+{
+    <div class="kpi-row">
+        <div class="kpi-card"><div class="kpi-label">MRR</div><div class="kpi-value">@Money(_mrr)</div></div>
+        <div class="kpi-card"><div class="kpi-label">ARR</div><div class="kpi-value">@Money(Mult(_mrr, 12))</div></div>
+        <div class="kpi-card"><div class="kpi-label">Suscripciones activas</div><div class="kpi-value">@_activeCount</div></div>
+        <div class="kpi-card"><div class="kpi-label">Canceladas (mes)</div><div class="kpi-value" style="color:var(--danger)">@_churnCount<span class="kpi-sub"> @(_churnRate > 0 ? $"· {_churnRate:P0}" : "")</span></div></div>
+    </div>
+    <div class="kpi-row mt-2">
+        <div class="kpi-card"><div class="kpi-label">Por cobrar</div><div class="kpi-value">@Money(_outstanding)</div></div>
+        <div class="kpi-card"><div class="kpi-label">Vencido</div><div class="kpi-value" style="color:var(--danger)">@Money(_overdueTotal)</div></div>
+        <div class="kpi-card"><div class="kpi-label">MRR cancelado (mes)</div><div class="kpi-value" style="color:var(--danger)">@Money(_churnedMrr)</div></div>
+        <div class="kpi-card"><div class="kpi-label">Renuevan en 30 días</div><div class="kpi-value" style="color:var(--warning)">@_renewals.Count</div></div>
+    </div>
+
+    <div class="row g-3 mt-1">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between"><span>Próximas renovaciones (30 días)</span><a class="small" href="suscripciones">Ver suscripciones</a></div>
+                <div class="card-body p-0">
+                    @if (_renewals.Count == 0) { <div class="muted small p-3">Sin renovaciones próximas.</div> }
+                    else
+                    {
+                        <table class="table table-sm align-middle mb-0">
+                            <tbody>
+                                @foreach (var s in _renewals)
+                                {
+                                    <tr>
+                                        <td class="small text-nowrap">@s.NextRunAt.ToLocalTime().ToString("dd/MM")</td>
+                                        <td>@s.Name<div class="small muted">@Titular(s.CompanyId, s.ContactId, s.ReceiverName)</div></td>
+                                        <td class="text-end text-nowrap">@s.Mrr.ToString("N0") @s.Currency<div class="small muted">@RecurFrequencies.Label(s.Frequency)</div></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between"><span>Cobros vencidos</span><a class="small" href="contabilidad/cxc">Ver antigüedad</a></div>
+                <div class="card-body p-0">
+                    @if (_overdue.Count == 0) { <div class="muted small p-3">Sin cuotas vencidas. 🎉</div> }
+                    else
+                    {
+                        <table class="table table-sm align-middle mb-0">
+                            <tbody>
+                                @foreach (var o in _overdue.Take(12))
+                                {
+                                    <tr>
+                                        <td class="small text-nowrap text-danger">@o.Days d</td>
+                                        <td>@o.Client<div class="small muted">@o.Plan · @o.Label</div></td>
+                                        <td class="text-end text-nowrap">@o.Amount.ToString("N0") @o.Currency</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-header">Suscripciones por estado</div>
+        <div class="card-body">
+            @foreach (var st in SubscriptionStatuses.All)
+            {
+                var n = _subs.Count(s => s.Status == st.Status);
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <span class="nav-dot" style="background:@st.Color"></span>
+                    <span class="flex-grow-1 small">@st.Label</span>
+                    <strong>@n</strong>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private List<RecurringInvoice> _subs = new();
+    private List<RecurringInvoice> _renewals = new();
+    private List<(string Client, string Plan, string Label, decimal Amount, string Currency, int Days)> _overdue = new();
+    private Dictionary<string, decimal> _mrr = new(), _churnedMrr = new(), _outstanding = new(), _overdueTotal = new();
+    private int _activeCount, _churnCount;
+    private double _churnRate;
+
+    private Dictionary<string, string> _companies = new(), _contacts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _companies = (await Companies.GetAllAsync()).ToDictionary(c => c.Id!, c => c.Title);
+        _contacts = (await Contacts.GetAllAsync()).ToDictionary(c => c.Id!, c => c.FullName);
+
+        _subs = await Recurring.GetAllAsync();
+        var live = _subs.Where(s => s.Status is SubscriptionStatus.Active or SubscriptionStatus.Trialing).ToList();
+        _activeCount = live.Count;
+        _mrr = SumBy(live, s => s.Mrr, s => s.Currency);
+
+        var monthStart = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+        var cancelled = _subs.Where(s => s.Status == SubscriptionStatus.Cancelled && s.CancelledAt is not null && s.CancelledAt.Value.ToLocalTime() >= monthStart).ToList();
+        _churnCount = cancelled.Count;
+        _churnedMrr = SumBy(cancelled, s => s.Mrr, s => s.Currency);
+        _churnRate = (_activeCount + _churnCount) > 0 ? (double)_churnCount / (_activeCount + _churnCount) : 0;
+
+        var today = DateTime.UtcNow.Date;
+        _renewals = live.Where(s => s.NextRunAt.ToLocalTime().Date <= today.AddDays(30)).OrderBy(s => s.NextRunAt).ToList();
+
+        var plans = await Plans.GetAllAsync();
+        var unpaid = plans.SelectMany(p => p.Installments.Where(i => i.Status != InstallmentStatuses.Paid).Select(i => (p, i))).ToList();
+        _outstanding = SumBy(unpaid, x => x.i.Amount, x => x.p.Currency);
+        var overdue = unpaid.Where(x => x.i.DueDate.Date < today).ToList();
+        _overdueTotal = SumBy(overdue, x => x.i.Amount, x => x.p.Currency);
+        _overdue = overdue
+            .Select(x => (Titular(x.p.CompanyId, x.p.ContactId, x.p.Title), x.p.Title, x.i.Label, x.i.Amount, x.p.Currency, (today - x.i.DueDate.Date).Days))
+            .OrderByDescending(x => x.Item6)
+            .ToList();
+
+        _loading = false;
+    }
+
+    private string Titular(string? companyId, string? contactId, string fallback)
+    {
+        var c = companyId is not null ? _companies.GetValueOrDefault(companyId) : null;
+        var ct = contactId is not null ? _contacts.GetValueOrDefault(contactId) : null;
+        return c ?? ct ?? fallback;
+    }
+
+    private static Dictionary<string, decimal> SumBy<T>(IEnumerable<T> items, Func<T, decimal> amount, Func<T, string> currency)
+    {
+        var d = new Dictionary<string, decimal>();
+        foreach (var i in items) { var cur = currency(i); d[cur] = d.GetValueOrDefault(cur) + amount(i); }
+        return d;
+    }
+
+    private static Dictionary<string, decimal> Mult(Dictionary<string, decimal> d, decimal f) => d.ToDictionary(kv => kv.Key, kv => kv.Value * f);
+
+    private static string Money(Dictionary<string, decimal> byCur) =>
+        byCur.Count == 0 ? "0" : string.Join(" · ", byCur.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Value:N0} {kv.Key}"));
+}

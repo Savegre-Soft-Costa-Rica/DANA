@@ -1,34 +1,62 @@
 @page "/facturacion/recurrentes"
+@page "/suscripciones"
 @using Dana.Services.Invoicing
 @inject RecurringInvoiceService Recurring
+@inject IRepository<Company> Companies
+@inject IRepository<Contact> Contacts
 @inject CurrentUser Me
 @inject DialogService Dialogs
 
-<PageTitle>Dana · Facturación recurrente</PageTitle>
+<PageTitle>Dana · Suscripciones</PageTitle>
 
-<PageHeader Title="Facturación recurrente" Subtitle="Plantillas que generan facturas periódicamente (y opcionalmente las emiten y cobran).">
+<PageHeader Title="Suscripciones" Subtitle="Ingresos recurrentes (SaaS). Generan facturas por periodo y, si se configura, las emiten y cobran.">
     <Actions>
         <a class="btn-secondary" href="facturacion">← Facturación</a>
-        <button class="btn-primary" @onclick="New">+ Nueva recurrencia</button>
+        <button class="btn-primary" @onclick="New">+ Nueva suscripción</button>
     </Actions>
 </PageHeader>
 
 @if (_msg is not null) { <div class="alert alert-info py-2 small">@_msg</div> }
 @if (_err is not null) { <div class="alert alert-danger py-2 small">@_err</div> }
 
+@if (_items is not null)
+{
+    var active = _items.Where(IsLive).ToList();
+    <div class="kpi-row mb-3">
+        <div class="kpi-card"><div class="kpi-label">MRR</div><div class="kpi-value">@Money(SumBy(active, s => s.Mrr))</div></div>
+        <div class="kpi-card"><div class="kpi-label">ARR</div><div class="kpi-value">@Money(SumBy(active, s => s.Mrr * 12))</div></div>
+        <div class="kpi-card"><div class="kpi-label">Activas</div><div class="kpi-value">@active.Count<span class="kpi-sub"> / @_items.Count</span></div></div>
+        <div class="kpi-card"><div class="kpi-label">Por renovar (30 días)</div><div class="kpi-value" style="color:var(--warning)">@active.Count(s => s.NextRunAt.ToLocalTime().Date <= DateTime.Now.Date.AddDays(30))</div></div>
+    </div>
+}
+
 @if (_edit is not null)
 {
     <div class="card mb-3">
-        <div class="card-header">@(_edit.Id is null ? "Nueva recurrencia" : _edit.Name)</div>
+        <div class="card-header">@(_edit.Id is null ? "Nueva suscripción" : _edit.Name)</div>
         <div class="card-body">
             <div class="row g-2 mb-3">
-                <div class="col-md-4"><label class="form-label">Nombre *</label><input class="form-control" @bind="_edit.Name" placeholder="p. ej. Hosting mensual – Cliente X" /></div>
-                <div class="col-md-4"><label class="form-label">Receptor *</label><input class="form-control" @bind="_edit.ReceiverName" /></div>
+                <div class="col-md-4"><label class="form-label">Nombre *</label><input class="form-control" @bind="_edit.Name" placeholder="p. ej. Licencia SaaS – Cliente X" /></div>
+                <div class="col-md-4"><label class="form-label">Compañía (titular)</label>
+                    <select class="form-select" @bind="_edit.CompanyId">
+                        <option value="">— ninguna —</option>
+                        @foreach (var c in _companies) { <option value="@c.Id">@c.Title</option> }
+                    </select>
+                </div>
+                <div class="col-md-4"><label class="form-label">Contacto (titular)</label>
+                    <select class="form-select" @bind="_edit.ContactId">
+                        <option value="">— ninguno —</option>
+                        @foreach (var c in _contacts) { <option value="@c.Id">@c.FullName</option> }
+                    </select>
+                </div>
+                <div class="col-md-4"><label class="form-label">Receptor (factura) *</label><input class="form-control" @bind="_edit.ReceiverName" /></div>
                 <div class="col-md-4"><label class="form-label">Identificación *</label><input class="form-control" @bind="_edit.ReceiverId" /></div>
                 <div class="col-md-4"><label class="form-label">Correo</label><input class="form-control" @bind="_edit.ReceiverEmail" /></div>
                 <div class="col-md-2"><label class="form-label">Moneda</label><select class="form-select" @bind="_edit.Currency">@foreach (var c in Catalogs.Currencies) { <option value="@c">@c</option> }</select></div>
                 <div class="col-md-3"><label class="form-label">Frecuencia</label><select class="form-select" @bind="_edit.Frequency">@foreach (var (id, label) in RecurFrequencies.All) { <option value="@id">@label</option> }</select></div>
-                <div class="col-md-3"><label class="form-label">Próxima emisión</label><input type="date" class="form-control" @bind="_edit.NextRunAt" /></div>
+                <div class="col-md-2"><label class="form-label">Estado</label><select class="form-select" @bind="_edit.Status">@foreach (var s in SubscriptionStatuses.All) { <option value="@s.Status">@s.Label</option> }</select></div>
+                <div class="col-md-2"><label class="form-label">Inicio</label><input type="date" class="form-control" @bind="_edit.StartDate" /></div>
+                <div class="col-md-3"><label class="form-label">Próxima factura</label><input type="date" class="form-control" @bind="_edit.NextRunAt" /></div>
                 <div class="col-12 d-flex gap-4 mt-1">
                     <label><input type="checkbox" @bind="_edit.AutoEmit" /> Emitir automáticamente</label>
                     <label><input type="checkbox" @bind="_edit.AutoCharge" /> Generar enlace de pago al emitir</label>
@@ -53,7 +81,7 @@
                 </tbody>
             </table>
             <button class="btn-secondary btn-sm" @onclick="() => _edit.Lines.Add(new InvoiceLine())">+ Línea</button>
-            <div class="text-end mt-2"><strong>Total: @_edit.Total.ToString("N2") @_edit.Currency</strong></div>
+            <div class="text-end mt-2"><strong>Total por ciclo: @_edit.Total.ToString("N2") @_edit.Currency</strong> <span class="muted small">· MRR @_edit.Mrr.ToString("N2")</span></div>
         </div>
         <div class="card-footer d-flex justify-content-between">
             <button class="btn-secondary" @onclick="() => _edit = null">Cerrar</button>
@@ -62,47 +90,99 @@
     </div>
 }
 
+<div class="view-tabs mb-3">
+    @foreach (var (id, label) in _filters)
+    {
+        <button class="view-tab @(_filter == id ? "active" : "")" @onclick="() => _filter = id">@label</button>
+    }
+</div>
+
 @if (_items is null) { <p class="muted">Cargando…</p> }
-else if (_items.Count == 0 && _edit is null) { <div class="empty-state">Sin facturación recurrente. Cree una plantilla (p. ej. una suscripción mensual).</div> }
 else
 {
-    <div class="table-responsive">
-        <table class="table table-hover align-middle">
-            <thead><tr><th>Nombre</th><th>Receptor</th><th>Frecuencia</th><th>Próxima</th><th class="text-end">Total</th><th>Estado</th><th></th></tr></thead>
-            <tbody>
-                @foreach (var r in _items)
-                {
-                    <tr class="@(r.Enabled ? "" : "text-muted")">
-                        <td><strong>@r.Name</strong></td>
-                        <td>@r.ReceiverName</td>
-                        <td>@RecurFrequencies.Label(r.Frequency)</td>
-                        <td class="small text-nowrap">@r.NextRunAt.ToLocalTime().ToString("dd/MM/yyyy")</td>
-                        <td class="text-end text-nowrap">@r.Total.ToString("N2") @r.Currency</td>
-                        <td class="small">
-                            @if (r.Enabled) { <span class="badge-soft ok">Activa</span> } else { <span class="badge-soft">Pausada</span> }
-                            @if (r.LastRunAt is not null) { <div class="muted">Últ.: @r.LastRunAt.Value.ToLocalTime().ToString("dd/MM") · @r.RunCount emitidas</div> }
-                            @if (r.LastError is not null) { <div class="text-danger">@r.LastError</div> }
-                        </td>
-                        <td class="text-end text-nowrap">
-                            <button class="btn-secondary btn-sm" @onclick="() => RunNowAsync(r)">Emitir ahora</button>
-                            <button class="btn-secondary btn-sm" @onclick="() => ToggleAsync(r)">@(r.Enabled ? "Pausar" : "Activar")</button>
-                            <button class="btn-secondary btn-sm" @onclick="() => Edit(r)">Editar</button>
-                            <button class="btn-danger btn-sm" @onclick="() => DeleteAsync(r)">Eliminar</button>
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
+    var rows = Filtered();
+    @if (rows.Count == 0 && _edit is null) { <div class="empty-state">Sin suscripciones en esta vista. Cree una (p. ej. una licencia mensual).</div> }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead><tr><th>Nombre</th><th>Titular</th><th>Frecuencia</th><th class="text-end">MRR</th><th>Próxima factura</th><th>Estado</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var r in rows)
+                    {
+                        var st = SubscriptionStatuses.Get(r.Status);
+                        <tr class="@(IsLive(r) ? "" : "text-muted")">
+                            <td><strong>@r.Name</strong></td>
+                            <td class="small">@Titular(r)</td>
+                            <td>@RecurFrequencies.Label(r.Frequency)</td>
+                            <td class="text-end text-nowrap">@r.Mrr.ToString("N2") @r.Currency</td>
+                            <td class="small text-nowrap">@(IsLive(r) ? r.NextRunAt.ToLocalTime().ToString("dd/MM/yyyy") : "—")
+                                @if (r.LastRunAt is not null) { <div class="muted">Últ.: @r.LastRunAt.Value.ToLocalTime().ToString("dd/MM") · @r.RunCount emitidas</div> }
+                                @if (r.LastError is not null) { <div class="text-danger">@r.LastError</div> }
+                            </td>
+                            <td><Badge Text="@st.Label" Color="@st.Color" /></td>
+                            <td class="text-end text-nowrap">
+                                @if (IsLive(r))
+                                {
+                                    <button class="btn-secondary btn-sm" @onclick="() => RunNowAsync(r)">Emitir ahora</button>
+                                    <button class="btn-secondary btn-sm" @onclick="() => PauseAsync(r)">Pausar</button>
+                                }
+                                else if (r.Status == SubscriptionStatus.Paused)
+                                {
+                                    <button class="btn-secondary btn-sm" @onclick="() => ResumeAsync(r)">Reanudar</button>
+                                }
+                                else if (r.Status == SubscriptionStatus.Cancelled)
+                                {
+                                    <button class="btn-secondary btn-sm" @onclick="() => ResumeAsync(r)">Reactivar</button>
+                                }
+                                <button class="btn-secondary btn-sm" @onclick="() => Edit(r)">Editar</button>
+                                @if (r.Status != SubscriptionStatus.Cancelled) { <button class="btn-secondary btn-sm" @onclick="() => CancelAsync(r)">Cancelar</button> }
+                                <button class="btn-danger btn-sm" @onclick="() => DeleteAsync(r)">Eliminar</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
 }
 
 @code {
     private List<RecurringInvoice>? _items;
+    private List<Company> _companies = new();
+    private List<Contact> _contacts = new();
     private RecurringInvoice? _edit;
+    private string _filter = "live";
     private string? _msg, _err;
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
+    private static readonly (string Id, string Label)[] _filters =
+        [("live", "Activas"), ("paused", "Pausadas"), ("cancelled", "Canceladas"), ("all", "Todas")];
+
+    private static bool IsLive(RecurringInvoice r) => r.Status is SubscriptionStatus.Active or SubscriptionStatus.Trialing;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _companies = (await Companies.GetAllAsync()).OrderBy(c => c.Title).ToList();
+        _contacts = (await Contacts.GetAllAsync()).OrderBy(c => c.FullName).ToList();
+        await LoadAsync();
+    }
+
     private async Task LoadAsync() => _items = (await Recurring.GetAllAsync()).OrderBy(r => r.Name).ToList();
+
+    private List<RecurringInvoice> Filtered() => (_items ?? new()).Where(r => _filter switch
+    {
+        "live" => IsLive(r),
+        "paused" => r.Status == SubscriptionStatus.Paused,
+        "cancelled" => r.Status is SubscriptionStatus.Cancelled or SubscriptionStatus.Ended,
+        _ => true,
+    }).ToList();
+
+    private string Titular(RecurringInvoice r)
+    {
+        var company = _companies.FirstOrDefault(c => c.Id == r.CompanyId)?.Title;
+        var contact = _contacts.FirstOrDefault(c => c.Id == r.ContactId)?.FullName;
+        return string.Join(" · ", new[] { company, contact }.Where(x => !string.IsNullOrWhiteSpace(x))) is { Length: > 0 } s ? s : r.ReceiverName;
+    }
 
     private void New() { _err = _msg = null; _edit = new RecurringInvoice { Lines = { new InvoiceLine() } }; }
     private void Edit(RecurringInvoice r) { _err = _msg = null; _edit = r; }
@@ -110,12 +190,27 @@ else
     private async Task SaveAsync()
     {
         if (string.IsNullOrWhiteSpace(_edit!.Name) || string.IsNullOrWhiteSpace(_edit.ReceiverName) || string.IsNullOrWhiteSpace(_edit.ReceiverId)) { _err = "Nombre, receptor e identificación son obligatorios."; return; }
+        _edit.Enabled = IsLive(_edit);
         await Recurring.SaveAsync(_edit, await Me.NameAsync());
         _edit = null; _msg = "Guardado."; _err = null;
         await LoadAsync();
     }
 
-    private async Task ToggleAsync(RecurringInvoice r) { r.Enabled = !r.Enabled; await Recurring.SaveAsync(r, await Me.NameAsync()); await LoadAsync(); }
+    private async Task PauseAsync(RecurringInvoice r) { await Act(Recurring.PauseAsync(r.Id!, await Me.NameAsync()), "Suscripción pausada."); }
+    private async Task ResumeAsync(RecurringInvoice r) { await Act(Recurring.ResumeAsync(r.Id!, await Me.NameAsync()), "Suscripción activada."); }
+
+    private async Task CancelAsync(RecurringInvoice r)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Cancelar la suscripción \"{r.Name}\"? Dejará de generar facturas.")) return;
+        await Act(Recurring.CancelAsync(r.Id!, await Me.NameAsync()), "Suscripción cancelada.");
+    }
+
+    private async Task Act(Task<(bool Ok, string? Error)> op, string okMsg)
+    {
+        var (ok, error) = await op;
+        _msg = ok ? okMsg : null; _err = ok ? null : error;
+        await LoadAsync();
+    }
 
     private async Task RunNowAsync(RecurringInvoice r)
     {
@@ -126,8 +221,19 @@ else
 
     private async Task DeleteAsync(RecurringInvoice r)
     {
-        if (!await Dialogs.ConfirmAsync($"¿Eliminar la recurrencia \"{r.Name}\"?")) return;
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar la suscripción \"{r.Name}\"?")) return;
         await Recurring.DeleteAsync(r.Id!, await Me.NameAsync());
+        _msg = "Suscripción eliminada."; _err = null;
         await LoadAsync();
     }
+
+    private static Dictionary<string, decimal> SumBy(IEnumerable<RecurringInvoice> items, Func<RecurringInvoice, decimal> amount)
+    {
+        var d = new Dictionary<string, decimal>();
+        foreach (var i in items) d[i.Currency] = d.GetValueOrDefault(i.Currency) + amount(i);
+        return d;
+    }
+
+    private static string Money(Dictionary<string, decimal> byCur) =>
+        byCur.Count == 0 ? "0" : string.Join(" · ", byCur.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Value:N0} {kv.Key}"));
 }

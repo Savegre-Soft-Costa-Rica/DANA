@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using MongoDB.Bson.Serialization.Attributes;
 
 namespace Dana.Models;
 
@@ -29,6 +30,22 @@ public class Deal : Entity
     [Range(0, double.MaxValue, ErrorMessage = "Debe ser mayor o igual a 0")]
     public decimal Amount { get; set; }
     public string Currency { get; set; } = "USD";
+
+    /// <summary>Monto de venta única (setup / proyecto), separado del recurrente para el pronóstico.</summary>
+    public decimal OneTimeAmount { get; set; }
+    /// <summary>Monto recurrente por ciclo (MRR si la frecuencia es mensual).</summary>
+    public decimal RecurringAmount { get; set; }
+    /// <summary>Frecuencia del monto recurrente (weekly/monthly/yearly). Ver <see cref="RecurFrequencies"/>.</summary>
+    public string? RecurringFrequency { get; set; }
+
+    /// <summary>Valor del contrato estimado a 12 meses: venta única + recurrente anualizado.</summary>
+    [BsonIgnore]
+    public decimal AnnualContractValue => OneTimeAmount + RecurringAmount * RecurringFrequency switch
+    {
+        RecurFrequencies.Weekly => 52,
+        RecurFrequencies.Yearly => 1,
+        _ => 12,
+    };
     [Range(0, 100, ErrorMessage = "Entre 0 y 100")]
     public int Probability { get; set; } = 50;
     public DateTime? ExpectedCloseDate { get; set; }

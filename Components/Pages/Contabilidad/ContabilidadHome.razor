@@ -1,0 +1,94 @@
+@page "/contabilidad"
+@using Dana.Services.Accounting
+@inject AccountingService Accounting
+
+<PageTitle>Dana · Contabilidad</PageTitle>
+
+<PageHeader Title="Contabilidad" Subtitle="Resumen contable a partir de los asientos registrados.">
+    <Actions>
+        <a class="btn-secondary" href="contabilidad/cuentas">Plan de cuentas</a>
+        <a class="btn-primary" href="contabilidad/asientos">+ Nuevo asiento</a>
+    </Actions>
+</PageHeader>
+
+@if (_loading) { <p class="muted">Cargando…</p> }
+else if (_accounts == 0)
+{
+    <div class="empty-state">
+        <p>Aún no hay un plan de cuentas.</p>
+        <a class="btn-primary" href="contabilidad/cuentas">Configurar plan de cuentas</a>
+    </div>
+}
+else
+{
+    <div class="kpi-row">
+        <div class="kpi-card"><div class="kpi-label">Ingresos (periodo)</div><div class="kpi-value" style="color:var(--success)">@_ingresos.ToString("N0")</div></div>
+        <div class="kpi-card"><div class="kpi-label">Gastos (periodo)</div><div class="kpi-value" style="color:var(--warning)">@_gastos.ToString("N0")</div></div>
+        <div class="kpi-card"><div class="kpi-label">Utilidad / pérdida</div><div class="kpi-value" style="color:@(_utilidad >= 0 ? "var(--success)" : "var(--danger)")">@_utilidad.ToString("N0")</div></div>
+        <div class="kpi-card"><div class="kpi-label">Asientos registrados</div><div class="kpi-value">@_posted<span class="kpi-sub"> / @_total</span></div></div>
+    </div>
+
+    <div class="row g-3 mt-1">
+        <div class="col-lg-7">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between"><span>Últimos asientos</span><a class="small" href="contabilidad/asientos">Ver libro diario</a></div>
+                <div class="card-body p-0">
+                    @if (_recent.Count == 0) { <div class="muted small p-3">Aún no hay asientos. Cree el primero desde el libro diario.</div> }
+                    <table class="table table-sm align-middle mb-0">
+                        <tbody>
+                            @foreach (var e in _recent)
+                            {
+                                var st = JournalStatuses.Get(e.Status);
+                                <tr>
+                                    <td class="small text-nowrap">@(e.Number > 0 ? "N.º " + e.Number : "borrador")</td>
+                                    <td class="small text-nowrap">@e.Date.ToLocalTime().ToString("dd/MM")</td>
+                                    <td>@e.Description</td>
+                                    <td class="text-end text-nowrap">@e.TotalDebit.ToString("N0") @e.Currency</td>
+                                    <td><Badge Text="@st.Label" Color="@st.Color" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-header">Accesos</div>
+                <div class="card-body d-grid gap-2">
+                    <a class="btn-secondary" href="contabilidad/asientos">📓 Libro diario</a>
+                    <a class="btn-secondary" href="contabilidad/mayor">📒 Libro mayor</a>
+                    <a class="btn-secondary" href="contabilidad/balance">⚖ Balance de comprobación</a>
+                    <a class="btn-secondary" href="contabilidad/estados">📊 Estados financieros</a>
+                    <a class="btn-secondary" href="contabilidad/cuentas">🗂 Plan de cuentas</a>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private int _accounts, _posted, _total;
+    private decimal _ingresos, _gastos, _utilidad;
+    private List<JournalEntry> _recent = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var accounts = await Accounting.GetAccountsAsync();
+        _accounts = accounts.Count;
+
+        var entries = await Accounting.GetEntriesAsync();
+        _total = entries.Count;
+        _posted = entries.Count(e => e.Status == "posted");
+        _recent = entries.OrderByDescending(e => e.Date).ThenByDescending(e => e.Number).Take(7).ToList();
+
+        var monthStart = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+        var balances = await Accounting.TrialBalanceAsync(monthStart, null);
+        _ingresos = balances.Where(b => b.Account.Type == AccountType.Ingreso).Sum(b => b.Balance);
+        _gastos = balances.Where(b => b.Account.Type == AccountType.Gasto).Sum(b => b.Balance);
+        _utilidad = _ingresos - _gastos;
+
+        _loading = false;
+    }
+}

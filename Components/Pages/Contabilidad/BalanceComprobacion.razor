@@ -1,0 +1,67 @@
+@page "/contabilidad/balance"
+@using Dana.Services.Accounting
+@inject AccountingService Accounting
+
+<PageTitle>Dana · Balance de comprobación</PageTitle>
+
+<PageHeader Title="Balance de comprobación" Subtitle="Débitos, créditos y saldo de cada cuenta con movimiento (asientos registrados).">
+    <Actions>
+        <input type="date" class="form-control mw-filter" @bind="_from" @bind:after="LoadAsync" title="Desde" />
+        <input type="date" class="form-control mw-filter" @bind="_to" @bind:after="LoadAsync" title="Hasta" />
+        @if (_from is not null || _to is not null) { <button class="btn-secondary" @onclick="ClearDates">Limpiar</button> }
+    </Actions>
+</PageHeader>
+
+@if (_rows is null) { <p class="muted">Cargando…</p> }
+else if (_rows.Count == 0) { <div class="empty-state">No hay movimientos registrados en el periodo.</div> }
+else
+{
+    <div class="card">
+        <div class="card-body p-0">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead><tr><th style="width:140px">Código</th><th>Cuenta</th><th class="text-end">Débitos</th><th class="text-end">Créditos</th><th class="text-end">Saldo deudor</th><th class="text-end">Saldo acreedor</th></tr></thead>
+                <tbody>
+                    @foreach (var r in _rows)
+                    {
+                        var debitNature = AccountTypes.IsDebit(r.Account.Type);
+                        var deudor = debitNature ? r.Balance : 0;
+                        var acreedor = debitNature ? 0 : r.Balance;
+                        <tr>
+                            <td class="small text-nowrap">@r.Account.Code</td>
+                            <td>@r.Account.Name</td>
+                            <td class="text-end">@r.Debit.ToString("N2")</td>
+                            <td class="text-end">@r.Credit.ToString("N2")</td>
+                            <td class="text-end">@(deudor != 0 ? deudor.ToString("N2") : "")</td>
+                            <td class="text-end">@(acreedor != 0 ? acreedor.ToString("N2") : "")</td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr class="fw-semibold">
+                        <td colspan="2" class="text-end">Totales</td>
+                        <td class="text-end">@_rows.Sum(r => r.Debit).ToString("N2")</td>
+                        <td class="text-end">@_rows.Sum(r => r.Credit).ToString("N2")</td>
+                        <td class="text-end">@_rows.Where(r => AccountTypes.IsDebit(r.Account.Type)).Sum(r => r.Balance).ToString("N2")</td>
+                        <td class="text-end">@_rows.Where(r => !AccountTypes.IsDebit(r.Account.Type)).Sum(r => r.Balance).ToString("N2")</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+    var td = _rows.Sum(r => r.Debit);
+    var tc = _rows.Sum(r => r.Credit);
+    <div class="mt-2 small @(Math.Round(td - tc, 2) == 0 ? "text-success" : "text-danger")">
+        @(Math.Round(td - tc, 2) == 0 ? "✓ El balance cuadra: débitos = créditos." : $"⚠ Descuadre de {Math.Round(td - tc, 2):N2} entre débitos y créditos.")
+    </div>
+}
+
+@code {
+    private List<AccountBalance>? _rows;
+    private DateTime? _from, _to;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => _rows = await Accounting.TrialBalanceAsync(_from, _to);
+
+    private async Task ClearDates() { _from = _to = null; await LoadAsync(); }
+}

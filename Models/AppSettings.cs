@@ -23,6 +23,8 @@ public class AppSettings : Entity
     public IntegrationSettings Integrations { get; set; } = new();
     /// <summary>Datos del emisor para la factura electrónica de Hacienda (Costa Rica), versión 4.4.</summary>
     public HaciendaSettings Hacienda { get; set; } = new();
+    /// <summary>Mapeo de cuentas y activación del posteo contable automático.</summary>
+    public AccountingSettings Accounting { get; set; } = new();
 
     public string? QuoteTerms { get; set; } = "Precios sujetos a cambio sin previo aviso. Validez de la oferta según fecha indicada.";
 

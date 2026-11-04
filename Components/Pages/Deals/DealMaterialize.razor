@@ -1,0 +1,220 @@
+@page "/deals/{Id}/materializar"
+@using Dana.Services.Invoicing
+@using Dana.Services.Accounting
+@inject DealService Deals
+@inject QuoteService Quotes
+@inject PaymentPlanService Plans
+@inject RecurringInvoiceService Recurring
+@inject AccountingService Accounting
+@inject IRepository<Contact> Contacts
+@inject IRepository<Company> Companies
+@inject CurrentUser Me
+@inject NavigationManager Nav
+
+<PageTitle>Dana · Materializar venta</PageTitle>
+
+@if (_loading)
+{
+    <p class="muted">Cargando…</p>
+    return;
+}
+@if (_deal is null)
+{
+    <div class="empty-state">Negociación no encontrada.</div>
+    return;
+}
+
+<div class="page-head">
+    <div>
+        <h3>Materializar venta</h3>
+        <div class="sub">@_deal.Title · @Titular() @if (_quotes.Count > 0) { <span class="ms-1">· @_quotes.Count cotización(es)</span> }</div>
+    </div>
+    <div class="actions"><a class="btn-secondary" href="deals/@_deal.Id">← Volver a la negociación</a></div>
+</div>
+
+@if (_done is not null) { <div class="alert alert-success">@_done</div> }
+@if (_err is not null) { <div class="alert alert-danger">@_err</div> }
+
+@if (_quotes.Count > 0)
+{
+    <div class="card mb-3">
+        <div class="card-body d-flex align-items-center gap-2">
+            <label class="form-label mb-0">Tomar montos de la cotización:</label>
+            <select class="form-select mw-filter" @onchange="OnPickQuote">
+                <option value="">— manual —</option>
+                @foreach (var q in _quotes) { <option value="@q.Id" selected="@(q.Id == _quoteId)">@q.Number · @q.Title (@q.Total.ToString("N0") @q.Currency)</option> }
+            </select>
+        </div>
+    </div>
+}
+
+<div class="row g-3">
+    <!-- Venta única -->
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><label><input type="checkbox" @bind="_doPlan" /> Venta única — plan de pago</label></div>
+            <div class="card-body @(_doPlan ? "" : "opacity-50")">
+                <div class="row g-2">
+                    <div class="col-md-5"><label class="form-label">Condición</label>
+                        <select class="form-select" @bind="_term" disabled="@(!_doPlan)">
+                            <option value="Contado">Contado</option><option value="Credito">Crédito</option><option value="Tractos">Tractos</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4"><label class="form-label">Monto total</label><input type="number" step="any" class="form-control" @bind="_planTotal" disabled="@(!_doPlan)" /></div>
+                    @if (_term == "Credito") { <div class="col-md-3"><label class="form-label">Días</label><input type="number" class="form-control" @bind="_netDays" disabled="@(!_doPlan)" /></div> }
+                    @if (_term == "Tractos") { <div class="col-md-3"><label class="form-label"># tractos</label><input type="number" min="2" class="form-control" @bind="_tractos" disabled="@(!_doPlan)" /></div> }
+                </div>
+                <div class="mt-2 small muted">
+                    @{ var preview = PaymentPlanService.BuildInstallments(Enum.Parse<PaymentTerm>(_term), _planTotal, _netDays, _tractos); }
+                    @foreach (var i in preview) { <div>• @i.Label — @i.DueDate.ToString("dd/MM/yyyy") — @i.Amount.ToString("N2") @_deal.Currency</div> }
+                </div>
+                @if (_doPlan && _term != "Contado" && _creditLimit > 0 && _companyOutstanding + _planTotal > _creditLimit)
+                {
+                    <div class="alert alert-warning py-2 small mt-2 mb-0">⚠ Este cliente quedaría en @((_companyOutstanding + _planTotal).ToString("N0")) por cobrar, sobre su límite de crédito de @_creditLimit.ToString("N0") (saldo actual @_companyOutstanding.ToString("N0")).</div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Suscripción -->
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><label><input type="checkbox" @bind="_doSub" /> Suscripción recurrente (SaaS)</label></div>
+            <div class="card-body @(_doSub ? "" : "opacity-50")">
+                <div class="row g-2">
+                    <div class="col-12"><label class="form-label">Nombre</label><input class="form-control" @bind="_subName" disabled="@(!_doSub)" /></div>
+                    <div class="col-md-5"><label class="form-label">Monto por ciclo</label><input type="number" step="any" class="form-control" @bind="_subAmount" disabled="@(!_doSub)" /></div>
+                    <div class="col-md-4"><label class="form-label">Frecuencia</label>
+                        <select class="form-select" @bind="_subFreq" disabled="@(!_doSub)">@foreach (var (id, label) in RecurFrequencies.All) { <option value="@id">@label</option> }</select>
+                    </div>
+                    <div class="col-md-3"><label class="form-label">Inicio</label><input type="date" class="form-control" @bind="_subStart" disabled="@(!_doSub)" /></div>
+                    <div class="col-12 d-flex gap-4 mt-1">
+                        <label><input type="checkbox" @bind="_subAutoEmit" disabled="@(!_doSub)" /> Emitir automáticamente</label>
+                        <label><input type="checkbox" @bind="_subAutoCharge" disabled="@(!_doSub)" /> Cobrar al emitir</label>
+                    </div>
+                </div>
+                <div class="mt-2 small muted">MRR estimado: @Mrr().ToString("N2") @_deal.Currency</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="mt-3 d-flex justify-content-end gap-2">
+    <a class="btn-secondary" href="deals/@_deal.Id">Cancelar</a>
+    <button class="btn-primary" @onclick="CreateAsync" disabled="@(!_doPlan && !_doSub)">Crear</button>
+</div>
+
+@code {
+    [Parameter] public string? Id { get; set; }
+
+    private Deal? _deal;
+    private List<Quote> _quotes = new();
+    private Company? _company;
+    private Contact? _contact;
+    private bool _loading = true;
+    private string? _done, _err;
+    private string? _quoteId;
+    private decimal _creditLimit, _companyOutstanding;
+
+    // Plan de pago
+    private bool _doPlan = true;
+    private string _term = "Contado";
+    private decimal _planTotal;
+    private int _netDays = 30;
+    private int _tractos = 3;
+
+    // Suscripción
+    private bool _doSub;
+    private string _subName = "";
+    private decimal _subAmount;
+    private string _subFreq = RecurFrequencies.Monthly;
+    private DateTime _subStart = DateTime.UtcNow.Date;
+    private bool _subAutoEmit, _subAutoCharge;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _deal = await Deals.GetAsync(Id);
+        if (_deal is not null)
+        {
+            _quotes = (await Quotes.GetForDealAsync(_deal.Id!)).OrderByDescending(q => q.CreatedAt).ToList();
+            _company = string.IsNullOrEmpty(_deal.CompanyId) ? null : await Companies.GetByIdAsync(_deal.CompanyId);
+            _contact = string.IsNullOrEmpty(_deal.ContactId) ? null : await Contacts.GetByIdAsync(_deal.ContactId);
+            _creditLimit = _company?.CreditLimit ?? 0;
+            if (_company?.Id is not null) _companyOutstanding = await Accounting.CompanyOutstandingAsync(_company.Id);
+
+            // Prefill: usa el desglose del deal; si no hay, cae al importe / cotización aceptada.
+            var accepted = _quotes.FirstOrDefault(q => q.Status == "accepted");
+            _planTotal = _deal.OneTimeAmount > 0 ? _deal.OneTimeAmount : (accepted?.Total ?? _deal.Amount);
+            _subAmount = _deal.RecurringAmount;
+            _subFreq = string.IsNullOrEmpty(_deal.RecurringFrequency) ? RecurFrequencies.Monthly : _deal.RecurringFrequency;
+            _doSub = _deal.RecurringAmount > 0;
+            _doPlan = !(_doSub && _deal.OneTimeAmount == 0);   // si solo es recurrente, no marcar plan por defecto
+            _subName = $"{_deal.Title} – suscripción";
+            if (accepted is not null) _quoteId = accepted.Id;
+        }
+        _loading = false;
+    }
+
+    private string Titular() => _company?.Title ?? _contact?.FullName ?? "sin cliente";
+
+    private decimal Mrr() => _subFreq switch
+    {
+        RecurFrequencies.Weekly => Math.Round(_subAmount * 52 / 12m, 2),
+        RecurFrequencies.Yearly => Math.Round(_subAmount / 12m, 2),
+        _ => _subAmount,
+    };
+
+    private void OnPickQuote(ChangeEventArgs e)
+    {
+        _quoteId = e.Value?.ToString();
+        var q = string.IsNullOrEmpty(_quoteId) ? null : _quotes.FirstOrDefault(x => x.Id == _quoteId);
+        if (q is not null) _planTotal = q.Total;
+    }
+
+    private async Task CreateAsync()
+    {
+        _err = _done = null;
+        if (_deal is null) return;
+        var me = await Me.NameAsync();
+        var msgs = new List<string>();
+
+        try
+        {
+            if (_doPlan)
+            {
+                var term = Enum.Parse<PaymentTerm>(_term);
+                var plan = new PaymentPlan
+                {
+                    Title = _deal.Title, Term = term, TotalAmount = _planTotal, Currency = _deal.Currency,
+                    NetDays = term == PaymentTerm.Credito ? _netDays : null,
+                    DealId = _deal.Id, QuoteId = _quoteId, ContactId = _deal.ContactId, CompanyId = _deal.CompanyId,
+                    Installments = PaymentPlanService.BuildInstallments(term, _planTotal, _netDays, _tractos),
+                };
+                var (ok, error) = await Plans.SaveAsync(plan, me);
+                if (!ok) { _err = $"Plan de pago: {error}"; return; }
+                msgs.Add($"Plan de pago ({PaymentTerms.Label(term)}) creado con {plan.Installments.Count} cuota(s).");
+            }
+
+            if (_doSub)
+            {
+                var sub = new RecurringInvoice
+                {
+                    Name = _subName, Status = SubscriptionStatus.Active, Enabled = true,
+                    Currency = _deal.Currency, Frequency = _subFreq, StartDate = _subStart, NextRunAt = _subStart,
+                    ReceiverName = _company?.Title ?? _contact?.FullName ?? _deal.Title,
+                    ReceiverId = _company?.TaxId ?? "",
+                    ReceiverEmail = _contact?.Email ?? _company?.Email,
+                    CompanyId = _deal.CompanyId, ContactId = _deal.ContactId, DealId = _deal.Id,
+                    AutoEmit = _subAutoEmit, AutoCharge = _subAutoCharge,
+                    Lines = [new InvoiceLine { Description = _subName, Quantity = 1, UnitPrice = _subAmount, TaxRate = 0 }],
+                };
+                await Recurring.SaveAsync(sub, me);
+                msgs.Add($"Suscripción creada (MRR {sub.Mrr:N2} {sub.Currency}).");
+            }
+
+            _done = string.Join(" ", msgs) + " Revise los detalles y complete CABYS/impuesto antes de emitir.";
+        }
+        catch (Exception ex) { _err = ex.Message; }
+    }
+}

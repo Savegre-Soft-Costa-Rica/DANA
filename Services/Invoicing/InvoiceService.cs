@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Dana.Data;
 using Dana.Models;
 using Dana.Services.Integrations;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Dana.Services.Invoicing;
 
@@ -13,14 +14,16 @@ public class InvoiceService
     private readonly IElectronicInvoiceProvider _real;
     private readonly SandboxInvoiceProvider _sandbox;
     private readonly IntegrationService _integrations;
+    private readonly IServiceProvider _sp;
     private readonly ILogger<InvoiceService> _logger;
 
-    public InvoiceService(IRepository<ElectronicInvoice> invoices, IElectronicInvoiceProvider real, SandboxInvoiceProvider sandbox, IntegrationService integrations, ILogger<InvoiceService> logger)
+    public InvoiceService(IRepository<ElectronicInvoice> invoices, IElectronicInvoiceProvider real, SandboxInvoiceProvider sandbox, IntegrationService integrations, IServiceProvider sp, ILogger<InvoiceService> logger)
     {
         _invoices = invoices;
         _real = real;
         _sandbox = sandbox;
         _integrations = integrations;
+        _sp = sp;
         _logger = logger;
     }
 
@@ -86,6 +89,8 @@ public class InvoiceService
         invoice.Status = result.Status;
         invoice.LastError = result.Status == "rejected" ? result.Error : null;
         await _invoices.UpdateAsync(invoice);
+        if (invoice.Status == "accepted")
+            try { await _sp.GetRequiredService<Dana.Services.Accounting.AccountingService>().TryPostInvoiceAsync(invoice, invoice.UpdatedBy); } catch { }
         return (true, null);
     }
 

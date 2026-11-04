@@ -112,6 +112,8 @@ public class TilopayService
         link.PayerEmail ??= payerEmail;
         await _links.UpdateAsync(link);
 
+        try { await _sp.GetRequiredService<Dana.Services.Accounting.AccountingService>().TryPostPaymentAsync(link, by); } catch { }
+
         try
         {
             var activities = _sp.GetRequiredService<ActivityService>();

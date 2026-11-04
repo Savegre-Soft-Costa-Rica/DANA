@@ -55,6 +55,8 @@ builder.Services.AddSingleton<Dana.Services.Invoicing.SandboxInvoiceProvider>();
 builder.Services.AddSingleton<InvoiceService>();
 builder.Services.AddSingleton<Dana.Services.Integrations.TilopayService>();
 builder.Services.AddSingleton<Dana.Services.Invoicing.RecurringInvoiceService>();
+builder.Services.AddSingleton<Dana.Services.Invoicing.PaymentPlanService>();
+builder.Services.AddSingleton<Dana.Services.Accounting.AccountingService>();
 // Catálogo CABYS: búsqueda contra la API pública de Hacienda (sin credenciales).
 builder.Services.AddSingleton<Dana.Services.Invoicing.CabysService>();
 // Telegram: bot con long polling (sin URL pública). Sin token no se inicia.

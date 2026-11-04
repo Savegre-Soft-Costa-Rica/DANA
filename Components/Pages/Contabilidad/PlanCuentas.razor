@@ -1,0 +1,121 @@
+@page "/contabilidad/cuentas"
+@using Dana.Services.Accounting
+@inject AccountingService Accounting
+@inject DialogService Dialogs
+
+<PageTitle>Dana · Plan de cuentas</PageTitle>
+
+<PageHeader Title="Plan de cuentas" Subtitle="Catálogo contable. Las cuentas de detalle reciben los movimientos; los títulos solo agrupan.">
+    <Actions>
+        @if (_accounts is { Count: > 0 })
+        {
+            <button class="btn-primary" @onclick="NewAccount">+ Nueva cuenta</button>
+        }
+    </Actions>
+</PageHeader>
+
+@if (_msg is not null) { <div class="alert alert-info py-2 small">@_msg</div> }
+@if (_err is not null) { <div class="alert alert-danger py-2 small">@_err</div> }
+
+@if (_edit is not null)
+{
+    <div class="card mb-3">
+        <div class="card-header">@(_edit.Id is null ? "Nueva cuenta" : $"Editar cuenta {_edit.Code}")</div>
+        <div class="card-body">
+            <div class="row g-2">
+                <div class="col-md-3"><label class="form-label">Código *</label><input class="form-control" @bind="_edit.Code" placeholder="1-01-01" /></div>
+                <div class="col-md-5"><label class="form-label">Nombre *</label><input class="form-control" @bind="_edit.Name" /></div>
+                <div class="col-md-4"><label class="form-label">Tipo</label>
+                    <select class="form-select" @bind="_edit.Type">
+                        @foreach (var t in AccountTypes.All) { <option value="@t.Type">@t.Label</option> }
+                    </select>
+                </div>
+            </div>
+            <div class="row g-2 mt-1 align-items-center">
+                <div class="col-md-4 form-check ms-2">
+                    <input type="checkbox" class="form-check-input" id="postable" @bind="_edit.IsPostable" />
+                    <label class="form-check-label small" for="postable">Acepta movimientos (cuenta de detalle)</label>
+                </div>
+                <div class="col-md-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="active" @bind="_edit.IsActive" />
+                    <label class="form-check-label small" for="active">Activa</label>
+                </div>
+            </div>
+        </div>
+        <div class="card-footer d-flex justify-content-between">
+            <button class="btn-secondary" @onclick="() => _edit = null">Cancelar</button>
+            <button class="btn-primary" @onclick="SaveAsync">Guardar</button>
+        </div>
+    </div>
+}
+
+@if (_accounts is null) { <p class="muted">Cargando…</p> }
+else if (_accounts.Count == 0)
+{
+    <div class="empty-state">
+        <p>El plan de cuentas está vacío.</p>
+        <button class="btn-primary" @onclick="SeedAsync">Cargar catálogo base de Costa Rica</button>
+        <span class="muted small d-block mt-2">o <button class="btn-link p-0" @onclick="NewAccount">crear una cuenta manualmente</button></span>
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead><tr><th style="width:140px">Código</th><th>Cuenta</th><th>Tipo</th><th>Naturaleza</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var a in _accounts.OrderBy(x => x.Code))
+                {
+                    var ti = AccountTypes.Get(a.Type);
+                    <tr class="@(a.IsPostable ? "" : "fw-semibold")">
+                        <td class="small text-nowrap">@a.Code</td>
+                        <td>@a.Name @if (!a.IsPostable) { <span class="badge-soft">Título</span> }</td>
+                        <td><Badge Text="@ti.Label" Color="@ti.Color" /></td>
+                        <td class="small muted">@(ti.Debit ? "Deudora" : "Acreedora")</td>
+                        <td>@if (a.IsActive) { <span class="badge-soft ok">Activa</span> } else { <span class="badge-soft">Inactiva</span> }</td>
+                        <td class="text-end text-nowrap">
+                            <button class="btn-secondary btn-sm" @onclick="() => Edit(a)">Editar</button>
+                            <button class="btn-danger btn-sm" @onclick="() => DeleteAsync(a)">✕</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<Account>? _accounts;
+    private Account? _edit;
+    private string? _msg, _err;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => _accounts = await Accounting.GetAccountsAsync();
+
+    private void NewAccount() { _err = _msg = null; _edit = new Account(); }
+    private void Edit(Account a) { _err = _msg = null; _edit = a; }
+
+    private async Task SeedAsync()
+    {
+        var n = await Accounting.SeedChartOfAccountsAsync();
+        _msg = n > 0 ? $"Catálogo base cargado: {n} cuentas." : "El plan de cuentas ya tenía cuentas.";
+        await LoadAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        var (ok, error) = await Accounting.SaveAccountAsync(_edit!);
+        if (!ok) { _err = error; return; }
+        _msg = "Cuenta guardada."; _err = null; _edit = null;
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(Account a)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar la cuenta {a.Code} · {a.Name}?")) return;
+        var (ok, error) = await Accounting.DeleteAccountAsync(a.Id!);
+        _err = ok ? null : error; _msg = ok ? "Cuenta eliminada." : null;
+        await LoadAsync();
+    }
+}

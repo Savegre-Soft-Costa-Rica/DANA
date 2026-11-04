@@ -1,0 +1,193 @@
+@page "/contabilidad/asientos"
+@using Dana.Services.Accounting
+@inject AccountingService Accounting
+@inject DialogService Dialogs
+
+<PageTitle>Dana · Libro diario</PageTitle>
+
+<PageHeader Title="Libro diario" Subtitle="Asientos de partida doble. El total de débitos debe igualar al de créditos.">
+    <Actions>
+        <a class="btn-secondary" href="contabilidad/cuentas">Plan de cuentas</a>
+        <button class="btn-primary" @onclick="NewEntry" disabled="@(_postable.Count == 0)">+ Nuevo asiento</button>
+    </Actions>
+</PageHeader>
+
+@if (_msg is not null) { <div class="alert alert-info py-2 small">@_msg</div> }
+@if (_err is not null) { <div class="alert alert-danger py-2 small">@_err</div> }
+@if (_postable.Count == 0) { <div class="alert alert-warning py-2 small">Primero cree cuentas de detalle en el <a href="contabilidad/cuentas">plan de cuentas</a>.</div> }
+
+@if (_edit is not null)
+{
+    <div class="card mb-3">
+        <div class="card-header">@(_edit.Number > 0 ? $"Asiento N.º {_edit.Number}" : _edit.Id is null ? "Nuevo asiento" : "Asiento (borrador)")</div>
+        <div class="card-body">
+            <div class="row g-2 mb-3">
+                <div class="col-md-3"><label class="form-label">Fecha *</label><input type="date" class="form-control" @bind="_edit.Date" /></div>
+                <div class="col-md-6"><label class="form-label">Descripción / glosa *</label><input class="form-control" @bind="_edit.Description" /></div>
+                <div class="col-md-3"><label class="form-label">Referencia</label><input class="form-control" @bind="_edit.Reference" placeholder="Factura, cheque…" /></div>
+            </div>
+
+            <table class="table table-sm align-middle">
+                <thead><tr><th style="width:38%">Cuenta</th><th>Detalle</th><th class="text-end" style="width:130px">Débito</th><th class="text-end" style="width:130px">Crédito</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var l in _edit.Lines)
+                    {
+                        <tr>
+                            <td>
+                                <select class="form-select form-select-sm" @bind="l.AccountCode">
+                                    <option value="">— cuenta —</option>
+                                    @foreach (var a in _postable) { <option value="@a.Code">@a.Code · @a.Name</option> }
+                                </select>
+                            </td>
+                            <td><input class="form-control form-control-sm" @bind="l.Description" /></td>
+                            <td><input type="number" step="any" min="0" class="form-control form-control-sm text-end" @bind="l.Debit" @onfocus="() => l.Credit = 0" /></td>
+                            <td><input type="number" step="any" min="0" class="form-control form-control-sm text-end" @bind="l.Credit" @onfocus="() => l.Debit = 0" /></td>
+                            <td><button class="btn-danger btn-sm" @onclick="() => _edit.Lines.Remove(l)">✕</button></td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr class="fw-semibold">
+                        <td colspan="2" class="text-end">Totales</td>
+                        <td class="text-end">@_edit.TotalDebit.ToString("N2")</td>
+                        <td class="text-end">@_edit.TotalCredit.ToString("N2")</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+            <div class="d-flex justify-content-between align-items-center">
+                <button class="btn-secondary btn-sm" @onclick="() => _edit.Lines.Add(new JournalLine())">+ Línea</button>
+                @if (_edit.Difference == 0 && _edit.TotalDebit > 0)
+                {
+                    <span class="badge-soft ok">✓ Cuadrado</span>
+                }
+                else
+                {
+                    <span class="text-danger small">Diferencia: @_edit.Difference.ToString("N2")</span>
+                }
+            </div>
+        </div>
+        <div class="card-footer d-flex justify-content-between">
+            <button class="btn-secondary" @onclick="() => _edit = null">Cerrar</button>
+            <span class="d-flex gap-2">
+                <button class="btn-secondary" @onclick="SaveDraftAsync">Guardar borrador</button>
+                <button class="btn-primary" @onclick="PostAsync">Registrar asiento</button>
+            </span>
+        </div>
+    </div>
+}
+
+@if (_entries is null) { <p class="muted">Cargando…</p> }
+else if (_entries.Count == 0 && _edit is null) { <div class="empty-state">Aún no hay asientos. Cree el primero con “+ Nuevo asiento”.</div> }
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead><tr><th style="width:70px">N.º</th><th>Fecha</th><th>Descripción</th><th>Referencia</th><th class="text-end">Monto</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var e in _entries.OrderByDescending(x => x.Date).ThenByDescending(x => x.Number))
+                {
+                    var st = JournalStatuses.Get(e.Status);
+                    <tr>
+                        <td class="small">@(e.Number > 0 ? e.Number.ToString() : "—")</td>
+                        <td class="small text-nowrap">@e.Date.ToLocalTime().ToString("dd/MM/yyyy")</td>
+                        <td>@e.Description</td>
+                        <td class="small muted">@e.Reference</td>
+                        <td class="text-end text-nowrap">@e.TotalDebit.ToString("N2") @e.Currency</td>
+                        <td><Badge Text="@st.Label" Color="@st.Color" /></td>
+                        <td class="text-end text-nowrap">
+                            <button class="btn-secondary btn-sm" @onclick="() => View(e)">@(e.Status == "draft" ? "Editar" : "Ver")</button>
+                            @if (e.Status == "draft") { <button class="btn-danger btn-sm" @onclick="() => DeleteDraftAsync(e)">✕</button> }
+                            @if (e.Status == "posted") { <button class="btn-danger btn-sm" @onclick="() => VoidAsync(e)">Anular</button> }
+                        </td>
+                    </tr>
+                    @if (_expanded == e.Id)
+                    {
+                        <tr><td></td><td colspan="6">
+                            <table class="table table-sm mb-0">
+                                <thead><tr><th>Cuenta</th><th>Detalle</th><th class="text-end">Débito</th><th class="text-end">Crédito</th></tr></thead>
+                                <tbody>
+                                    @foreach (var l in e.Lines)
+                                    {
+                                        <tr>
+                                            <td class="small">@l.AccountCode · @l.AccountName</td>
+                                            <td class="small muted">@l.Description</td>
+                                            <td class="text-end">@(l.Debit != 0 ? l.Debit.ToString("N2") : "")</td>
+                                            <td class="text-end">@(l.Credit != 0 ? l.Credit.ToString("N2") : "")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </td></tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<JournalEntry>? _entries;
+    private List<Account> _postable = new();
+    private JournalEntry? _edit;
+    private string? _expanded;
+    private string? _msg, _err;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _entries = await Accounting.GetEntriesAsync();
+        _postable = await Accounting.GetPostableAsync();
+    }
+
+    private void NewEntry()
+    {
+        _err = _msg = null;
+        _edit = new JournalEntry { Lines = { new JournalLine(), new JournalLine() } };
+    }
+
+    private void View(JournalEntry e)
+    {
+        _err = _msg = null;
+        if (e.Status == "draft") _edit = e;
+        else _expanded = _expanded == e.Id ? null : e.Id;
+    }
+
+    private async Task SaveDraftAsync()
+    {
+        var (ok, error) = await Accounting.SaveDraftAsync(_edit!);
+        if (!ok) { _err = error; return; }
+        _msg = "Borrador guardado."; _err = null;
+        await LoadAsync();
+    }
+
+    private async Task PostAsync()
+    {
+        var val = AccountingService.Validate(_edit!);
+        if (val is not null) { _err = val; return; }
+        var (ok, _) = await Accounting.SaveDraftAsync(_edit!);
+        if (!ok) { _err = "No se pudo guardar antes de registrar."; return; }
+        var (pok, perror) = await Accounting.PostAsync(_edit!.Id!);
+        if (!pok) { _err = perror; await LoadAsync(); return; }
+        _msg = "Asiento registrado."; _err = null; _edit = null;
+        await LoadAsync();
+    }
+
+    private async Task VoidAsync(JournalEntry e)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Anular el asiento N.º {e.Number}? Dejará de contar en los saldos.")) return;
+        var (ok, error) = await Accounting.VoidAsync(e.Id!);
+        _err = ok ? null : error; _msg = ok ? "Asiento anulado." : null;
+        await LoadAsync();
+    }
+
+    private async Task DeleteDraftAsync(JournalEntry e)
+    {
+        if (!await Dialogs.ConfirmAsync("¿Eliminar este borrador?")) return;
+        await Accounting.DeleteDraftAsync(e.Id!);
+        if (_edit?.Id == e.Id) _edit = null;
+        _msg = "Borrador eliminado."; _err = null;
+        await LoadAsync();
+    }
+}

@@ -2,6 +2,9 @@ using System.ComponentModel.DataAnnotations;
 
 namespace Dana.Models;
 
+/// <summary>Naturaleza del cobro de un producto: venta única (sitio web, software a medida) o suscripción recurrente (SaaS).</summary>
+public enum BillingModel { OneTime, Recurring }
+
 public class Product : Entity
 {
     [Required(ErrorMessage = "El nombre es obligatorio")]
@@ -16,6 +19,13 @@ public class Product : Entity
     public decimal Price { get; set; }
     public string Currency { get; set; } = "USD";
     public decimal TaxRate { get; set; } = 13m;
+
+    /// <summary>Venta única o suscripción recurrente.</summary>
+    public BillingModel BillingModel { get; set; } = BillingModel.OneTime;
+    /// <summary>Frecuencia de cobro cuando es suscripción (weekly/monthly/yearly). Ver <see cref="RecurFrequencies"/>.</summary>
+    public string? RecurringFrequency { get; set; }
+    /// <summary>Cuota única de instalación/configuración para suscripciones (opcional).</summary>
+    public decimal SetupFee { get; set; }
     /// <summary>El precio no se muestra en el catálogo; el cliente debe solicitar cotización.</summary>
     public bool QuoteOnly { get; set; }
     public bool IsActive { get; set; } = true;

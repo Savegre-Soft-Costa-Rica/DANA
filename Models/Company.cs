@@ -18,4 +18,7 @@ public class Company : Entity
     public int? Employees { get; set; }
     public string? AssignedTo { get; set; }
     public string? Comments { get; set; }
+
+    /// <summary>Límite de crédito aprobado para el cliente (0 = sin límite). Se compara contra el saldo por cobrar.</summary>
+    public decimal CreditLimit { get; set; }
 }

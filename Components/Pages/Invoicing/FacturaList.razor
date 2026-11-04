@@ -1,8 +1,10 @@
 @page "/facturas"
 @using Dana.Services.Invoicing
 @using Dana.Services.Integrations
+@using Dana.Services.Accounting
 @inject InvoiceService Invoices
 @inject TilopayService Tilopay
+@inject AccountingService Accounting
 @inject QuoteService Quotes
 @inject IRepository<Contact> Contacts
 @inject IRepository<Company> Companies
@@ -109,6 +111,8 @@ else
                             @if (inv.Status == "submitted") { <button class="btn-secondary btn-sm" @onclick="() => RefreshAsync(inv)">Actualizar estado</button> }
                             @if (inv.Status == "accepted" && pay is null) { <button class="btn-primary btn-sm" @onclick="() => CreatePayAsync(inv)">💳 Enlace de pago</button> }
                             @if (inv.Status == "accepted" && inv.Kind == "invoice") { <button class="btn-secondary btn-sm" @onclick="() => CreditNoteAsync(inv)">Nota de crédito</button> }
+                            @if (inv.Status == "accepted" && inv.Id is not null && !_posted.Contains(inv.Id)) { <button class="btn-secondary btn-sm" @onclick="() => PostAsync(inv)">📘 Contabilizar</button> }
+                            else if (inv.Status == "accepted") { <span class="badge-soft ok" title="Asiento generado">contabilizada</span> }
                             @if (inv.Status is "submitted" or "accepted") { <button class="btn-danger btn-sm" @onclick="() => CancelAsync(inv)">Anular</button> }
                         </td>
                     </tr>
@@ -153,6 +157,7 @@ else
     private List<ElectronicInvoice>? _items;
     private List<PaymentLink> _links = new();
     private List<Quote> _quotes = new();
+    private HashSet<string> _posted = new();
     private ElectronicInvoice? _edit;
     private string? _msg, _err;
 
@@ -165,6 +170,15 @@ else
         _items = (await Invoices.GetAllAsync()).OrderByDescending(i => i.Date).ToList();
         _links = await Tilopay.GetAllAsync();
         _quotes = (await Quotes.GetAllAsync()).Where(q => q.Status != "rejected").OrderByDescending(q => q.CreatedAt).Take(50).ToList();
+        _posted = await Accounting.PostedSourceIdsAsync("invoice");
+    }
+
+    private async Task PostAsync(ElectronicInvoice inv)
+    {
+        var (ok, error) = await Accounting.PostInvoiceAsync(inv, await Me.NameAsync());
+        _msg = ok ? "Factura contabilizada (asiento generado)." : null;
+        _err = ok ? null : error;
+        await LoadAsync();
     }
 
     private void NewBlank()

@@ -1,0 +1,251 @@
+@page "/facturacion/planes"
+@page "/planes-de-pago"
+@using Dana.Services.Invoicing
+@inject PaymentPlanService Plans
+@inject QuoteService Quotes
+@inject IRepository<Company> Companies
+@inject IRepository<Contact> Contacts
+@inject CurrentUser Me
+@inject NavigationManager Nav
+@inject DialogService Dialogs
+@inject IJSRuntime JS
+
+<PageTitle>Dana · Planes de pago</PageTitle>
+
+<PageHeader Title="Planes de pago" Subtitle="Cobro de ventas únicas: de contado, en tractos (una factura por tracto) o a crédito.">
+    <Actions>
+        <a class="btn-secondary" href="facturacion">← Facturación</a>
+        <select class="form-select mw-filter" @onchange="OnPickQuote">
+            <option value="">Crear desde cotización…</option>
+            @foreach (var q in _quotes) { <option value="@q.Id">@q.Number · @q.Title (@q.Total.ToString("N0") @q.Currency)</option> }
+        </select>
+        <button class="btn-primary" @onclick="NewManual">+ Plan manual</button>
+    </Actions>
+</PageHeader>
+
+@if (_msg is not null) { <div class="alert alert-info py-2 small">@_msg</div> }
+@if (_err is not null) { <div class="alert alert-danger py-2 small">@_err</div> }
+
+@if (_edit is not null)
+{
+    <div class="card mb-3">
+        <div class="card-header">@(_edit.Id is null ? "Nuevo plan de pago" : _edit.Title)</div>
+        <div class="card-body">
+            <div class="row g-2 mb-3">
+                <div class="col-md-4"><label class="form-label">Título *</label><input class="form-control" @bind="_edit.Title" /></div>
+                <div class="col-md-3"><label class="form-label">Compañía</label>
+                    <select class="form-select" @bind="_edit.CompanyId"><option value="">— ninguna —</option>@foreach (var c in _companies) { <option value="@c.Id">@c.Title</option> }</select>
+                </div>
+                <div class="col-md-3"><label class="form-label">Contacto</label>
+                    <select class="form-select" @bind="_edit.ContactId"><option value="">— ninguno —</option>@foreach (var c in _contacts) { <option value="@c.Id">@c.FullName</option> }</select>
+                </div>
+                <div class="col-md-2"><label class="form-label">Moneda</label><select class="form-select" @bind="_edit.Currency">@foreach (var c in Catalogs.Currencies) { <option value="@c">@c</option> }</select></div>
+            </div>
+
+            <div class="row g-2 align-items-end mb-2">
+                <div class="col-md-3"><label class="form-label">Condición de pago</label>
+                    <select class="form-select" @bind="_term"><option value="Contado">Contado</option><option value="Credito">Crédito</option><option value="Tractos">Tractos</option></select>
+                </div>
+                <div class="col-md-3"><label class="form-label">Monto total</label><input type="number" step="any" class="form-control" @bind="_total" /></div>
+                @if (_term == "Credito") { <div class="col-md-2"><label class="form-label">Días de crédito</label><input type="number" class="form-control" @bind="_netDays" /></div> }
+                @if (_term == "Tractos") { <div class="col-md-2"><label class="form-label"># de tractos</label><input type="number" min="2" class="form-control" @bind="_tractos" /></div> }
+                <div class="col-md-3"><button class="btn-secondary" @onclick="Regenerate">↻ Regenerar cuotas</button></div>
+            </div>
+
+            <table class="table table-sm align-middle">
+                <thead><tr><th>Cuota</th><th style="width:170px">Vencimiento</th><th class="text-end" style="width:150px">Monto</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var i in _edit.Installments)
+                    {
+                        <tr>
+                            <td><input class="form-control form-control-sm" @bind="i.Label" /></td>
+                            <td><input type="date" class="form-control form-control-sm" @bind="i.DueDate" /></td>
+                            <td><input type="number" step="any" class="form-control form-control-sm text-end" @bind="i.Amount" /></td>
+                            <td><button class="btn-danger btn-sm" @onclick="() => _edit.Installments.Remove(i)">✕</button></td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr class="fw-semibold"><td colspan="2" class="text-end">Suma de cuotas</td><td class="text-end @(Cuadra ? "" : "text-danger")">@_edit.Scheduled.ToString("N2")</td><td></td></tr>
+                </tfoot>
+            </table>
+            <button class="btn-secondary btn-sm" @onclick="() => _edit.Installments.Add(new Installment())">+ Cuota</button>
+            @if (!Cuadra) { <span class="text-danger small ms-2">La suma de cuotas (@_edit.Scheduled.ToString("N2")) no coincide con el total (@_total.ToString("N2")).</span> }
+        </div>
+        <div class="card-footer d-flex justify-content-between">
+            <button class="btn-secondary" @onclick="() => _edit = null">Cerrar</button>
+            <button class="btn-primary" @onclick="SaveAsync">Guardar</button>
+        </div>
+    </div>
+}
+
+@if (_items is null) { <p class="muted">Cargando…</p> }
+else if (_items.Count == 0 && _edit is null) { <div class="empty-state">Sin planes de pago. Cree uno desde una cotización o manual.</div> }
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead><tr><th>Plan</th><th>Condición</th><th class="text-end">Total</th><th class="text-end">Pendiente</th><th>Cuotas</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var p in _items)
+                {
+                    var tp = PaymentTerms.Get(p.Term);
+                    <tr>
+                        <td><strong>@p.Title</strong><div class="small muted">@Titular(p)</div></td>
+                        <td><Badge Text="@tp.Label" Color="@tp.Color" />@if (p.Term == PaymentTerm.Credito && p.NetDays is not null) { <span class="small muted"> @p.NetDays d</span> }</td>
+                        <td class="text-end text-nowrap">@p.TotalAmount.ToString("N2") @p.Currency</td>
+                        <td class="text-end text-nowrap @(p.Outstanding > 0 ? "text-warning" : "text-success")">@p.Outstanding.ToString("N2")</td>
+                        <td class="small">@p.Installments.Count(i => i.Status == InstallmentStatuses.Paid)/@p.Installments.Count pagadas</td>
+                        <td class="text-end text-nowrap">
+                            <button class="btn-secondary btn-sm" @onclick="() => Toggle(p)">@(_expanded == p.Id ? "Ocultar" : "Cuotas")</button>
+                            <button class="btn-secondary btn-sm" @onclick="() => EditPlan(p)">Editar</button>
+                            <button class="btn-danger btn-sm" @onclick="() => DeleteAsync(p)">✕</button>
+                        </td>
+                    </tr>
+                    @if (_expanded == p.Id)
+                    {
+                        <tr><td colspan="6">
+                            <table class="table table-sm mb-0">
+                                <thead><tr><th>Cuota</th><th>Vence</th><th class="text-end">Monto</th><th>Estado</th><th class="text-end">Acciones</th></tr></thead>
+                                <tbody>
+                                    @for (var idx = 0; idx < p.Installments.Count; idx++)
+                                    {
+                                        var i = idx; var inst = p.Installments[i];
+                                        var st = InstallmentStatuses.Get(inst.IsOverdue ? InstallmentStatuses.Overdue : inst.Status);
+                                        <tr>
+                                            <td class="small">@inst.Label</td>
+                                            <td class="small text-nowrap">@inst.DueDate.ToLocalTime().ToString("dd/MM/yyyy")</td>
+                                            <td class="text-end text-nowrap">@inst.Amount.ToString("N2")</td>
+                                            <td><Badge Text="@st.Label" Color="@st.Color" />
+                                                @if (inst.InvoiceId is not null) { <a class="small ms-1" href="facturas" title="Ver en facturas">factura ✓</a> }
+                                            </td>
+                                            <td class="text-end text-nowrap">
+                                                @if (inst.Status != InstallmentStatuses.Paid)
+                                                {
+                                                    @if (inst.InvoiceId is null) { <button class="btn-secondary btn-sm" @onclick="() => InvoiceAsync(p, i)">Facturar</button> }
+                                                    <button class="btn-secondary btn-sm" @onclick="() => ChargeAsync(p, i)">💳 Cobrar</button>
+                                                    <button class="btn-primary btn-sm" @onclick="() => MarkPaidAsync(p, i, true)">Marcar pagado</button>
+                                                }
+                                                else { <button class="btn-secondary btn-sm" @onclick="() => MarkPaidAsync(p, i, false)">Reabrir</button> }
+                                                @if (inst.PaymentLinkId is not null) { <span class="badge-soft ms-1">enlace ✓</span> }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </td></tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<PaymentPlan>? _items;
+    private List<Quote> _quotes = new();
+    private List<Company> _companies = new();
+    private List<Contact> _contacts = new();
+    private PaymentPlan? _edit;
+    private string? _expanded;
+    private string? _msg, _err;
+
+    // Estado del editor de condición de pago
+    private string _term = "Contado";
+    private decimal _total;
+    private int _netDays = 30;
+    private int _tractos = 3;
+
+    private bool Cuadra => _edit is null || Math.Round(_edit.Scheduled, 2) == Math.Round(_total, 2);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _companies = (await Companies.GetAllAsync()).OrderBy(c => c.Title).ToList();
+        _contacts = (await Contacts.GetAllAsync()).OrderBy(c => c.FullName).ToList();
+        _quotes = (await Quotes.GetAllAsync()).Where(q => q.Status != "rejected").OrderByDescending(q => q.CreatedAt).Take(50).ToList();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => _items = (await Plans.GetAllAsync()).ToList();
+
+    private string Titular(PaymentPlan p)
+    {
+        var company = _companies.FirstOrDefault(c => c.Id == p.CompanyId)?.Title;
+        var contact = _contacts.FirstOrDefault(c => c.Id == p.ContactId)?.FullName;
+        return string.Join(" · ", new[] { company, contact }.Where(x => !string.IsNullOrWhiteSpace(x)));
+    }
+
+    private void Toggle(PaymentPlan p) => _expanded = _expanded == p.Id ? null : p.Id;
+
+    private void NewManual()
+    {
+        _err = _msg = null;
+        _term = "Contado"; _total = 0; _netDays = 30; _tractos = 3;
+        _edit = new PaymentPlan { Installments = PaymentPlanService.BuildInstallments(PaymentTerm.Contado, 0, null, 0) };
+    }
+
+    private void EditPlan(PaymentPlan p)
+    {
+        _err = _msg = null;
+        _edit = p; _term = p.Term.ToString(); _total = p.TotalAmount; _netDays = p.NetDays ?? 30;
+        _tractos = p.Term == PaymentTerm.Tractos ? Math.Max(2, p.Installments.Count) : 3;
+    }
+
+    private async Task OnPickQuote(ChangeEventArgs e)
+    {
+        var id = e.Value?.ToString();
+        if (string.IsNullOrEmpty(id)) return;
+        var q = await Quotes.GetAsync(id);
+        if (q is null) return;
+        _err = _msg = null;
+        _term = "Contado"; _total = q.Total; _netDays = 30; _tractos = 3;
+        _edit = new PaymentPlan
+        {
+            Title = q.Title, Currency = q.Currency, TotalAmount = q.Total,
+            DealId = q.DealId, QuoteId = q.Id, ContactId = q.ContactId, CompanyId = q.CompanyId,
+            Installments = PaymentPlanService.BuildInstallments(PaymentTerm.Contado, q.Total, null, 0),
+        };
+    }
+
+    private void Regenerate()
+    {
+        if (_edit is null) return;
+        var term = Enum.Parse<PaymentTerm>(_term);
+        _edit.Term = term;
+        _edit.TotalAmount = _total;
+        _edit.NetDays = term == PaymentTerm.Credito ? _netDays : null;
+        _edit.Installments = PaymentPlanService.BuildInstallments(term, _total, _netDays, _tractos);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_edit is null) return;
+        _edit.Term = Enum.Parse<PaymentTerm>(_term);
+        _edit.TotalAmount = _total;
+        _edit.NetDays = _edit.Term == PaymentTerm.Credito ? _netDays : null;
+        if (!Cuadra) { _err = "La suma de cuotas debe coincidir con el total."; return; }
+        var (ok, error) = await Plans.SaveAsync(_edit, await Me.NameAsync());
+        if (!ok) { _err = error; return; }
+        _edit = null; _msg = "Plan guardado."; _err = null;
+        await LoadAsync();
+    }
+
+    private async Task InvoiceAsync(PaymentPlan p, int i) => await Act(Plans.InvoiceInstallmentAsync(p.Id!, i, await Me.NameAsync()), "Factura (borrador) creada. Complétela y emítala en Facturas.");
+    private async Task ChargeAsync(PaymentPlan p, int i) => await Act(Plans.ChargeInstallmentAsync(p.Id!, i, Nav.BaseUri, await Me.NameAsync()), "Enlace de cobro generado.");
+    private async Task MarkPaidAsync(PaymentPlan p, int i, bool paid) => await Act(Plans.MarkPaidAsync(p.Id!, i, paid), paid ? "Cuota marcada como pagada." : "Cuota reabierta.");
+
+    private async Task Act(Task<(bool Ok, string? Error)> op, string okMsg)
+    {
+        var (ok, error) = await op;
+        _msg = ok ? okMsg : null; _err = ok ? null : error;
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(PaymentPlan p)
+    {
+        if (!await Dialogs.ConfirmAsync($"¿Eliminar el plan \"{p.Title}\"?")) return;
+        await Plans.DeleteAsync(p.Id!, await Me.NameAsync());
+        _msg = "Plan eliminado."; _err = null;
+        await LoadAsync();
+    }
+}

@@ -1,0 +1,66 @@
+@page "/contabilidad/cxc"
+@using Dana.Services.Accounting
+@inject AccountingService Accounting
+@inject IRepository<Company> Companies
+
+<PageTitle>Dana · Cuentas por cobrar</PageTitle>
+
+<PageHeader Title="Cuentas por cobrar" Subtitle="Antigüedad de saldos (aging) por cliente, según las cuotas pendientes de los planes de pago.">
+    <Actions><a class="btn-secondary" href="contabilidad">← Contabilidad</a></Actions>
+</PageHeader>
+
+@if (_rows is null) { <p class="muted">Cargando…</p> }
+else if (_rows.Count == 0) { <div class="empty-state">Sin saldos por cobrar. Todas las cuotas están pagadas o no hay planes de pago.</div> }
+else
+{
+    <div class="card">
+        <div class="card-body p-0">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead><tr><th>Cliente</th><th class="text-end">Por vencer</th><th class="text-end">1-30</th><th class="text-end">31-60</th><th class="text-end">61-90</th><th class="text-end">+90</th><th class="text-end">Total</th><th class="text-end">Límite</th></tr></thead>
+                <tbody>
+                    @foreach (var r in _rows)
+                    {
+                        var limit = r.CompanyId is not null ? _limits.GetValueOrDefault(r.CompanyId) : 0m;
+                        var over = limit > 0 && r.Total > limit;
+                        <tr>
+                            <td>@r.Party</td>
+                            <td class="text-end">@Cell(r.Current)</td>
+                            <td class="text-end">@Cell(r.D1_30)</td>
+                            <td class="text-end @(r.D31_60 > 0 ? "text-warning" : "")">@Cell(r.D31_60)</td>
+                            <td class="text-end @(r.D61_90 > 0 ? "text-warning" : "")">@Cell(r.D61_90)</td>
+                            <td class="text-end @(r.Over90 > 0 ? "text-danger fw-semibold" : "")">@Cell(r.Over90)</td>
+                            <td class="text-end fw-semibold">@r.Total.ToString("N2")</td>
+                            <td class="text-end small">@(limit > 0 ? limit.ToString("N0") : "—") @if (over) { <span class="badge-soft" style="color:var(--danger)" title="Excede el límite de crédito">⚠</span> }</td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr class="fw-semibold">
+                        <td class="text-end">Totales</td>
+                        <td class="text-end">@_rows.Sum(r => r.Current).ToString("N2")</td>
+                        <td class="text-end">@_rows.Sum(r => r.D1_30).ToString("N2")</td>
+                        <td class="text-end">@_rows.Sum(r => r.D31_60).ToString("N2")</td>
+                        <td class="text-end">@_rows.Sum(r => r.D61_90).ToString("N2")</td>
+                        <td class="text-end">@_rows.Sum(r => r.Over90).ToString("N2")</td>
+                        <td class="text-end">@_rows.Sum(r => r.Total).ToString("N2")</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+    <p class="muted small mt-2">Los días se cuentan desde el vencimiento de cada cuota. “Por vencer” son cuotas aún no vencidas.</p>
+}
+
+@code {
+    private List<AgingRow>? _rows;
+    private Dictionary<string, decimal> _limits = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _limits = (await Companies.GetAllAsync()).Where(c => c.CreditLimit > 0).ToDictionary(c => c.Id!, c => c.CreditLimit);
+        _rows = await Accounting.AgingAsync();
+    }
+
+    private static string Cell(decimal v) => v != 0 ? v.ToString("N2") : "";
+}

@@ -12,13 +12,14 @@ public record Workspace(string Id, string Name, string Icon, string Color, strin
 /// <summary>Catálogo del menú y resolución de la configuración personal de cada usuario.</summary>
 public class NavService
 {
-    public static readonly string[] Sections = ["Principal", "Tableros", "Ventas", "Facturación", "Análisis", "IA", "Proyectos", "Configuración", "Ayuda"];
+    public static readonly string[] Sections = ["Principal", "Tableros", "Ventas", "Facturación", "Contabilidad", "Análisis", "IA", "Proyectos", "Configuración", "Ayuda"];
 
     /// <summary>Espacios de trabajo disponibles. El primero es el predeterminado.</summary>
     public static readonly Workspace[] Workspaces =
     [
         new("crm", "CRM", "C", "#a25ddc", ""),
         new("billing", "Facturación", "F", "#00c875", "facturacion"),
+        new("accounting", "Contabilidad", "₡", "#ff642e", "contabilidad"),
         new("projects", "Proyectos", "P", "#0073ea", "proyectos"),
     ];
 
@@ -48,6 +49,7 @@ public class NavService
     {
         var path = NormalizePath(pathOrUri);
         if (path == "facturacion" || path.StartsWith("facturacion/") || path == "facturas" || path.StartsWith("facturas/")) return "billing";
+        if (path == "contabilidad" || path.StartsWith("contabilidad/")) return "accounting";
         if (path == "proyectos" || path.StartsWith("proyectos/")) return "projects";
         return "crm";
     }
@@ -62,11 +64,14 @@ public class NavService
         new("contacts", "Contactos", "contacts", "dot:#00c875", "Tableros"),
         new("companies", "Compañías", "companies", "dot:#fdab3d", "Tableros"),
         new("quotes", "Cotizaciones", "cotizaciones", "doc", "Ventas"),
+        new("subscriptions", "Suscripciones", "suscripciones", "bolt", "Ventas"),
+        new("paymentplans", "Planes de pago", "planes-de-pago", "doc", "Ventas"),
         new("products", "Productos", "productos", "box", "Ventas"),
         new("documents", "Documentos", "documentos", "doc", "Ventas"),
         new("templates", "Plantillas de correo", "plantillas", "mail", "Ventas"),
         new("forms", "Formularios", "formularios", "form", "Ventas"),
         new("prioridades", "Prioridades", "prioridades", "check", "Análisis"),
+        new("income", "Panel de ingresos", "ingresos", "chart", "Análisis"),
         new("reports", "Informes", "informes", "chart", "Análisis"),
         new("calendar", "Calendario", "calendario", "calendar", "Análisis"),
         new("timeline", "Cronograma", "cronograma", "gantt", "Análisis"),
@@ -76,10 +81,21 @@ public class NavService
         new("agentactions", "Acciones de agentes", "agentes/acciones", "clock", "IA", AdminOnly: true),
         // Espacio de trabajo "Facturación"
         new("billhome", "Resumen", "facturacion", "chart", "Facturación", MatchAll: true, Workspace: "billing"),
+        new("billincome", "Panel de ingresos", "ingresos", "chart", "Facturación", Workspace: "billing"),
         new("invoices", "Facturas", "facturas", "doc", "Facturación", MatchAll: true, Workspace: "billing"),
-        new("billrecurring", "Recurrentes", "facturacion/recurrentes", "bolt", "Facturación", Workspace: "billing"),
+        new("billrecurring", "Suscripciones", "facturacion/recurrentes", "bolt", "Facturación", Workspace: "billing"),
+        new("billplans", "Planes de pago", "facturacion/planes", "doc", "Facturación", Workspace: "billing"),
         new("bill_quotes", "Cotizaciones", "cotizaciones", "doc", "Facturación", Workspace: "billing"),
         new("bill_products", "Productos y catálogo", "productos", "box", "Facturación", Workspace: "billing"),
+        // Espacio de trabajo "Contabilidad"
+        new("acchome", "Resumen", "contabilidad", "chart", "Contabilidad", MatchAll: true, Workspace: "accounting"),
+        new("accentries", "Libro diario", "contabilidad/asientos", "doc", "Contabilidad", MatchAll: true, Workspace: "accounting"),
+        new("accledger", "Libro mayor", "contabilidad/mayor", "list", "Contabilidad", Workspace: "accounting"),
+        new("acctrial", "Balance de comprobación", "contabilidad/balance", "gantt", "Contabilidad", Workspace: "accounting"),
+        new("accaging", "Cuentas por cobrar", "contabilidad/cxc", "clock", "Contabilidad", Workspace: "accounting"),
+        new("accstatements", "Estados financieros", "contabilidad/estados", "building", "Contabilidad", Workspace: "accounting"),
+        new("accaccounts", "Plan de cuentas", "contabilidad/cuentas", "box", "Contabilidad", Workspace: "accounting"),
+        new("accconfig", "Configuración contable", "contabilidad/configuracion", "gear", "Contabilidad", AdminOnly: true, Workspace: "accounting"),
         // Espacio de trabajo "Proyectos" (tipo Trello)
         new("projects", "Tableros", "proyectos", "board", "Proyectos", MatchAll: true, Workspace: "projects"),
         new("projectall", "Vista general", "proyectos/general", "list", "Proyectos", MatchAll: true, Workspace: "projects"),

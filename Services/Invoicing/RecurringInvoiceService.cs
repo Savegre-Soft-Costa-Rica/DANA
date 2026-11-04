@@ -23,11 +23,33 @@ public class RecurringInvoiceService
     public async Task SaveAsync(RecurringInvoice r, string? by) { r.UpdatedBy = by; if (r.Id is null) await _repo.InsertAsync(r); else await _repo.UpdateAsync(r); }
     public Task DeleteAsync(string id, string? by) => _repo.DeleteAsync(id, by);
 
+    /// <summary>Cambia el estado de la suscripción y mantiene <see cref="RecurringInvoice.Enabled"/> en sincronía con él.</summary>
+    public async Task<(bool Ok, string? Error)> SetStatusAsync(string id, SubscriptionStatus status, string? by)
+    {
+        var r = await _repo.GetByIdAsync(id);
+        if (r is null) return (false, "Suscripción no encontrada.");
+        r.Status = status;
+        r.Enabled = status is SubscriptionStatus.Active or SubscriptionStatus.Trialing;
+        if (status == SubscriptionStatus.Cancelled) { r.CancelledAt = DateTime.UtcNow; r.CancelAt = null; }
+        else if (status == SubscriptionStatus.Active) { r.CancelledAt = null; r.CancelAt = null; }
+        r.UpdatedBy = by;
+        await _repo.UpdateAsync(r);
+        return (true, null);
+    }
+
+    public Task<(bool Ok, string? Error)> PauseAsync(string id, string? by) => SetStatusAsync(id, SubscriptionStatus.Paused, by);
+    public Task<(bool Ok, string? Error)> ResumeAsync(string id, string? by) => SetStatusAsync(id, SubscriptionStatus.Active, by);
+    public Task<(bool Ok, string? Error)> CancelAsync(string id, string? by) => SetStatusAsync(id, SubscriptionStatus.Cancelled, by);
+
     /// <summary>Genera las facturas de todas las plantillas vencidas. Devuelve cuántas generó.</summary>
     public async Task<int> GenerateDueAsync()
     {
         var now = DateTime.UtcNow;
-        var due = (await _repo.GetAllAsync()).Where(r => r.Enabled && r.Lines.Count > 0 && r.NextRunAt <= now).ToList();
+        // Solo facturan las suscripciones vigentes (activas o en prueba); las pausadas/canceladas no.
+        var vigente = new[] { SubscriptionStatus.Active, SubscriptionStatus.Trialing };
+        var due = (await _repo.GetAllAsync())
+            .Where(r => r.Enabled && vigente.Contains(r.Status) && r.Lines.Count > 0 && r.NextRunAt <= now)
+            .ToList();
         var count = 0;
         foreach (var r in due)
         {

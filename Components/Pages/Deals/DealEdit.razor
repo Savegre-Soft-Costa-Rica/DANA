@@ -35,13 +35,21 @@
         @if (!Embedded) { <a class="btn-secondary" href="deals/board/@_model.PipelineId">← Tablero</a> }
         @if (!IsNew) { <CopyLink Path="@($"deals/{_model.Id}")" /> }
         @if (!ReadOnly && !IsNew && _model.Amount > 0) { <PayLinkButton Amount="_model.Amount" Currency="@_model.Currency" Description="@_model.Title" DealId="@_model.Id" ContactId="@_model.ContactId" CompanyId="@_model.CompanyId" /> }
-        @if (!ReadOnly && !IsNew) { <button class="btn-secondary" @onclick="() => _emailOpen = true" disabled="@string.IsNullOrWhiteSpace(DealEmail)">✉ Correo al contacto</button> <button class="btn-secondary" @onclick="DuplicateAsync" disabled="@_busy">⧉ Duplicar</button> <button class="btn-secondary" @onclick="ArchiveAsync">@(_model.IsArchived ? "↩ Restaurar" : "🗂 Archivar")</button> <button class="btn-danger" @onclick="DeleteAsync">Eliminar</button> }
+        @if (!ReadOnly && !IsNew) { <a class="btn-secondary" href="deals/@_model.Id/materializar">💰 Materializar venta</a> <button class="btn-secondary" @onclick="() => _emailOpen = true" disabled="@string.IsNullOrWhiteSpace(DealEmail)">✉ Correo al contacto</button> <button class="btn-secondary" @onclick="DuplicateAsync" disabled="@_busy">⧉ Duplicar</button> <button class="btn-secondary" @onclick="ArchiveAsync">@(_model.IsArchived ? "↩ Restaurar" : "🗂 Archivar")</button> <button class="btn-danger" @onclick="DeleteAsync">Eliminar</button> }
     </div>
 </div>
 
 @if (_error is not null) { <div class="alert alert-danger">@_error</div> }
 
 @if (_model.IsArchived) { <div class="alert alert-secondary">Este elemento está <strong>archivado</strong>. No aparece en el tablero salvo con el filtro "Archivados".</div> }
+
+@if (!IsNew && CurrentStage?.Kind == StageKind.Success)
+{
+    <div class="alert alert-success d-flex justify-content-between align-items-center py-2">
+        <span>🎉 Negociación ganada. Convierta la venta en suscripción y/o plan de pago.</span>
+        <a class="btn-primary btn-sm" href="deals/@_model.Id/materializar">Materializar venta →</a>
+    </div>
+}
 
 <div class="item-view @(IsNew ? "single" : "")">
     <div>
@@ -120,6 +128,22 @@
                                 @foreach (var c in Catalogs.Currencies) { <option value="@c">@c</option> }
                             </InputSelect>
                         </div>
+                        <div class="col-12"><hr class="my-1" /><div class="small muted mb-1">Desglose de la venta (opcional, para pronóstico): separa lo que es venta única de lo recurrente.</div></div>
+                        <div class="col-md-3">
+                            <label class="form-label">Venta única</label>
+                            <InputNumber class="form-control" @bind-Value="_model.OneTimeAmount" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Recurrente (por ciclo)</label>
+                            <InputNumber class="form-control" @bind-Value="_model.RecurringAmount" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Frecuencia</label>
+                            <InputSelect class="form-select" @bind-Value="_model.RecurringFrequency">
+                                <option value="">—</option>
+                                @foreach (var (id, label) in RecurFrequencies.All) { <option value="@id">@label</option> }
+                            </InputSelect>
+                        </div>
                         <div class="col-md-3">
                             <label class="form-label">Probabilidad (%)</label>
                             <InputNumber class="form-control" @bind-Value="_model.Probability" />
@@ -157,6 +181,9 @@
                             <FieldView Label="Contacto" Value="@(_contacts.FirstOrDefault(c => c.Id == _model.ContactId)?.FullName)" />
                             <FieldView Label="Compañía" Value="@(_companies.FirstOrDefault(c => c.Id == _model.CompanyId)?.Title)" />
                             <FieldView Label="Importe"><Money Amount="_model.Amount" Currency="@_model.Currency" /></FieldView>
+                            @if (_model.OneTimeAmount > 0) { <FieldView Label="Venta única"><Money Amount="_model.OneTimeAmount" Currency="@_model.Currency" /></FieldView> }
+                            @if (_model.RecurringAmount > 0) { <FieldView Label="Recurrente">@{ var _mv = new MarkupString($"{_model.RecurringAmount:N2} {_model.Currency}"); }<span>@_mv <span class="muted small">/ @RecurFrequencies.Label(_model.RecurringFrequency ?? "monthly")</span></span></FieldView> }
+                            @if (_model.OneTimeAmount > 0 || _model.RecurringAmount > 0) { <FieldView Label="Valor contrato (12m)"><Money Amount="_model.AnnualContractValue" Currency="@_model.Currency" /></FieldView> }
                             <FieldView Label="Probabilidad" Value="@($"{_model.Probability}%")" />
                             <FieldView Label="Cierre previsto" Value="@(_model.ExpectedCloseDate?.ToString("d"))" />
                             <FieldView Label="Fuente" Value="@_model.Source" />

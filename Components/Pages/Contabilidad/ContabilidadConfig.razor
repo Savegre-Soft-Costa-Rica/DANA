@@ -1,0 +1,77 @@
+@page "/contabilidad/configuracion"
+@using Dana.Services.Accounting
+@inject SettingsService Settings
+@inject AccountingService Accounting
+
+<PageTitle>Dana · Configuración contable</PageTitle>
+
+<PageHeader Title="Configuración contable" Subtitle="Cuentas que usa el posteo automático de facturas y pagos.">
+    <Actions><a class="btn-secondary" href="contabilidad">← Contabilidad</a></Actions>
+</PageHeader>
+
+@if (_msg is not null) { <div class="alert alert-info py-2 small">@_msg</div> }
+
+@if (_s is null) { <p class="muted">Cargando…</p> }
+else
+{
+    <div class="card" style="max-width:720px">
+        <div class="card-body">
+            <div class="form-check mb-3">
+                <input type="checkbox" class="form-check-input" id="autopost" @bind="_s.Accounting.AutoPost" />
+                <label class="form-check-label" for="autopost"><strong>Postear automáticamente</strong> — al aceptar una factura y al recibir un pago, generar el asiento.</label>
+            </div>
+            <div class="small muted mb-3">Si está desactivado, puede contabilizar cada factura manualmente desde la lista de Facturas.</div>
+
+            <div class="row g-2">
+                <div class="col-md-6"><label class="form-label">Cuentas por cobrar</label><select class="form-select" @bind="_s.Accounting.ReceivableAccount">@Options(_s.Accounting.ReceivableAccount)</select></div>
+                <div class="col-md-6"><label class="form-label">Ventas / ingresos</label><select class="form-select" @bind="_s.Accounting.SalesAccount">@Options(_s.Accounting.SalesAccount)</select></div>
+                <div class="col-md-6"><label class="form-label">IVA por pagar</label><select class="form-select" @bind="_s.Accounting.VatPayableAccount">@Options(_s.Accounting.VatPayableAccount)</select></div>
+                <div class="col-md-6"><label class="form-label">Bancos</label><select class="form-select" @bind="_s.Accounting.BankAccount">@Options(_s.Accounting.BankAccount)</select></div>
+                <div class="col-md-6"><label class="form-label">Caja</label><select class="form-select" @bind="_s.Accounting.CashAccount">@Options(_s.Accounting.CashAccount)</select></div>
+            </div>
+
+            <div class="small muted mt-3">
+                Factura aceptada → <strong>débito</strong> Cuentas por cobrar, <strong>crédito</strong> Ventas + IVA por pagar.<br />
+                Pago recibido → <strong>débito</strong> Bancos, <strong>crédito</strong> Cuentas por cobrar.
+            </div>
+        </div>
+        <div class="card-footer text-end"><button class="btn-primary" @onclick="SaveAsync">Guardar</button></div>
+    </div>
+}
+
+@code {
+    private AppSettings? _s;
+    private List<Account> _accounts = new();
+    private string? _msg;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _s = await Settings.GetAsync();
+        _accounts = (await Accounting.GetAccountsAsync()).Where(a => a.IsPostable).OrderBy(a => a.Code).ToList();
+    }
+
+    private RenderFragment Options(string selected) => builder =>
+    {
+        var seq = 0;
+        if (_accounts.All(a => a.Code != selected) && !string.IsNullOrEmpty(selected))
+        {
+            builder.OpenElement(seq++, "option");
+            builder.AddAttribute(seq++, "value", selected);
+            builder.AddContent(seq++, $"{selected} (no existe en el plan)");
+            builder.CloseElement();
+        }
+        foreach (var a in _accounts)
+        {
+            builder.OpenElement(seq++, "option");
+            builder.AddAttribute(seq++, "value", a.Code);
+            builder.AddContent(seq++, $"{a.Code} · {a.Name}");
+            builder.CloseElement();
+        }
+    };
+
+    private async Task SaveAsync()
+    {
+        await Settings.SaveAsync(_s!);
+        _msg = "Configuración guardada.";
+    }
+}

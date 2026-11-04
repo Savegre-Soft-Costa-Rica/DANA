@@ -1,0 +1,78 @@
+@page "/contabilidad/mayor"
+@using Dana.Services.Accounting
+@inject AccountingService Accounting
+
+<PageTitle>Dana · Libro mayor</PageTitle>
+
+<PageHeader Title="Libro mayor" Subtitle="Movimientos y saldo acumulado de cada cuenta (asientos registrados).">
+    <Actions>
+        <select class="form-select mw-filter" @onchange="OnPickAccount">
+            <option value="">Seleccione una cuenta…</option>
+            @foreach (var a in _postable) { <option value="@a.Code" selected="@(a.Code == _code)">@a.Code · @a.Name</option> }
+        </select>
+    </Actions>
+</PageHeader>
+
+@if (_postable.Count == 0)
+{
+    <div class="empty-state">No hay cuentas de detalle. Cree el <a href="contabilidad/cuentas">plan de cuentas</a> primero.</div>
+}
+else if (_code is null)
+{
+    <div class="empty-state">Seleccione una cuenta para ver su libro mayor.</div>
+}
+else
+{
+    var acc = _postable.FirstOrDefault(a => a.Code == _code);
+    var nature = acc is not null && AccountTypes.IsDebit(acc.Type) ? "deudora" : "acreedora";
+    <div class="card">
+        <div class="card-header d-flex justify-content-between">
+            <span>@_code · @acc?.Name</span>
+            <span class="muted small fw-normal">Naturaleza @nature · @_rows.Count movimiento(s)</span>
+        </div>
+        <div class="card-body p-0">
+            @if (_rows.Count == 0) { <div class="muted small p-3">Esta cuenta no tiene movimientos registrados.</div> }
+            else
+            {
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead><tr><th style="width:70px">N.º</th><th>Fecha</th><th>Descripción</th><th class="text-end">Débito</th><th class="text-end">Crédito</th><th class="text-end">Saldo</th></tr></thead>
+                    <tbody>
+                        @foreach (var r in _rows)
+                        {
+                            <tr>
+                                <td class="small">@r.Entry.Number</td>
+                                <td class="small text-nowrap">@r.Entry.Date.ToLocalTime().ToString("dd/MM/yyyy")</td>
+                                <td class="small">@r.Entry.Description @if (!string.IsNullOrWhiteSpace(r.Line.Description)) { <span class="muted">· @r.Line.Description</span> }</td>
+                                <td class="text-end">@(r.Line.Debit != 0 ? r.Line.Debit.ToString("N2") : "")</td>
+                                <td class="text-end">@(r.Line.Credit != 0 ? r.Line.Credit.ToString("N2") : "")</td>
+                                <td class="text-end fw-semibold">@r.Running.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr class="fw-semibold">
+                            <td colspan="3" class="text-end">Totales</td>
+                            <td class="text-end">@_rows.Sum(r => r.Line.Debit).ToString("N2")</td>
+                            <td class="text-end">@_rows.Sum(r => r.Line.Credit).ToString("N2")</td>
+                            <td class="text-end">@(_rows.Count > 0 ? _rows[^1].Running.ToString("N2") : "0.00")</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private List<Account> _postable = new();
+    private List<LedgerRow> _rows = new();
+    private string? _code;
+
+    protected override async Task OnInitializedAsync() => _postable = await Accounting.GetPostableAsync();
+
+    private async Task OnPickAccount(ChangeEventArgs e)
+    {
+        _code = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value!.ToString();
+        _rows = _code is null ? new() : await Accounting.LedgerAsync(_code);
+    }
+}

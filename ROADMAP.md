@@ -84,12 +84,23 @@ Base construida (sin UI); el contrato de API de Senda y la documentación de Con
 - ⬜ **Twilio — consentimiento**: campo de aceptación/baja por contacto antes de enviar mensajes.
 - ⬜ **Twilio — mensajes entrantes**: webhook de entrada que registre respuestas en la línea de tiempo y notifique al responsable.
 - ⬜ **Twilio — pruebas en vivo**: probar envío y webhook con el sandbox de Twilio y una URL pública (`Twilio:PublicBaseUrl`).
-- ⬜ **Facturación — adaptador Senda**: implementar `IElectronicInvoiceProvider`. Bloqueado: la documentación pública de `senda.savegresoft.com` no es accesible; hace falta el contrato de API y credenciales de sandbox.
+- ✅ **Facturación — adaptador Senda**: `SendaInvoiceProvider : IElectronicInvoiceProvider` emite (`POST /comprobante/factura/enviar`) y consulta estado (`GET /comprobante/{clave}`). Se activa al configurar Senda en **Configuración → Integraciones** (datos fiscales del emisor, auth `Bearer`); mapea el `codigoTarifa` por tarifa. Falta probar contra el sandbox real de Hacienda.
 - ⬜ **Facturación — adaptador GTI** (facturaelectronica.cr): alternativa si se elige GTI. Bloqueado: no publica documentación de API; hay que pedirla a ventas@gticr.com.
-- ⬜ **Facturación — interfaz**: crear factura desde una negociación o cotización, listado con estados, botón "Enviar a Hacienda", "Consultar estado" y vista de impresión.
+- ✅ **Facturación — interfaz**: facturas (`/facturas`) emitidas desde una cotización, listado con estados, enlaces de pago (Tilopay) y botón "Contabilizar"; emisión y consulta de estado vía el proveedor configurado.
 - ⬜ **Facturación — documentos**: guardar XML y PDF como adjuntos, con retención de al menos 5 años; numeración consecutiva; anulación con nota de crédito; auditoría de emisiones.
 - ⬜ **Facturación — validación**: pruebas de integración contra el ambiente de pruebas del proveedor antes de producción.
 - ⬜ **Documentación Confluence** (`confluence.savegresoft.com/documentacion`): obtener la URL correcta o acceso; la página actual es una landing de mensajería sin contenido técnico.
+
+## Etapa 8 — Ventas, suscripciones y formas de pago + contabilidad (3 nov 2026) ✅
+Dos ejes ortogonales: la **naturaleza del ingreso** (venta única vs suscripción) vive en el producto/línea; la **forma de pago** (contado / tractos / crédito) vive en la venta. Un mismo Deal puede generar venta única **y** suscripción.
+- ✅ **Modelo de datos**: `BillingModel` (OneTime/Recurring) en Product; desglose `OneTimeAmount`/`RecurringAmount`/`RecurringFrequency`/`AnnualContractValue` en Deal; `PaymentPlan` + `Installment` + `PaymentTerm` (colección `paymentplans`).
+- ✅ **Suscripciones**: `RecurringInvoice` evolucionado con `SubscriptionStatus` (Activa/En prueba/Pausada/Cancelada/Finalizada), `Mrr` y ciclo de vida (pausar/reanudar/cancelar/generar factura del periodo). Página **Suscripciones** (`/suscripciones`, `/facturacion/recurrentes`) con KPIs MRR/ARR, titular, estados y filtros.
+- ✅ **Planes de pago (formas de pago)**: `PaymentPlanService` arma las cuotas por **contado** (una cuota hoy), **tractos** (N cuotas mensuales, una factura por tracto) o **crédito** (neto X días). Página **Planes de pago** (`/facturacion/planes`, `/planes-de-pago`): construir desde cotización, facturar cuota (factura borrador de línea única, impuesto 0, CABYS en blanco), cobrar (enlace Tilopay) y marcar pagado.
+- ✅ **Enlaces de pago (Tilopay)**: `TilopayService` crea el enlace (`/pagar/{token}`) para cobrar una factura o cuota; al confirmarse el pago, marca pagado y dispara el asiento del cobro.
+- ✅ **Materializar venta**: desglose en la ficha de la negociación y botón/banner **"Materializar venta"** (`/deals/{id}/materializar`) que crea el plan de pago y/o la suscripción desde el deal y su cotización; avisa si supera el **límite de crédito** de la compañía.
+- ✅ **Contabilidad**: plan de cuentas, asientos de partida doble, libro mayor, balance de comprobación y estados financieros (`/contabilidad`). `AccountingService` contabiliza facturas (CxC/Ingreso/IVA) y cobros (Banco/CxC) de forma idempotente; `AutoPost` configurable en **Configuración contable** (por defecto **OFF**, posteo manual con "Contabilizar"). **Cuentas por cobrar** (`/contabilidad/cxc`) con aging desde las cuotas no pagadas; `CreditLimit` por compañía.
+- ✅ **Panel de ingresos** (`/ingresos`): MRR/ARR, suscripciones activas y churn del mes, por cobrar/vencido, renovaciones a 30 días, cobros vencidos y suscripciones por estado.
+- ⬜ **Mejoras futuras**: posteo automático de los asientos de tractos, reconocimiento de ingresos de prepagos anuales (ingreso diferido), histórico de MRR y confirmar el tratamiento fiscal de los tractos con contador.
 
 ## Ideas futuras
 - Integración de calendario (Google/Outlook), llamadas VoIP, WhatsApp, firma electrónica de cotizaciones, app móvil (PWA), IA para resumir fichas y sugerir siguientes pasos.
