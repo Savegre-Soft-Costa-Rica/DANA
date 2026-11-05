@@ -1,0 +1,157 @@
+@page "/proyectos/pendientes"
+@inject ProjectService Projects
+@inject CurrentUser Me
+@inject DrawerService Drawer
+@inject ChangeNotifier Notifier
+@implements IDisposable
+
+<PageTitle>Dana · Mis pendientes</PageTitle>
+
+<PageHeader Title="Mis pendientes" Subtitle="Las tarjetas de proyectos asignadas a usted, ordenadas por fecha de entrega.">
+    <Actions>
+        <label class="d-inline-flex align-items-center gap-1 small muted" style="cursor:pointer">
+            <input type="checkbox" checked="@_showDone" @onchange="OnToggleDone" /> Mostrar completadas
+        </label>
+        <a class="btn-secondary" href="proyectos">← Tableros</a>
+    </Actions>
+</PageHeader>
+
+@if (_loading)
+{
+    <p class="muted">Cargando…</p>
+}
+else if (_mine.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-ico">✅</div>
+        <h4>No tiene pendientes</h4>
+        <p class="muted">Cuando le asignen tarjetas en un tablero aparecerán aquí.</p>
+        <a class="btn-primary" href="proyectos">Ir a tableros</a>
+    </div>
+}
+else
+{
+    <div class="proj-board">
+        @foreach (var g in Groups())
+        {
+            var cards = _mine.Where(c => GroupKey(c) == g.Key)
+                             .OrderBy(c => c.DueAt ?? DateTime.MaxValue)
+                             .ThenByDescending(c => PriorityRank(c.Priority))
+                             .ThenBy(c => c.Title)
+                             .ToList();
+            @if (cards.Count > 0)
+            {
+                <div class="proj-list">
+                    <div class="proj-list-head">
+                        <span class="proj-list-name" style="color:@g.Color">@g.Title</span>
+                        <span class="proj-list-count">@cards.Count</span>
+                    </div>
+                    <div class="proj-cards">
+                        @foreach (var card in cards)
+                        {
+                            var board = _boards.GetValueOrDefault(card.BoardId);
+                            <div class="proj-card @(card.IsDone ? "done" : "")" @onclick="() => OpenCard(card)">
+                                @if (!string.IsNullOrEmpty(card.Label)) { <span class="proj-card-label" style="background:@CardLabels.ColorOf(card.Label)"></span> }
+                                <div class="proj-card-title">
+                                    @if (card.Priority != "none") { <span class="prio-dot" style="background:@CardPriorities.ColorOf(card.Priority)" title="@CardPriorities.NameOf(card.Priority)"></span> }
+                                    @card.Title
+                                </div>
+                                @if (board is not null)
+                                {
+                                    <div class="proj-card-board"><span class="proj-board-dot" style="background:@board.Color"></span>@board.Name</div>
+                                }
+                                @if (card.HasChecklist || card.Comments.Count > 0)
+                                {
+                                    <div class="proj-card-badges">
+                                        @if (card.HasChecklist) { <span class="cb @(card.ChecklistDone == card.Checklist.Count ? "ok" : "")" title="Lista de verificación">✓ @card.ChecklistDone/@card.Checklist.Count</span> }
+                                        @if (card.Comments.Count > 0) { <span class="cb" title="Comentarios">💬 @card.Comments.Count</span> }
+                                    </div>
+                                }
+                                <div class="proj-card-foot">
+                                    @if (card.DueAt is not null)
+                                    {
+                                        <span class="proj-card-due @(card.IsOverdue ? "overdue" : "")">📅 @card.DueAt.Value.ToLocalTime().ToString("dd MMM")</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _showDone;
+    private string _me = "";
+    private List<ProjectCard> _mine = new();
+    private Dictionary<string, ProjectBoard> _boards = new();
+    private RealtimeRefresh? _realtime;
+
+    protected override void OnInitialized() =>
+        // Refresco en tiempo real: recarga cuando otra persona cambia tableros o tarjetas.
+        _realtime = new RealtimeRefresh(Notifier, InvokeAsync, RealtimeReloadAsync, null, "projectboards", "projectcards");
+
+    protected override async Task OnInitializedAsync()
+    {
+        _me = await Me.NameAsync();
+        await LoadAsync();
+    }
+
+    private async Task RealtimeReloadAsync() { await LoadAsync(); StateHasChanged(); }
+
+    private async Task LoadAsync()
+    {
+        _boards = (await Projects.GetBoardsAsync()).ToDictionary(b => b.Id!, b => b);
+        var all = await Projects.GetAllCardsAsync();
+        _mine = all.Where(c => !string.IsNullOrWhiteSpace(c.AssignedTo)
+                            && string.Equals(c.AssignedTo, _me, StringComparison.OrdinalIgnoreCase)
+                            && _boards.ContainsKey(c.BoardId)
+                            && (_showDone || !c.IsDone))
+                   .ToList();
+        _loading = false;
+    }
+
+    private record Group(string Key, string Title, string Color);
+
+    private List<Group> Groups() =>
+    [
+        new("overdue", "Vencidas", "#e2445c"),
+        new("today", "Para hoy", "#ff9900"),
+        new("week", "Próximos 7 días", "#0073ea"),
+        new("later", "Más adelante", "#a25ddc"),
+        new("none", "Sin fecha", "#c3c6d4"),
+        new("done", "Completadas", "#00c875"),
+    ];
+
+    private string GroupKey(ProjectCard c)
+    {
+        if (c.IsDone) return "done";
+        if (c.DueAt is null) return "none";
+        var due = c.DueAt.Value.ToLocalTime().Date;
+        var today = DateTime.Now.Date;
+        if (due < today) return "overdue";
+        if (due == today) return "today";
+        if (due <= today.AddDays(7)) return "week";
+        return "later";
+    }
+
+    private static int PriorityRank(string? id) => id switch
+    {
+        "urgent" => 4, "high" => 3, "medium" => 2, "low" => 1, _ => 0,
+    };
+
+    private async Task OnToggleDone(ChangeEventArgs e)
+    {
+        _showDone = e.Value is bool b && b;
+        await LoadAsync();
+    }
+
+    private void OpenCard(ProjectCard card) => Drawer.Open<ProjectCardEdit>(card.Id, "Tarjeta", LoadAndRenderAsync);
+
+    private async Task LoadAndRenderAsync() { await LoadAsync(); await InvokeAsync(StateHasChanged); }
+
+    public void Dispose() => _realtime?.Dispose();
+}

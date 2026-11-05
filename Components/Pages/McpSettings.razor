@@ -1,0 +1,114 @@
+@page "/configuracion/mcp"
+@attribute [Authorize(Policy = "Admin")]
+@using Dana.Services.Ai
+@inject NavigationManager Nav
+@inject IConfiguration Config
+@inject IJSRuntime JS
+
+<PageTitle>Dana · Servidor MCP</PageTitle>
+
+<PageHeader Title="Servidor MCP" Subtitle="Conecta Claude (u otro cliente MCP) con Dana para operar el CRM por el protocolo estándar. Expone todas las herramientas de los agentes y se autentica con los tokens de la API.">
+    <Actions><a class="btn-secondary" href="configuracion">← Configuración</a></Actions>
+</PageHeader>
+
+<div class="widgets">
+    <div class="widget w-6">
+        <div class="widget-title">Estado</div>
+        <table class="kv">
+            <tbody>
+                <tr><td>Servidor</td><td>@(_enabled ? Chip("ok", "Activo") : Chip("off", "Desactivado"))</td></tr>
+                <tr><td>Permisos</td><td>@(_allowWrites ? Chip("warn", "Lectura y escritura") : Chip("ok", "Solo lectura"))</td></tr>
+                <tr><td>Herramientas</td><td><strong>@AgentTools.Catalog.Length</strong> disponibles</td></tr>
+                <tr><td>Autenticación</td><td>Token de la API (<code>Authorization: Bearer …</code>)</td></tr>
+                <tr><td>Endpoint</td><td><code>@McpUrl</code> <button type="button" class="btn-ghost btn-sm" @onclick="() => CopyAsync(McpUrl)">Copiar</button></td></tr>
+            </tbody>
+        </table>
+        <div class="small muted mt-2">
+            Para activar/desactivar o cambiar a solo lectura, edita la sección <code>Mcp</code> de <code>appsettings.json</code>
+            (<code>Enabled</code>, <code>AllowWrites</code>) y reinicia Dana. Guía completa en <code>MCP.md</code>.
+        </div>
+    </div>
+
+    <div class="widget w-6">
+        <div class="widget-title">1 · Token de acceso</div>
+        <div class="small muted mb-2">
+            El MCP usa los mismos <strong>tokens personales</strong> de la API. Crea uno (empieza por <code>dtk_…</code>)
+            y cópialo; actúa en nombre de su usuario.
+        </div>
+        <a class="btn-primary" href="configuracion/api">Crear o ver tokens →</a>
+    </div>
+</div>
+
+<div class="widget w-12 mt-3">
+    <div class="widget-title">2 · Conectar Claude Code</div>
+    <div class="small muted mb-2">Un comando (reemplaza el token). Luego, en una sesión, escribe <code>/mcp</code> para ver la conexión.</div>
+    <pre class="code">@ClaudeCodeCmd</pre>
+    <button type="button" class="btn-secondary btn-sm" @onclick="() => CopyAsync(ClaudeCodeCmd)">Copiar comando</button>
+</div>
+
+<div class="widget w-12 mt-3">
+    <div class="widget-title">3 · Conectar Claude Desktop</div>
+    <div class="small muted mb-2">Añade un conector personalizado con la URL y la cabecera <code>Authorization</code>, o usa el puente <code>mcp-remote</code> en <code>claude_desktop_config.json</code>:</div>
+    <pre class="code">@DesktopJson</pre>
+    <button type="button" class="btn-secondary btn-sm" @onclick="() => CopyAsync(DesktopJson)">Copiar JSON</button>
+</div>
+
+<div class="widget w-12 mt-3">
+    <div class="widget-title">Probar con curl</div>
+    <div class="small muted mb-2">Sin token debe responder <code>401</code>; con token lista las herramientas.</div>
+    <pre class="code">@CurlCmd</pre>
+    <button type="button" class="btn-secondary btn-sm" @onclick="() => CopyAsync(CurlCmd)">Copiar</button>
+</div>
+
+@if (_copied)
+{
+    <div class="toast-inline">Copiado ✓</div>
+}
+
+@code {
+    private bool _enabled, _allowWrites, _copied;
+
+    private string McpUrl => Nav.BaseUri.TrimEnd('/') + "/mcp";
+
+    private string ClaudeCodeCmd =>
+        $"claude mcp add --transport http dana {McpUrl} \\\n  --header \"Authorization: Bearer dtk_tu_token\"";
+
+    private string DesktopJson =>
+        "{\n" +
+        "  \"mcpServers\": {\n" +
+        "    \"dana\": {\n" +
+        "      \"command\": \"npx\",\n" +
+        "      \"args\": [\"-y\", \"mcp-remote\", \"" + McpUrl + "\",\n" +
+        "               \"--header\", \"Authorization: Bearer dtk_tu_token\"]\n" +
+        "    }\n" +
+        "  }\n" +
+        "}";
+
+    private string CurlCmd =>
+        $"curl -s {McpUrl} -X POST \\\n" +
+        "  -H \"Authorization: Bearer dtk_tu_token\" \\\n" +
+        "  -H \"Content-Type: application/json\" \\\n" +
+        "  -H \"Accept: application/json, text/event-stream\" \\\n" +
+        "  -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}'";
+
+    protected override void OnInitialized()
+    {
+        _enabled = Config.GetValue("Mcp:Enabled", true);
+        _allowWrites = Config.GetValue("Mcp:AllowWrites", true);
+    }
+
+    private static MarkupString Chip(string state, string text) =>
+        new($"<span class=\"st-state {state}\">{text}</span>");
+
+    private async Task CopyAsync(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            _copied = true;
+            StateHasChanged();
+            _ = Task.Delay(1800).ContinueWith(async _ => await InvokeAsync(() => { _copied = false; StateHasChanged(); }));
+        }
+        catch { }
+    }
+}

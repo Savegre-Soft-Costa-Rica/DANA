@@ -591,6 +591,7 @@ table.crm-table td, table.crm-table th { vertical-align: middle; }
 .task-meta { font-size: .78rem; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .task-notes { font-size: .82rem; color: var(--text-2); white-space: pre-wrap; margin-top: 2px; }
 .task-entity { font-size: .78rem; }
+.toast-inline { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--surface); padding: 8px 16px; border-radius: 999px; font-size: .85rem; box-shadow: var(--shadow-lg); z-index: 90; }
 .task-actions { position: relative; display: flex; gap: 2px; flex-shrink: 0; }
 .snooze-menu { min-width: 180px; display: flex; flex-direction: column; gap: 1px; }
 .snooze-menu > button { text-align: left; background: transparent; border: 0; border-radius: var(--radius-sm); padding: 7px 10px; cursor: pointer; color: var(--text); font-size: .85rem; }

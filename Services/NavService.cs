@@ -98,6 +98,7 @@ public class NavService
         new("accconfig", "Configuración contable", "contabilidad/configuracion", "gear", "Contabilidad", AdminOnly: true, Workspace: "accounting"),
         // Espacio de trabajo "Proyectos" (tipo Trello)
         new("projects", "Tableros", "proyectos", "board", "Proyectos", MatchAll: true, Workspace: "projects"),
+        new("projectmine", "Mis pendientes", "proyectos/pendientes", "check", "Proyectos", MatchAll: true, Workspace: "projects"),
         new("projectall", "Vista general", "proyectos/general", "list", "Proyectos", MatchAll: true, Workspace: "projects"),
         new("projectanalytics", "Analítica", "proyectos/analitica", "chart", "Proyectos", MatchAll: true, Workspace: "projects"),
         // Compartidos entre todos los espacios (Workspace "*")

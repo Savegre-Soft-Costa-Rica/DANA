@@ -19,6 +19,7 @@
 @inject AuthOptions Auth
 @inject MongoContext Mongo
 @inject IHostEnvironment Env
+@inject IConfiguration Config
 @inject CurrentUser Me
 @inject IRepository<Lead> Leads
 @inject IRepository<Deal> Deals
@@ -176,6 +177,7 @@
         new("integraciones", "Integraciones", "plug", "Conexiones con servicios externos, API pública y entrada de datos.", [
             new("Servicios externos (Savegre)", "Conectar Senda (facturación), Wapi (WhatsApp) y Wan (teléfono con IA) por URL y clave. Opcional.", "configuracion/integraciones", "plug", true),
             new("API y canales", "Recibir prospectos desde su sitio web y tokens de la API REST.", "configuracion/api", "code", true),
+            new("Servidor MCP", "Conectar Claude (Claude Code / Desktop) con Dana por MCP para operar el CRM. Usa los tokens de la API.", "configuracion/mcp", "plug", true),
             new("API de productos (catálogo)", "Consultar sus productos desde otros sistemas o su web: GET /api/public/products?key=… y /api/v1/products.", "configuracion/api#catalogo", "box", true),
             new("Formularios públicos", "Formularios para incrustar o enlazar que crean prospectos automáticamente.", "formularios", "form"),
             new("Importar datos", "Cargar prospectos, contactos, compañías o negociaciones desde Excel/CSV.", "importar", "import"),
@@ -269,6 +271,9 @@
             Twilio.IsConfigured
                 ? new("Twilio (SMS y WhatsApp)", "ok", "Credenciales configuradas.")
                 : new("Twilio (SMS y WhatsApp)", "off", "Sin credenciales · Twilio:AccountSid y AuthToken"),
+            Config.GetValue("Mcp:Enabled", true)
+                ? new("Servidor MCP (Claude)", "ok", Config.GetValue("Mcp:AllowWrites", true) ? "Activo en /mcp · lectura y escritura." : "Activo en /mcp · solo lectura.", "configuracion/mcp")
+                : new("Servidor MCP (Claude)", "off", "Desactivado · Mcp:Enabled", "configuracion/mcp"),
             Invoices.IsProviderConfigured
                 ? new("Senda · Facturación electrónica CR", "ok", "Conectado: " + (_settings?.Integrations.Senda.BaseUrl ?? Invoices.ProviderName), "configuracion/integraciones")
                 : new("Senda · Facturación electrónica CR", "off", "Sin conectar: solo se pueden crear borradores.", "configuracion/integraciones"),
