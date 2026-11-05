@@ -72,13 +72,12 @@ Para compartir la configuración con tu equipo (sin el token), copia [`.mcp.json
 
 ## Conectar con Claude Desktop
 
-Claude Desktop admite servidores MCP remotos como **conectores personalizados**:
+> ⚠️ **El conector personalizado nativo no sirve para este servidor.** El diálogo *«Añadir conector
+> personalizado»* solo pide la **URL** (sin cabeceras) y espera **OAuth 2.1** para servidores con
+> inicio de sesión. Dana se autentica con un **token estático** (`Authorization: Bearer dtk_…`), que
+> ahí no hay dónde poner. Si lo intentas, verás «No se pudo determinar cómo inicia sesión este servidor».
 
-1. **Configuración → Conectores → Añadir conector personalizado**.
-2. URL: `https://tu-dana.com/mcp` (necesita ser accesible desde tu equipo; para producción, HTTPS).
-3. Añade la cabecera `Authorization: Bearer dtk_tu_token`.
-
-Si tu versión de Claude Desktop no deja añadir cabeceras, usa el puente **`mcp-remote`** en `claude_desktop_config.json`:
+Para Claude Desktop usa el puente **`mcp-remote`** (sí envía la cabecera) en `claude_desktop_config.json`:
 
 ```json
 {

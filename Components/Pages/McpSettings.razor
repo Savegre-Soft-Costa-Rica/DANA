@@ -48,7 +48,11 @@
 
 <div class="widget w-12 mt-3">
     <div class="widget-title">3 · Conectar Claude Desktop</div>
-    <div class="small muted mb-2">Añade un conector personalizado con la URL y la cabecera <code>Authorization</code>, o usa el puente <code>mcp-remote</code> en <code>claude_desktop_config.json</code>:</div>
+    <div class="small muted mb-2">
+        ⚠️ El diálogo <em>«Agregar conector personalizado»</em> solo pide la URL (sin cabeceras) y espera <strong>OAuth</strong>,
+        así que <strong>no sirve para el token</strong> <code>dtk_…</code>. Usa el puente <code>mcp-remote</code>, que sí envía la cabecera,
+        en <code>claude_desktop_config.json</code>:
+    </div>
     <pre class="code">@DesktopJson</pre>
     <button type="button" class="btn-secondary btn-sm" @onclick="() => CopyAsync(DesktopJson)">Copiar JSON</button>
 </div>

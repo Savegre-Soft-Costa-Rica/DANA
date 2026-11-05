@@ -65,9 +65,11 @@ public static class DanaMcp
         return services;
     }
 
-    /// <summary>Publica el endpoint MCP en <c>/mcp</c>, protegido con los tokens de la API REST.</summary>
+    /// <summary>Publica el endpoint MCP en <c>/mcp</c>, protegido con los tokens de la API REST.
+    /// <c>AllowAnonymous</c> evita que la <c>FallbackPolicy</c> global (exige sesión) redirija a /cuenta/login
+    /// con un 302; la autenticación real la hace el filtro de token de abajo (igual que la API REST).</summary>
     public static IEndpointConventionBuilder MapDanaMcp(this WebApplication app) =>
-        app.MapMcp("/mcp").AddEndpointFilter(async (ctx, next) =>
+        app.MapMcp("/mcp").AllowAnonymous().DisableAntiforgery().AddEndpointFilter(async (ctx, next) =>
         {
             var http = ctx.HttpContext;
             var key = http.Request.Headers.Authorization.FirstOrDefault()?.Replace("Bearer ", "", StringComparison.OrdinalIgnoreCase)
