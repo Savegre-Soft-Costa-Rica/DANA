@@ -3,6 +3,8 @@
 @inject CurrentUser Me
 @inject DialogService Dialogs
 @inject NavigationManager Nav
+@inject ChangeNotifier Notifier
+@implements IDisposable
 
 <PageTitle>Dana · Proyectos</PageTitle>
 
@@ -44,8 +46,17 @@ else
 @code {
     private List<ProjectBoard>? _boards;
     private Dictionary<string, int> _counts = new();
+    private RealtimeRefresh? _realtime;
+
+    protected override void OnInitialized() =>
+        // Refresco en tiempo real: recarga la lista de tableros y sus conteos cuando otra persona los cambia.
+        _realtime = new RealtimeRefresh(Notifier, InvokeAsync, RealtimeReloadAsync, null, "projectboards", "projectcards");
 
     protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task RealtimeReloadAsync() { await LoadAsync(); StateHasChanged(); }
+
+    public void Dispose() => _realtime?.Dispose();
 
     private async Task LoadAsync()
     {

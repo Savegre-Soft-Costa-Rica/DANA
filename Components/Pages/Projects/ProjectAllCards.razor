@@ -2,6 +2,7 @@
 @inject ProjectService Projects
 @inject CurrentUser Me
 @inject DrawerService Drawer
+@inject ChangeNotifier Notifier
 @implements IDisposable
 
 <PageTitle>Dana · Vista general</PageTitle>
@@ -97,9 +98,19 @@ else
 
     private const string Unassigned = "\u0000none";
 
-    protected override void OnInitialized() => Drawer.StateChanged += OnDrawerChanged;
+    private RealtimeRefresh? _realtime;
+
+    protected override void OnInitialized()
+    {
+        Drawer.StateChanged += OnDrawerChanged;
+        // Refresco en tiempo real: recarga cuando otra persona cambia tableros o tarjetas, salvo mientras se arrastra.
+        _realtime = new RealtimeRefresh(Notifier, InvokeAsync, RealtimeReloadAsync,
+            () => _draggingId is null, "projectboards", "projectcards");
+    }
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task RealtimeReloadAsync() { await LoadAsync(); StateHasChanged(); }
 
     private async Task LoadAsync()
     {
@@ -157,5 +168,5 @@ else
 
     private async Task LoadAndRenderAsync() { await LoadAsync(); await InvokeAsync(StateHasChanged); }
     private void OnDrawerChanged() => InvokeAsync(StateHasChanged);
-    public void Dispose() => Drawer.StateChanged -= OnDrawerChanged;
+    public void Dispose() { Drawer.StateChanged -= OnDrawerChanged; _realtime?.Dispose(); }
 }

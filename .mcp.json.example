@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "dana": {
+      "type": "http",
+      "url": "http://localhost:5025/mcp",
+      "headers": {
+        "Authorization": "Bearer ${DANA_MCP_TOKEN}"
+      }
+    }
+  }
+}

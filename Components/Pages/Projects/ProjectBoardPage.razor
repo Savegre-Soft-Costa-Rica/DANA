@@ -4,6 +4,7 @@
 @inject DialogService Dialogs
 @inject DrawerService Drawer
 @inject NavigationManager Nav
+@inject ChangeNotifier Notifier
 @implements IDisposable
 
 <PageTitle>Dana · @(_board?.Name ?? "Tablero")</PageTitle>
@@ -127,8 +128,19 @@ else
     private string _newListName = "";
     private ElementReference _addInput, _listInput;
     private bool _focusAddCard, _focusAddList;
+    private RealtimeRefresh? _realtime;
 
-    protected override void OnInitialized() => Drawer.StateChanged += OnDrawerChanged;
+    protected override void OnInitialized()
+    {
+        Drawer.StateChanged += OnDrawerChanged;
+        // Refresco en tiempo real: recarga cuando otra persona cambia tableros o tarjetas,
+        // salvo mientras se arrastra o se está escribiendo una tarjeta/lista.
+        _realtime = new RealtimeRefresh(Notifier, InvokeAsync, RealtimeReloadAsync,
+            () => _draggingId is null && _addingToList is null && !_addingList,
+            "projectboards", "projectcards");
+    }
+
+    private async Task RealtimeReloadAsync() { await LoadAsync(); StateHasChanged(); }
 
     protected override async Task OnParametersSetAsync() => await LoadAsync();
 
@@ -237,5 +249,5 @@ else
         if (_focusAddList) { _focusAddList = false; try { await _listInput.FocusAsync(); } catch { } }
     }
 
-    public void Dispose() => Drawer.StateChanged -= OnDrawerChanged;
+    public void Dispose() { Drawer.StateChanged -= OnDrawerChanged; _realtime?.Dispose(); }
 }

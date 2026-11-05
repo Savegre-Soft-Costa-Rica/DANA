@@ -74,6 +74,16 @@ Dana incluye **agentes** (asistentes de IA con un rol) que trabajan sobre los da
 
 Herramientas disponibles para los agentes (función calling): `buscar`, `obtener`, `estadisticas`, `resumen_embudo`, `listar_embudos`, `listar_usuarios` (lectura) y `crear`, `actualizar`, `agregar_nota` (escritura, solo si el agente tiene permiso), `cotizaciones_buscar`, `cotizacion_obtener`, `cotizacion_crear`, `cotizacion_actualizar` (cotizaciones con precios del catálogo), `buscar_web`, `leer_pagina` (internet) y `consultar_agente` (otros agentes). Para facturación y contabilidad hay además herramientas opt-in que se otorgan a cada perfil: `facturas_buscar`, `factura_obtener`, `emitir_factura`, `crear_enlace_pago`, `suscripciones_buscar`, `suscripcion_crear`, `suscripcion_estado`, `suscripcion_generar` y la familia `contabilidad_*` (plan de cuentas, asientos, mayor, balance, estados financieros). Los agentes de ejemplo que las usan son **Nico** (cotizador), **Vera** (seguimiento y cobranza) y **Tomás** (contabilidad). Los registros creados por un agente quedan auditados como `usuario · agente`.
 
+### Servidor MCP (conecta Claude con el CRM)
+
+Todo ese catálogo de herramientas se expone además por **MCP** ([Model Context Protocol](https://modelcontextprotocol.io)): un servidor HTTP en `/mcp`, autenticado con los tokens de la API (`/configuracion/api`), que deja que **Claude Code, Claude Desktop** o cualquier cliente MCP opere el CRM completo desde fuera de Dana. Se configura con la sección `Mcp` de `appsettings.json` (`Enabled`, `AllowWrites`). Guía de conexión paso a paso en **[MCP.md](MCP.md)**.
+
+```bash
+# Claude Code, en un comando:
+claude mcp add --transport http dana http://localhost:5025/mcp \
+  --header "Authorization: Bearer dtk_tu_token"
+```
+
 ## Facturación, suscripciones y formas de pago
 
 Dana cobra dos naturalezas de ingreso que se combinan libremente en una misma negociación (p. ej. implementación + licencia mensual):

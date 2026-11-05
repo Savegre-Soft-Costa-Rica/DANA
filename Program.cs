@@ -85,6 +85,10 @@ builder.Services.AddSingleton<QuoteService>();
 builder.Services.AddSingleton<ExportImportService>();
 builder.Services.AddSingleton<DocumentService>();
 builder.Services.AddSingleton<Dana.Services.Ai.AgentTools>();
+// Servidor MCP: expone el catálogo de AgentTools a clientes MCP (Claude, etc.) en /mcp. Ver MCP.md.
+var mcpEnabled = builder.Configuration.GetValue("Mcp:Enabled", true);
+if (mcpEnabled)
+    builder.Services.AddDanaMcp(builder.Configuration.GetValue("Mcp:AllowWrites", true));
 builder.Services.AddSingleton<Dana.Services.Ai.IChatProvider, Dana.Services.Ai.AnthropicProvider>();
 builder.Services.AddSingleton<Dana.Services.Ai.IChatProvider, Dana.Services.Ai.OpenAiProvider>();
 builder.Services.AddSingleton<Dana.Services.Ai.AgentService>();
@@ -433,6 +437,7 @@ app.MapGet("/health", async (MongoContext mongo) =>
 }).AllowAnonymous();
 
 RestApi.Map(app);
+if (mcpEnabled) app.MapDanaMcp();
 
 app.MapStaticAssets().AllowAnonymous();
 app.MapRazorComponents<App>()

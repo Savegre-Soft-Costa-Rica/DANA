@@ -78,7 +78,26 @@ else
                                 </div>
                                 @if (!string.IsNullOrWhiteSpace(t.Notes)) { <div class="task-notes">@t.Notes</div> }
                             </div>
-                            <button class="icon-btn tiny" title="Eliminar" @onclick="() => DeleteAsync(t)">✕</button>
+                            <div class="task-actions">
+                                @if (!t.IsDone)
+                                {
+                                    <button class="icon-btn tiny" title="Posponer" @onclick="() => _snoozeId = _snoozeId == t.Id ? null : t.Id">⏰</button>
+                                    @if (_snoozeId == t.Id)
+                                    {
+                                        <div class="popover-backdrop" @onclick="() => _snoozeId = null"></div>
+                                        <div class="popover popover-right snooze-menu">
+                                            <button @onclick="() => PostponeAsync(t, DateTime.UtcNow.AddHours(1))">En 1 hora</button>
+                                            <button @onclick="() => PostponeAsync(t, Tomorrow())">Mañana (9:00)</button>
+                                            <button @onclick="() => PostponeAsync(t, InDays(3))">En 3 días</button>
+                                            <button @onclick="() => PostponeAsync(t, NextWeek())">Próxima semana</button>
+                                            <label class="snooze-custom">Otra fecha…
+                                                <input type="datetime-local" @onchange="e => PostponeCustomAsync(t, e)" />
+                                            </label>
+                                        </div>
+                                    }
+                                }
+                                <button class="icon-btn tiny" title="Eliminar" @onclick="() => DeleteAsync(t)">✕</button>
+                            </div>
                         </li>
                     }
                 </ul>
@@ -94,6 +113,7 @@ else
     private string _person = "";
     private bool _showDone, _adding;
     private TaskItem _draft = new();
+    private string? _snoozeId;
 
     private IEnumerable<(string Title, string Cls, List<TaskItem> List)> Sections
     {
@@ -135,6 +155,29 @@ else
     {
         await Tasks.ToggleDoneAsync(t.Id!, _me);
         await LoadAsync();
+    }
+
+    // Fechas de posposición (hora local → UTC). "Mañana" y los demás caen a las 9:00 locales.
+    private static DateTime Tomorrow() => DateTime.Now.Date.AddDays(1).AddHours(9).ToUniversalTime();
+    private static DateTime InDays(int d) => DateTime.Now.Date.AddDays(d).AddHours(9).ToUniversalTime();
+    private static DateTime NextWeek()
+    {
+        var today = DateTime.Now.Date;
+        var delta = ((int)DayOfWeek.Monday - (int)today.DayOfWeek + 7) % 7;
+        return today.AddDays(delta == 0 ? 7 : delta).AddHours(9).ToUniversalTime();
+    }
+
+    private async Task PostponeAsync(TaskItem t, DateTime newDueUtc)
+    {
+        _snoozeId = null;
+        await Tasks.PostponeAsync(t.Id!, newDueUtc, _me);
+        await LoadAsync();
+    }
+
+    private async Task PostponeCustomAsync(TaskItem t, ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var d))
+            await PostponeAsync(t, d.ToUniversalTime());
     }
 
     private async Task DeleteAsync(TaskItem t)

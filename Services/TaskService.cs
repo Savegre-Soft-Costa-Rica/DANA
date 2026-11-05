@@ -76,6 +76,25 @@ public class TaskService
         return task;
     }
 
+    /// <summary>Pospone (aplaza) una actividad a una nueva fecha/hora. Reinicia los avisos de recordatorio y
+    /// vencimiento para que puedan volver a dispararse, y lo anota en la línea de tiempo del elemento ligado.</summary>
+    public async Task<TaskItem?> PostponeAsync(string id, DateTime newDueUtc, string? author)
+    {
+        var task = await _tasks.GetByIdAsync(id);
+        if (task is null || task.IsDone) return task;
+        task.DueAt = newDueUtc;
+        task.ReminderSentAt = null;
+        task.OverdueNotifiedAt = null;
+        await _tasks.UpdateAsync(task);
+        if (task.EntityType is not null && task.EntityId is not null)
+        {
+            var kind = TaskKinds.Get(task.Kind);
+            await _activities.LogAsync(task.EntityType, task.EntityId, task.EntityTitle ?? "", ActivityKinds.Task,
+                $"⏰ Pospuso {kind.Name.ToLowerInvariant()}: {task.Title} → {newDueUtc.ToLocalTime():g}", author);
+        }
+        return task;
+    }
+
     public Task DeleteAsync(string id) => _tasks.PurgeAsync(id);
     public Task DeleteForAsync(string entityType, string entityId) => _tasks.Collection.DeleteManyAsync(t => t.EntityType == entityType && t.EntityId == entityId);
 }
