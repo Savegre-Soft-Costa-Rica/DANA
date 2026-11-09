@@ -329,11 +329,16 @@ textarea.cell-editor { height: auto; min-height: 72px; resize: vertical; positio
 .proj-card-label-wrap { position: relative; display: inline-block; margin-bottom: 6px; }
 .proj-card-label-wrap .proj-card-label { margin-bottom: 0; transition: transform .1s, box-shadow .1s; }
 .proj-card-label-wrap:hover .proj-card-label { transform: scale(1.08); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lc, #888) 25%, transparent); }
-.label-preview { display: none; position: absolute; top: calc(100% + 7px); left: 0; z-index: 40;
-    width: 258px; max-width: 258px; background: var(--surface); border: 1px solid var(--border);
-    border-radius: 10px; box-shadow: var(--shadow-lg, 0 12px 40px rgba(16,24,40,.18)); overflow: hidden; cursor: default; }
-.proj-card-label-wrap:hover .label-preview, .proj-card-label-wrap:focus-within .label-preview { display: block; animation: lp-in .12s ease-out; }
-@keyframes lp-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.label-preview { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
+    width: 264px; max-width: 264px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow-lg, 0 12px 40px rgba(16,24,40,.18)); overflow: hidden; cursor: default;
+    visibility: hidden; opacity: 0; transform: translateY(-6px);
+    transition: opacity .14s ease, transform .14s ease, visibility 0s linear .14s; }
+/* Puente invisible para no perder el hover al cruzar el espacio hacia el popover. */
+.proj-card-label-wrap::after { content: ""; position: absolute; top: 100%; left: -4px; width: 42px; height: 10px; }
+.proj-card-label-wrap:hover .label-preview, .proj-card-label-wrap:focus-within .label-preview {
+    visibility: visible; opacity: 1; transform: none;
+    transition: opacity .16s ease 2s, transform .16s ease 2s, visibility 0s linear 2s; }
 .label-preview::before { content: ""; position: absolute; top: -5px; left: 11px; width: 9px; height: 9px;
     background: color-mix(in srgb, var(--lc) 16%, var(--surface)); border: 1px solid var(--border);
     border-bottom: none; border-right: none; z-index: 1; transform: rotate(45deg); }
@@ -356,13 +361,20 @@ textarea.cell-editor { height: auto; min-height: 72px; resize: vertical; positio
 .label-preview-item .lp-check.on { background: #00c875; border-color: #00c875; color: #fff; }
 .label-preview-item .lp-body { min-width: 0; flex: 1 1 auto; }
 .label-preview-item .lp-title { font-size: .79rem; color: var(--text); word-break: break-word; line-height: 1.25; }
+.label-preview-item .lp-title .lp-prio { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.label-preview-item .lp-desc { font-size: .7rem; color: var(--text-3); margin-top: 2px; line-height: 1.3;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .label-preview-item.done .lp-title { text-decoration: line-through; color: var(--text-3); }
 .label-preview-item.current { background: var(--primary-softer); }
 .label-preview-item.current .lp-title { font-weight: 700; }
 .lp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 4px; }
-.lp-meta .lp-due, .lp-meta .lp-chk { font-size: .68rem; color: var(--text-2); background: var(--surface-hover); border-radius: 5px; padding: 0 5px; }
+.lp-meta .lp-due, .lp-meta .lp-chk, .lp-meta .lp-cmt { font-size: .68rem; color: var(--text-2); background: var(--surface-hover); border-radius: 5px; padding: 0 5px; }
 .lp-meta .lp-due.overdue { color: #e2445c; background: #fdecee; font-weight: 600; }
 .lp-meta .lp-chk.ok { color: #0a7b43; background: #e3f8ee; }
+.label-preview-foot { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border-light); background: var(--surface-head, var(--surface)); }
+.label-preview-foot .lpf-chip { font-size: .68rem; font-weight: 600; color: var(--text-2); background: var(--surface-hover); border-radius: 999px; padding: 1px 8px; }
+.label-preview-foot .lpf-chip.overdue { color: #e2445c; background: #fdecee; }
+.label-preview-foot .lpf-ok { font-size: .68rem; font-weight: 600; color: #0a7b43; }
 
 /* ---- Responsables de tareas dentro de una lista (encabezado) ---- */
 .proj-list-people { display: inline-flex; align-items: center; flex: 0 0 auto; }

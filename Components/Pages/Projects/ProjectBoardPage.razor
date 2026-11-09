@@ -72,8 +72,7 @@ else
                                 var lblPct = lblCards.Count == 0 ? 0 : lblDone * 100 / lblCards.Count;
                                 var lblColor = CardLabels.ColorOf(card.Label);
                                 <span class="proj-card-label-wrap" style="--lc:@lblColor">
-                                    <span class="proj-card-label" style="background:@lblColor"
-                                          title="@LabelTitle(card.Label, lblCards)"></span>
+                                    <span class="proj-card-label" style="background:@lblColor"></span>
                                     <div class="label-preview" @onclick:stopPropagation="true">
                                         <div class="label-preview-head">
                                             <span class="label-preview-swatch"></span>
@@ -92,19 +91,33 @@ else
                                                     <div class="label-preview-item @(lc.IsDone ? "done" : "") @(lc.Id == card.Id ? "current" : "")">
                                                         <span class="lp-check @(lc.IsDone ? "on" : "")">@(lc.IsDone ? "✓" : "")</span>
                                                         <div class="lp-body">
-                                                            <div class="lp-title">@lc.Title</div>
-                                                            @if (lc.HasChecklist || lc.DueAt is not null || !string.IsNullOrWhiteSpace(lc.AssignedTo))
+                                                            <div class="lp-title">
+                                                                @if (lc.Priority != "none") { <span class="lp-prio" style="background:@CardPriorities.ColorOf(lc.Priority)" title="Prioridad @CardPriorities.NameOf(lc.Priority)"></span> }
+                                                                @lc.Title
+                                                            </div>
+                                                            @if (!string.IsNullOrWhiteSpace(lc.Description)) { <div class="lp-desc">@lc.Description</div> }
+                                                            @if (lc.HasChecklist || lc.DueAt is not null || !string.IsNullOrWhiteSpace(lc.AssignedTo) || lc.Comments.Count > 0)
                                                             {
                                                                 <div class="lp-meta">
                                                                     @if (!string.IsNullOrWhiteSpace(lc.AssignedTo)) { <PersonChip Name="@lc.AssignedTo" ShowName="false" /> }
                                                                     @if (lc.DueAt is not null) { <span class="lp-due @(lc.IsOverdue ? "overdue" : "")">📅 @lc.DueAt.Value.ToLocalTime().ToString("dd MMM")</span> }
                                                                     @if (lc.HasChecklist) { <span class="lp-chk @(lc.ChecklistDone == lc.Checklist.Count ? "ok" : "")">✓ @lc.ChecklistDone/@lc.Checklist.Count</span> }
+                                                                    @if (lc.Comments.Count > 0) { <span class="lp-cmt">💬 @lc.Comments.Count</span> }
                                                                 </div>
                                                             }
                                                         </div>
                                                     </div>
                                                 }
                                             }
+                                        </div>
+                                        @{
+                                            var lblOverdue = lblCards.Count(c => c.IsOverdue);
+                                            var lblUnassigned = lblCards.Count(c => string.IsNullOrWhiteSpace(c.AssignedTo));
+                                        }
+                                        <div class="label-preview-foot">
+                                            @if (lblOverdue > 0) { <span class="lpf-chip overdue">⚠ @lblOverdue vencida@(lblOverdue == 1 ? "" : "s")</span> }
+                                            @if (lblUnassigned > 0) { <span class="lpf-chip">👤 @lblUnassigned sin responsable</span> }
+                                            @if (lblOverdue == 0 && lblUnassigned == 0) { <span class="lpf-ok">✓ Todo asignado y al día</span> }
                                         </div>
                                     </div>
                                 </span>
@@ -235,13 +248,6 @@ else
                 .ThenByDescending(g => g.Count())
                 .Select(g => g.Key)
                 .ToList();
-
-    /// <summary>Texto de respaldo (atributo title) con el resumen de tareas de una etiqueta.</summary>
-    private string LabelTitle(string? label, List<ProjectCard> cards)
-    {
-        var lines = cards.Select(c => (c.IsDone ? "✓ " : "• ") + c.Title + " — " + ListName(c.ListId));
-        return $"Etiqueta {CardLabels.NameOf(label)} · {cards.Count} tarea(s)\n" + string.Join("\n", lines);
-    }
 
     private string? _author;
     private async Task<string> AuthorAsync() => _author ??= await Me.NameAsync();
