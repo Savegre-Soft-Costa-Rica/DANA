@@ -62,16 +62,19 @@ else
                              @ondragstart="() => _draggingId = card.Id"
                              @ondragend="() => { _draggingId = null; _dragOverList = null; }"
                              @onclick="() => OpenCard(card)">
+                            @if (!string.IsNullOrEmpty(card.Label) || card.Priority != "none")
+                            {
+                            <div class="proj-card-top">
                             @if (!string.IsNullOrEmpty(card.Label))
                             {
                                 var lblCards = CardsWithLabel(card.Label);
                                 var lblDone = lblCards.Count(c => c.IsDone);
                                 var lblPct = lblCards.Count == 0 ? 0 : lblDone * 100 / lblCards.Count;
                                 var lblColor = CardLabels.ColorOf(card.Label);
-                                <span class="proj-card-label-wrap">
+                                <span class="proj-card-label-wrap" style="--lc:@lblColor">
                                     <span class="proj-card-label" style="background:@lblColor"
                                           title="@LabelTitle(card.Label, lblCards)"></span>
-                                    <div class="label-preview" style="--lc:@lblColor" @onclick:stopPropagation="true">
+                                    <div class="label-preview" @onclick:stopPropagation="true">
                                         <div class="label-preview-head">
                                             <span class="label-preview-swatch"></span>
                                             <div class="label-preview-htxt">
@@ -111,6 +114,8 @@ else
                                 <span class="prio-badge" style="--c:@CardPriorities.ColorOf(card.Priority)" title="Prioridad @CardPriorities.NameOf(card.Priority)">
                                     <span class="prio-badge-dot"></span>@CardPriorities.NameOf(card.Priority)
                                 </span>
+                            }
+                            </div>
                             }
                             <div class="proj-card-title">
                                 @card.Title
