@@ -52,8 +52,13 @@ else
                             var board = _boards.GetValueOrDefault(card.BoardId);
                             <div class="proj-card @(card.IsDone ? "done" : "")" @onclick="() => OpenCard(card)">
                                 @if (!string.IsNullOrEmpty(card.Label)) { <span class="proj-card-label" style="background:@CardLabels.ColorOf(card.Label)"></span> }
+                                @if (card.Priority != "none")
+                                {
+                                    <span class="prio-badge" style="--c:@CardPriorities.ColorOf(card.Priority)" title="Prioridad @CardPriorities.NameOf(card.Priority)">
+                                        <span class="prio-badge-dot"></span>@CardPriorities.NameOf(card.Priority)
+                                    </span>
+                                }
                                 <div class="proj-card-title">
-                                    @if (card.Priority != "none") { <span class="prio-dot" style="background:@CardPriorities.ColorOf(card.Priority)" title="@CardPriorities.NameOf(card.Priority)"></span> }
                                     @card.Title
                                 </div>
                                 @if (board is not null)

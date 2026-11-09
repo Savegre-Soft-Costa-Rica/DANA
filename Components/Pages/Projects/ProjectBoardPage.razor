@@ -106,8 +106,13 @@ else
                                     </div>
                                 </span>
                             }
+                            @if (card.Priority != "none")
+                            {
+                                <span class="prio-badge" style="--c:@CardPriorities.ColorOf(card.Priority)" title="Prioridad @CardPriorities.NameOf(card.Priority)">
+                                    <span class="prio-badge-dot"></span>@CardPriorities.NameOf(card.Priority)
+                                </span>
+                            }
                             <div class="proj-card-title">
-                                @if (card.Priority != "none") { <span class="prio-dot" style="background:@CardPriorities.ColorOf(card.Priority)" title="@CardPriorities.NameOf(card.Priority)"></span> }
                                 @card.Title
                             </div>
                             @if (card.HasChecklist || card.Comments.Count > 0 || !string.IsNullOrWhiteSpace(card.Description))

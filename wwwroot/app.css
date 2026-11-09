@@ -384,6 +384,12 @@ textarea.cell-editor { height: auto; min-height: 72px; resize: vertical; positio
 .proj-add-list-btn { width: calc(100% - 20px); }
 
 .prio-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+.prio-badge { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; margin-bottom: 6px;
+    padding: 2px 9px; border-radius: 999px; font-size: .68rem; font-weight: 700; line-height: 1.4;
+    background: color-mix(in srgb, var(--c) 15%, transparent);
+    color: color-mix(in srgb, var(--c) 72%, var(--text));
+    border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); }
+.prio-badge-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c); flex: 0 0 auto; }
 .proj-card-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .proj-card-badges .cb { font-size: .72rem; color: var(--text-2); background: var(--surface-hover); border-radius: 4px; padding: 1px 6px; }
 .proj-card-badges .cb.ok { background: #e3f8ee; color: #0a7b43; }
