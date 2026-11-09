@@ -316,12 +316,34 @@ textarea.cell-editor { height: auto; min-height: 72px; resize: vertical; positio
 .proj-list:hover .proj-list-actions { opacity: 1; }
 .proj-cards { display: flex; flex-direction: column; gap: 8px; padding: 0 10px; overflow-y: auto; flex: 1 1 auto; scrollbar-width: thin; min-height: 8px; }
 .proj-card { position: relative; background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius); padding: 10px 12px; cursor: grab; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
-.proj-card:hover { box-shadow: var(--shadow); border-color: var(--border); }
+.proj-card:hover { box-shadow: var(--shadow); border-color: var(--border); z-index: 10; }
 .proj-card:active { cursor: grabbing; }
 .proj-card.dragging { opacity: .5; }
 .proj-card.done { opacity: .62; }
 .proj-card.done .proj-card-title { text-decoration: line-through; }
-.proj-card-label { display: inline-block; width: 36px; height: 6px; border-radius: 3px; margin-bottom: 6px; }
+.proj-card-label { display: inline-block; width: 36px; height: 6px; border-radius: 3px; margin-bottom: 6px; cursor: help; }
+
+/* ---- Vista previa de tareas de una etiqueta (hover) ---- */
+.proj-card-label-wrap { position: relative; display: inline-block; margin-bottom: 6px; }
+.proj-card-label-wrap .proj-card-label { margin-bottom: 0; }
+.label-preview { display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
+    width: 230px; max-width: 230px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; box-shadow: var(--shadow-lg, 0 8px 24px rgba(0,0,0,.16)); padding: 8px; cursor: default; }
+.proj-card-label-wrap:hover .label-preview, .proj-card-label-wrap:focus-within .label-preview { display: block; }
+.label-preview::before { content: ""; position: absolute; top: -5px; left: 10px; width: 9px; height: 9px;
+    background: var(--surface); border-left: 1px solid var(--border); border-top: 1px solid var(--border); transform: rotate(45deg); }
+.label-preview-head { display: flex; align-items: center; gap: 6px; padding: 0 2px 6px; border-bottom: 1px solid var(--border-light); margin-bottom: 4px; }
+.label-preview-dot { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+.label-preview-name { font-weight: 700; font-size: .78rem; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.label-preview-count { background: var(--surface-hover); color: var(--text-2); border-radius: 10px; padding: 0 7px; font-size: .7rem; font-weight: 600; flex: 0 0 auto; }
+.label-preview-list { display: flex; flex-direction: column; gap: 1px; max-height: 190px; overflow-y: auto; scrollbar-width: thin; }
+.label-preview-item { display: flex; align-items: baseline; gap: 6px; padding: 3px 4px; border-radius: 5px; font-size: .76rem; }
+.label-preview-item .lp-check { flex: 0 0 10px; color: #00c875; font-weight: 700; }
+.label-preview-item .lp-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.label-preview-item .lp-list { flex: 0 0 auto; font-size: .68rem; color: var(--text-3); }
+.label-preview-item.done .lp-title { text-decoration: line-through; color: var(--text-3); }
+.label-preview-item.current { background: var(--primary-softer, rgba(0,115,234,.1)); }
+.label-preview-item.current .lp-title { font-weight: 700; }
 .proj-card-title { font-weight: 600; font-size: .88rem; word-break: break-word; }
 .proj-card-board { display: flex; align-items: center; gap: 5px; font-size: .74rem; color: var(--text-3); margin-top: 6px; }
 .proj-board-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }

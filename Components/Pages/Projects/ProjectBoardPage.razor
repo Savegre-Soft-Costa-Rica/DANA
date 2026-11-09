@@ -51,7 +51,31 @@ else
                              @ondragstart="() => _draggingId = card.Id"
                              @ondragend="() => { _draggingId = null; _dragOverList = null; }"
                              @onclick="() => OpenCard(card)">
-                            @if (!string.IsNullOrEmpty(card.Label)) { <span class="proj-card-label" style="background:@CardLabels.ColorOf(card.Label)"></span> }
+                            @if (!string.IsNullOrEmpty(card.Label))
+                            {
+                                var lblCards = CardsWithLabel(card.Label);
+                                <span class="proj-card-label-wrap">
+                                    <span class="proj-card-label" style="background:@CardLabels.ColorOf(card.Label)"
+                                          title="@LabelTitle(card.Label, lblCards)"></span>
+                                    <div class="label-preview" @onclick:stopPropagation="true">
+                                        <div class="label-preview-head">
+                                            <span class="label-preview-dot" style="background:@CardLabels.ColorOf(card.Label)"></span>
+                                            <span class="label-preview-name">@CardLabels.NameOf(card.Label)</span>
+                                            <span class="label-preview-count">@lblCards.Count</span>
+                                        </div>
+                                        <div class="label-preview-list">
+                                            @foreach (var lc in lblCards)
+                                            {
+                                                <div class="label-preview-item @(lc.IsDone ? "done" : "") @(lc.Id == card.Id ? "current" : "")">
+                                                    <span class="lp-check">@(lc.IsDone ? "✓" : "")</span>
+                                                    <span class="lp-title">@lc.Title</span>
+                                                    <span class="lp-list">@ListName(lc.ListId)</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                </span>
+                            }
                             <div class="proj-card-title">
                                 @if (card.Priority != "none") { <span class="prio-dot" style="background:@CardPriorities.ColorOf(card.Priority)" title="@CardPriorities.NameOf(card.Priority)"></span> }
                                 @card.Title
@@ -152,6 +176,23 @@ else
     }
 
     private List<ProjectCard> CardsOf(string listId) => _cards.Where(c => c.ListId == listId).OrderBy(c => c.Sort).ToList();
+
+    // ---- Vista previa de tareas por etiqueta ----
+    private string ListName(string listId) => _board?.Lists.FirstOrDefault(l => l.Id == listId)?.Name ?? "";
+    private int ListSort(string listId) => _board?.Lists.FirstOrDefault(l => l.Id == listId)?.Sort ?? int.MaxValue;
+
+    /// <summary>Todas las tarjetas del tablero que comparten la etiqueta dada, ordenadas por columna y posición.</summary>
+    private List<ProjectCard> CardsWithLabel(string? label)
+        => string.IsNullOrEmpty(label)
+            ? new()
+            : _cards.Where(c => c.Label == label).OrderBy(c => ListSort(c.ListId)).ThenBy(c => c.Sort).ToList();
+
+    /// <summary>Texto de respaldo (atributo title) con el resumen de tareas de una etiqueta.</summary>
+    private string LabelTitle(string? label, List<ProjectCard> cards)
+    {
+        var lines = cards.Select(c => (c.IsDone ? "✓ " : "• ") + c.Title + " — " + ListName(c.ListId));
+        return $"Etiqueta {CardLabels.NameOf(label)} · {cards.Count} tarea(s)\n" + string.Join("\n", lines);
+    }
 
     private string? _author;
     private async Task<string> AuthorAsync() => _author ??= await Me.NameAsync();
