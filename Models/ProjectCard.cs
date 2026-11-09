@@ -41,6 +41,8 @@ public class ChecklistItem
     public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
     public string Text { get; set; } = "";
     public bool Done { get; set; }
+    /// <summary>Responsable asignado a este ítem de la lista de verificación.</summary>
+    public string? AssignedTo { get; set; }
 }
 
 /// <summary>Comentario en una tarjeta.</summary>

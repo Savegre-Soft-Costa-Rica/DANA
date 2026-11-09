@@ -398,27 +398,29 @@ textarea.cell-editor { height: auto; min-height: 72px; resize: vertical; positio
 .proj-card-badges .cb.ok { background: #e3f8ee; color: #0a7b43; }
 
 /* ---- Editor de tarjeta (drawer) ---- */
-.cedit { display: flex; flex-direction: column; gap: 16px; padding-bottom: 72px; }
-.cedit-head { display: flex; align-items: flex-start; gap: 10px; }
-.cedit-check { flex: 0 0 auto; width: 26px; height: 26px; margin-top: 4px; border-radius: 50%; border: 2px solid var(--border); background: transparent; color: #fff; font-size: .8rem; line-height: 1; cursor: pointer; transition: all .12s; }
-.cedit-check:hover { border-color: var(--primary); }
-.cedit-check.on { background: #00c875; border-color: #00c875; }
-.cedit-title { flex: 1 1 auto; font-size: 1.15rem; font-weight: 700; border: 1px solid transparent; border-radius: var(--radius); padding: 6px 8px; background: transparent; color: var(--text); }
+.cedit { display: flex; flex-direction: column; gap: 18px; padding-bottom: 72px; }
+.cedit .form-control, .cedit .form-select { border-radius: 8px; border-color: var(--border); transition: border-color .12s, box-shadow .12s; }
+.cedit .form-control:focus, .cedit .form-select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-softer); outline: none; }
+.cedit-head { display: flex; align-items: flex-start; gap: 12px; }
+.cedit-check { flex: 0 0 auto; width: 28px; height: 28px; margin-top: 4px; border-radius: 50%; border: 2px solid var(--border); background: transparent; color: #fff; font-size: .85rem; line-height: 1; cursor: pointer; transition: all .12s; }
+.cedit-check:hover { border-color: #00c875; background: color-mix(in srgb, #00c875 10%, transparent); }
+.cedit-check.on { background: #00c875; border-color: #00c875; box-shadow: 0 2px 6px color-mix(in srgb, #00c875 40%, transparent); }
+.cedit-title { flex: 1 1 auto; font-size: 1.28rem; font-weight: 800; letter-spacing: -.01em; border: 1px solid transparent; border-radius: 8px; padding: 6px 10px; background: transparent; color: var(--text); }
 .cedit-title:hover { background: var(--surface-hover); }
-.cedit-title:focus { background: var(--surface); border-color: var(--primary); outline: none; }
+.cedit-title:focus { background: var(--surface); border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-softer); outline: none; }
 .cedit-title.done { text-decoration: line-through; color: var(--text-3); }
 
 .cedit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 520px) { .cedit-grid { grid-template-columns: 1fr; } }
 .cedit-field { display: flex; flex-direction: column; gap: 6px; }
-.cedit-label { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--text-3); }
+.cedit-label { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); }
 .form-control.is-overdue { border-color: var(--danger); }
 
-.chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.prio-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); font-size: .8rem; font-weight: 500; cursor: pointer; transition: all .12s; }
-.prio-chip:hover { border-color: var(--c); }
+.chip-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.prio-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); font-size: .8rem; font-weight: 500; cursor: pointer; transition: all .12s; }
+.prio-chip:hover { border-color: var(--c); color: var(--text); background: var(--surface-hover); }
 .prio-chip .prio-chip-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
-.prio-chip.active { background: color-mix(in srgb, var(--c) 14%, transparent); border-color: var(--c); color: var(--text); font-weight: 600; }
+.prio-chip.active { background: color-mix(in srgb, var(--c) 14%, transparent); border-color: var(--c); color: var(--text); font-weight: 600; box-shadow: 0 0 0 1px var(--c); }
 
 .label-chip { height: 28px; min-width: 44px; padding: 0 10px; border-radius: 6px; border: 2px solid transparent; background: var(--c, var(--surface-hover)); color: #fff; font-weight: 700; font-size: .8rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: transform .1s; }
 .label-chip:hover { transform: translateY(-1px); }
@@ -426,24 +428,30 @@ textarea.cell-editor { height: auto; min-height: 72px; resize: vertical; positio
 .label-chip.none { background: var(--surface-hover); color: var(--text-2); font-weight: 500; }
 .label-chip.none.active { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text-3); }
 
-.cedit-section { border-top: 1px solid var(--border-light); padding-top: 14px; }
-.cedit-section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.cedit-section-title { font-weight: 700; font-size: .95rem; }
-.cedit-progress-pct { font-size: .74rem; font-weight: 600; color: var(--text-2); background: var(--surface-hover); border-radius: 10px; padding: 1px 8px; }
+.cedit-section { border-top: 1px solid var(--border-light); padding-top: 16px; }
+.cedit-section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.cedit-section-title { font-weight: 700; font-size: .98rem; }
+.cedit-progress-pct { font-size: .74rem; font-weight: 700; color: var(--text-2); background: var(--surface-hover); border-radius: 999px; padding: 1px 9px; }
 
-.checklist-bar { height: 7px; border-radius: 4px; background: var(--surface-hover); overflow: hidden; margin-bottom: 10px; }
-.checklist-bar > div { height: 100%; background: #00c875; transition: width .25s; }
-.checklist { display: flex; flex-direction: column; }
-.checklist-row { display: flex; align-items: center; gap: 10px; padding: 5px 6px; border-radius: 6px; }
+.checklist-bar { height: 8px; border-radius: 999px; background: var(--surface-hover); overflow: hidden; margin-bottom: 12px; }
+.checklist-bar > div { height: 100%; background: linear-gradient(90deg, #00c875, #00a862); border-radius: 999px; transition: width .3s; }
+.checklist { display: flex; flex-direction: column; gap: 1px; }
+.checklist-row { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 8px; transition: background .12s; }
 .checklist-row:hover { background: var(--surface-hover); }
+.checklist-row .form-check-input { flex: 0 0 auto; width: 17px; height: 17px; cursor: pointer; margin: 0; }
 .checklist-row .checklist-text { flex: 1 1 auto; word-break: break-word; font-size: .9rem; }
 .checklist-row.done .checklist-text { text-decoration: line-through; color: var(--text-3); }
-.checklist-del { opacity: 0; }
+.checklist-assignee { position: relative; display: inline-flex; flex: 0 0 auto; cursor: pointer; }
+.checklist-assignee select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; }
+.checklist-assignee .av-empty { background: transparent; color: var(--text-3); border: 1.5px dashed var(--border); font-weight: 600; }
+.checklist-assignee:hover .av-empty { border-color: var(--primary); color: var(--primary); }
+.checklist-del { opacity: 0; flex: 0 0 auto; }
 .checklist-row:hover .checklist-del { opacity: 1; }
-.checklist-add { display: flex; gap: 6px; margin-top: 10px; }
+.checklist-add { display: flex; gap: 8px; margin-top: 12px; }
 
-.comment-compose { display: flex; gap: 8px; align-items: flex-start; }
+.comment-compose { display: flex; gap: 10px; align-items: flex-start; }
 .comment-compose-body { flex: 1 1 auto; display: flex; flex-direction: column; align-items: flex-start; }
+.comment-compose-body .btn-primary { align-self: flex-end; }
 .comment-list { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
 .comment { display: flex; gap: 8px; }
 .comment-body { flex: 1 1 auto; min-width: 0; background: var(--surface-hover); border-radius: var(--radius); padding: 8px 10px; }

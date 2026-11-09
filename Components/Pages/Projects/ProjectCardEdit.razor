@@ -83,6 +83,23 @@ else
                         <div class="checklist-row @(item.Done ? "done" : "")">
                             <input type="checkbox" class="form-check-input" checked="@item.Done" @onchange="e => ToggleChecklistAsync(item, e)" />
                             <span class="checklist-text">@item.Text</span>
+                            <label class="checklist-assignee" title="@(string.IsNullOrWhiteSpace(item.AssignedTo) ? "Asignar responsable" : $"Responsable: {item.AssignedTo}")">
+                                @if (string.IsNullOrWhiteSpace(item.AssignedTo))
+                                {
+                                    <span class="avatar avatar-letter avatar-sm av-empty">+</span>
+                                }
+                                else
+                                {
+                                    <span class="avatar avatar-letter avatar-sm" style="background:@Avatar.ColorFor(item.AssignedTo)">@Avatar.Initials(item.AssignedTo)</span>
+                                }
+                                <select @onchange="e => AssignChecklistAsync(item, e)">
+                                    <option value="" selected="@string.IsNullOrEmpty(item.AssignedTo)">Sin asignar</option>
+                                    @foreach (var p in _people)
+                                    {
+                                        <option value="@p" selected="@(item.AssignedTo == p)">@p</option>
+                                    }
+                                </select>
+                            </label>
                             <button class="icon-btn tiny checklist-del" title="Quitar" @onclick="() => RemoveChecklistAsync(item)">✕</button>
                         </div>
                     }
@@ -218,6 +235,13 @@ else
     private async Task RemoveChecklistAsync(ChecklistItem item)
     {
         _card?.Checklist.Remove(item);
+        await PersistAsync();
+    }
+
+    private async Task AssignChecklistAsync(ChecklistItem item, ChangeEventArgs e)
+    {
+        var v = e.Value?.ToString();
+        item.AssignedTo = string.IsNullOrWhiteSpace(v) ? null : v;
         await PersistAsync();
     }
 
