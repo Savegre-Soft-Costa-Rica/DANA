@@ -35,6 +35,17 @@ else
                  @ondrop="() => DropAsync(list.Id, cards.Count)">
                 <div class="proj-list-head">
                     <span class="proj-list-name" @onclick="() => RenameListAsync(list)" title="Clic para renombrar">@list.Name</span>
+                    @{ var responsables = ResponsablesOf(cards); }
+                    @if (responsables.Count > 0)
+                    {
+                        <span class="proj-list-people" title="@($"Responsables en «{list.Name}»: {string.Join(", ", responsables)}")">
+                            @foreach (var name in responsables.Take(4))
+                            {
+                                <PersonChip Name="@name" ShowName="false" />
+                            }
+                            @if (responsables.Count > 4) { <span class="proj-list-people-more">+@(responsables.Count - 4)</span> }
+                        </span>
+                    }
                     <span class="proj-list-count">@cards.Count</span>
                     <span class="proj-list-actions">
                         <button class="icon-btn tiny" title="Mover a la izquierda" @onclick="() => MoveListAsync(list.Id, -1)">←</button>
@@ -54,23 +65,42 @@ else
                             @if (!string.IsNullOrEmpty(card.Label))
                             {
                                 var lblCards = CardsWithLabel(card.Label);
+                                var lblDone = lblCards.Count(c => c.IsDone);
+                                var lblPct = lblCards.Count == 0 ? 0 : lblDone * 100 / lblCards.Count;
+                                var lblColor = CardLabels.ColorOf(card.Label);
                                 <span class="proj-card-label-wrap">
-                                    <span class="proj-card-label" style="background:@CardLabels.ColorOf(card.Label)"
+                                    <span class="proj-card-label" style="background:@lblColor"
                                           title="@LabelTitle(card.Label, lblCards)"></span>
-                                    <div class="label-preview" @onclick:stopPropagation="true">
+                                    <div class="label-preview" style="--lc:@lblColor" @onclick:stopPropagation="true">
                                         <div class="label-preview-head">
-                                            <span class="label-preview-dot" style="background:@CardLabels.ColorOf(card.Label)"></span>
-                                            <span class="label-preview-name">@CardLabels.NameOf(card.Label)</span>
-                                            <span class="label-preview-count">@lblCards.Count</span>
+                                            <span class="label-preview-swatch"></span>
+                                            <div class="label-preview-htxt">
+                                                <div class="label-preview-name">@CardLabels.NameOf(card.Label)</div>
+                                                <div class="label-preview-sub">@lblCards.Count tarea@(lblCards.Count == 1 ? "" : "s") · @lblDone hecha@(lblDone == 1 ? "" : "s")</div>
+                                            </div>
                                         </div>
+                                        <div class="label-preview-bar"><div style="width:@(lblPct)%"></div></div>
                                         <div class="label-preview-list">
-                                            @foreach (var lc in lblCards)
+                                            @foreach (var grp in lblCards.GroupBy(c => c.ListId).OrderBy(g => ListSort(g.Key)))
                                             {
-                                                <div class="label-preview-item @(lc.IsDone ? "done" : "") @(lc.Id == card.Id ? "current" : "")">
-                                                    <span class="lp-check">@(lc.IsDone ? "✓" : "")</span>
-                                                    <span class="lp-title">@lc.Title</span>
-                                                    <span class="lp-list">@ListName(lc.ListId)</span>
-                                                </div>
+                                                <div class="label-preview-col">@ListName(grp.Key) <span>@grp.Count()</span></div>
+                                                @foreach (var lc in grp)
+                                                {
+                                                    <div class="label-preview-item @(lc.IsDone ? "done" : "") @(lc.Id == card.Id ? "current" : "")">
+                                                        <span class="lp-check @(lc.IsDone ? "on" : "")">@(lc.IsDone ? "✓" : "")</span>
+                                                        <div class="lp-body">
+                                                            <div class="lp-title">@lc.Title</div>
+                                                            @if (lc.HasChecklist || lc.DueAt is not null || !string.IsNullOrWhiteSpace(lc.AssignedTo))
+                                                            {
+                                                                <div class="lp-meta">
+                                                                    @if (!string.IsNullOrWhiteSpace(lc.AssignedTo)) { <PersonChip Name="@lc.AssignedTo" ShowName="false" /> }
+                                                                    @if (lc.DueAt is not null) { <span class="lp-due @(lc.IsOverdue ? "overdue" : "")">📅 @lc.DueAt.Value.ToLocalTime().ToString("dd MMM")</span> }
+                                                                    @if (lc.HasChecklist) { <span class="lp-chk @(lc.ChecklistDone == lc.Checklist.Count ? "ok" : "")">✓ @lc.ChecklistDone/@lc.Checklist.Count</span> }
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
                                             }
                                         </div>
                                     </div>
@@ -186,6 +216,15 @@ else
         => string.IsNullOrEmpty(label)
             ? new()
             : _cards.Where(c => c.Label == label).OrderBy(c => ListSort(c.ListId)).ThenBy(c => c.Sort).ToList();
+
+    /// <summary>Responsables distintos con tareas en una lista, priorizando los que tienen tareas pendientes.</summary>
+    private List<string> ResponsablesOf(List<ProjectCard> cards)
+        => cards.Where(c => !string.IsNullOrWhiteSpace(c.AssignedTo))
+                .GroupBy(c => c.AssignedTo!)
+                .OrderByDescending(g => g.Count(c => !c.IsDone))
+                .ThenByDescending(g => g.Count())
+                .Select(g => g.Key)
+                .ToList();
 
     /// <summary>Texto de respaldo (atributo title) con el resumen de tareas de una etiqueta.</summary>
     private string LabelTitle(string? label, List<ProjectCard> cards)

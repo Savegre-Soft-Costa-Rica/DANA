@@ -325,25 +325,51 @@ textarea.cell-editor { height: auto; min-height: 72px; resize: vertical; positio
 
 /* ---- Vista previa de tareas de una etiqueta (hover) ---- */
 .proj-card-label-wrap { position: relative; display: inline-block; margin-bottom: 6px; }
-.proj-card-label-wrap .proj-card-label { margin-bottom: 0; }
-.label-preview { display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
-    width: 230px; max-width: 230px; background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; box-shadow: var(--shadow-lg, 0 8px 24px rgba(0,0,0,.16)); padding: 8px; cursor: default; }
-.proj-card-label-wrap:hover .label-preview, .proj-card-label-wrap:focus-within .label-preview { display: block; }
-.label-preview::before { content: ""; position: absolute; top: -5px; left: 10px; width: 9px; height: 9px;
-    background: var(--surface); border-left: 1px solid var(--border); border-top: 1px solid var(--border); transform: rotate(45deg); }
-.label-preview-head { display: flex; align-items: center; gap: 6px; padding: 0 2px 6px; border-bottom: 1px solid var(--border-light); margin-bottom: 4px; }
-.label-preview-dot { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
-.label-preview-name { font-weight: 700; font-size: .78rem; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.label-preview-count { background: var(--surface-hover); color: var(--text-2); border-radius: 10px; padding: 0 7px; font-size: .7rem; font-weight: 600; flex: 0 0 auto; }
-.label-preview-list { display: flex; flex-direction: column; gap: 1px; max-height: 190px; overflow-y: auto; scrollbar-width: thin; }
-.label-preview-item { display: flex; align-items: baseline; gap: 6px; padding: 3px 4px; border-radius: 5px; font-size: .76rem; }
-.label-preview-item .lp-check { flex: 0 0 10px; color: #00c875; font-weight: 700; }
-.label-preview-item .lp-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.label-preview-item .lp-list { flex: 0 0 auto; font-size: .68rem; color: var(--text-3); }
+.proj-card-label-wrap .proj-card-label { margin-bottom: 0; transition: transform .1s, box-shadow .1s; }
+.proj-card-label-wrap:hover .proj-card-label { transform: scaleY(1.4); box-shadow: 0 0 0 2px color-mix(in srgb, var(--lc, #888) 30%, transparent); }
+.label-preview { display: none; position: absolute; top: calc(100% + 7px); left: 0; z-index: 40;
+    width: 258px; max-width: 258px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow-lg, 0 12px 40px rgba(16,24,40,.18)); overflow: hidden; cursor: default; }
+.proj-card-label-wrap:hover .label-preview, .proj-card-label-wrap:focus-within .label-preview { display: block; animation: lp-in .12s ease-out; }
+@keyframes lp-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.label-preview::before { content: ""; position: absolute; top: -5px; left: 11px; width: 9px; height: 9px;
+    background: color-mix(in srgb, var(--lc) 16%, var(--surface)); border: 1px solid var(--border);
+    border-bottom: none; border-right: none; z-index: 1; transform: rotate(45deg); }
+.label-preview-head { display: flex; align-items: center; gap: 9px; padding: 10px 12px;
+    background: linear-gradient(0deg, color-mix(in srgb, var(--lc) 10%, var(--surface)), color-mix(in srgb, var(--lc) 16%, var(--surface))); }
+.label-preview-swatch { width: 4px; align-self: stretch; min-height: 26px; border-radius: 3px; background: var(--lc); flex: 0 0 auto; }
+.label-preview-htxt { min-width: 0; flex: 1 1 auto; }
+.label-preview-name { font-weight: 800; font-size: .86rem; color: var(--text); line-height: 1.2; }
+.label-preview-sub { font-size: .72rem; color: var(--text-2); margin-top: 1px; }
+.label-preview-bar { height: 4px; background: var(--surface-hover); }
+.label-preview-bar > div { height: 100%; background: var(--lc); transition: width .3s; }
+.label-preview-list { display: flex; flex-direction: column; max-height: 230px; overflow-y: auto; scrollbar-width: thin; padding: 4px; }
+.label-preview-col { display: flex; align-items: center; gap: 6px; font-size: .64rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--text-3); padding: 7px 6px 3px; }
+.label-preview-col > span { background: var(--surface-hover); border-radius: 8px; padding: 0 6px; font-size: .62rem; }
+.label-preview-item { display: flex; align-items: flex-start; gap: 7px; padding: 5px 6px; border-radius: 6px; }
+.label-preview-item:hover { background: var(--surface-hover); }
+.label-preview-item .lp-check { flex: 0 0 15px; height: 15px; margin-top: 1px; border-radius: 50%; border: 1.5px solid var(--border);
+    font-size: .62rem; line-height: 12px; text-align: center; color: transparent; }
+.label-preview-item .lp-check.on { background: #00c875; border-color: #00c875; color: #fff; }
+.label-preview-item .lp-body { min-width: 0; flex: 1 1 auto; }
+.label-preview-item .lp-title { font-size: .79rem; color: var(--text); word-break: break-word; line-height: 1.25; }
 .label-preview-item.done .lp-title { text-decoration: line-through; color: var(--text-3); }
-.label-preview-item.current { background: var(--primary-softer, rgba(0,115,234,.1)); }
+.label-preview-item.current { background: var(--primary-softer); }
 .label-preview-item.current .lp-title { font-weight: 700; }
+.lp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 4px; }
+.lp-meta .lp-due, .lp-meta .lp-chk { font-size: .68rem; color: var(--text-2); background: var(--surface-hover); border-radius: 5px; padding: 0 5px; }
+.lp-meta .lp-due.overdue { color: #e2445c; background: #fdecee; font-weight: 600; }
+.lp-meta .lp-chk.ok { color: #0a7b43; background: #e3f8ee; }
+
+/* ---- Responsables de tareas dentro de una lista (encabezado) ---- */
+.proj-list-people { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.proj-list-people > .person-chip { margin-left: -6px; }
+.proj-list-people > .person-chip:first-child { margin-left: 0; }
+.proj-list-people .avatar { box-shadow: 0 0 0 2px var(--bg); }
+.proj-list-people-more { margin-left: -4px; background: var(--surface-hover); color: var(--text-2); font-size: .64rem;
+    font-weight: 700; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center;
+    justify-content: center; box-shadow: 0 0 0 2px var(--bg); z-index: 1; }
 .proj-card-title { font-weight: 600; font-size: .88rem; word-break: break-word; }
 .proj-card-board { display: flex; align-items: center; gap: 5px; font-size: .74rem; color: var(--text-3); margin-top: 6px; }
 .proj-board-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
