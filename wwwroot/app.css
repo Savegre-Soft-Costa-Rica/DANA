@@ -314,7 +314,7 @@ textarea.cell-editor { height: auto; min-height: 72px; resize: vertical; positio
 .proj-list-count { background: var(--surface-hover); color: var(--text-2); border-radius: 10px; padding: 0 8px; font-size: .74rem; font-weight: 600; }
 .proj-list-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
 .proj-list:hover .proj-list-actions { opacity: 1; }
-.proj-cards { display: flex; flex-direction: column; gap: 8px; padding: 0 10px; overflow-y: auto; flex: 1 1 auto; scrollbar-width: thin; min-height: 8px; }
+.proj-cards { display: flex; flex-direction: column; gap: 8px; padding: 0 10px; overflow-y: auto; overflow-x: hidden; flex: 1 1 auto; scrollbar-width: thin; min-height: 8px; }
 .proj-card { position: relative; background: var(--surface); border: 1px solid var(--border-light); border-radius: 10px; padding: 11px 13px; cursor: grab; box-shadow: var(--shadow-sm, 0 1px 2px rgba(16,24,40,.06)); transition: box-shadow .14s, border-color .14s, transform .14s; }
 .proj-card:hover { box-shadow: var(--shadow); border-color: var(--border); transform: translateY(-1px); z-index: 10; }
 .proj-card:active { cursor: grabbing; }
@@ -330,15 +330,18 @@ textarea.cell-editor { height: auto; min-height: 72px; resize: vertical; positio
 .proj-card-label-wrap .proj-card-label { margin-bottom: 0; transition: transform .1s, box-shadow .1s; }
 .proj-card-label-wrap:hover .proj-card-label { transform: scale(1.08); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lc, #888) 25%, transparent); }
 .label-preview { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
-    width: 264px; max-width: 264px; background: var(--surface); border: 1px solid var(--border);
+    width: 240px; max-width: 240px; background: var(--surface); border: 1px solid var(--border);
     border-radius: 10px; box-shadow: var(--shadow-lg, 0 12px 40px rgba(16,24,40,.18)); overflow: hidden; cursor: default;
-    visibility: hidden; opacity: 0; transform: translateY(-6px);
-    transition: opacity .14s ease, transform .14s ease, visibility 0s linear .14s; }
+    display: none; opacity: 0; transform: translateY(-6px);
+    transition: opacity .16s ease, transform .16s ease, display .16s allow-discrete; }
 /* Puente invisible para no perder el hover al cruzar el espacio hacia el popover. */
 .proj-card-label-wrap::after { content: ""; position: absolute; top: 100%; left: -4px; width: 42px; height: 10px; }
 .proj-card-label-wrap:hover .label-preview, .proj-card-label-wrap:focus-within .label-preview {
-    visibility: visible; opacity: 1; transform: none;
-    transition: opacity .16s ease 2s, transform .16s ease 2s, visibility 0s linear 2s; }
+    display: block; opacity: 1; transform: none;
+    transition: opacity .16s ease 2s, transform .16s ease 2s, display .16s allow-discrete 2s; }
+@starting-style {
+    .proj-card-label-wrap:hover .label-preview, .proj-card-label-wrap:focus-within .label-preview { opacity: 0; transform: translateY(-6px); }
+}
 .label-preview::before { content: ""; position: absolute; top: -5px; left: 11px; width: 9px; height: 9px;
     background: color-mix(in srgb, var(--lc) 16%, var(--surface)); border: 1px solid var(--border);
     border-bottom: none; border-right: none; z-index: 1; transform: rotate(45deg); }
