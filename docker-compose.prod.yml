@@ -1,8 +1,13 @@
 # ---------------------------------------------------------------------------
-# Producción: app + MongoDB, sin puertos de la base expuestos, datos en volúmenes.
-#   cp .env.example .env   (edite las variables)
+# Producción: app + MongoDB + copia de seguridad diaria.
 #   docker compose -f docker-compose.prod.yml up -d --build
-#   App: http://servidor:8080  → ponga delante un proxy con HTTPS (Caddy, Nginx, Traefik).
+# En Coolify, las credenciales se definen en Environment Variables con su
+# NOMBRE FINAL (el que lee .NET), sin variables intermedias:
+#   Authentication__Google__ClientId        = <client id de Google>
+#   Authentication__Google__ClientSecret    = <client secret de Google>
+#   (opcional) Authentication__Google__AllowedDomains__0 = savegresoft.com
+#   (opcional) Authentication__AllowRegistration = false
+# Mongo sí usa variables de compose porque se arman dentro de la cadena de conexión.
 # ---------------------------------------------------------------------------
 services:
   mongo:
@@ -11,7 +16,7 @@ services:
     command: ["mongod", "--wiredTigerCacheSizeGB", "0.5"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-dana}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Defina MONGO_PASSWORD en .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Defina MONGO_PASSWORD}
     volumes:
       - mongo-data:/data/db
     healthcheck:
@@ -32,28 +37,20 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
-    # Sin 'ports' al host: el proxy (Coolify/Traefik) llega al contenedor por la red interna
-    # en el puerto 8080 (ese es el 'Port' del dominio en Coolify). Así no se ocupa ningún
-    # puerto del servidor. Para acceso directo por IP sin proxy, publique un puerto libre, p.ej.:
-    #   ports:
-    #     - "${DANA_PORT:-9000}:8080"
     expose:
       - "8080"
     environment:
+      # Fijos
       ASPNETCORE_ENVIRONMENT: Production
       TZ: ${TZ:-America/Costa_Rica}
       Mongo__ConnectionString: mongodb://${MONGO_USER:-dana}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin
       Mongo__Database: ${MONGO_DB:-dana}
-      Authentication__AllowRegistration: ${ALLOW_REGISTRATION:-true}
-      Authentication__Google__ClientId: ${GOOGLE_CLIENT_ID:-}
-      Authentication__Google__ClientSecret: ${GOOGLE_CLIENT_SECRET:-}
-      Authentication__Google__AllowedDomains__0: ${GOOGLE_ALLOWED_DOMAIN:-}
-      Email__Smtp__Host: ${SMTP_HOST:-}
-      Email__Smtp__Port: ${SMTP_PORT:-587}
-      Email__Smtp__User: ${SMTP_USER:-}
-      Email__Smtp__Password: ${SMTP_PASSWORD:-}
-      Email__Smtp__From: ${SMTP_FROM:-}
-      Email__Smtp__FromName: ${SMTP_FROM_NAME:-Dana CRM}
+      # Definidas en Coolify con su nombre final (vacías aquí = se toman del entorno/Coolify).
+      # Google OAuth2 — necesarias para el botón "Continuar con Google":
+      Authentication__Google__ClientId:
+      Authentication__Google__ClientSecret:
+      # Registro abierto (por defecto true si no se define):
+      Authentication__AllowRegistration:
     volumes:
       - uploads:/app/App_Data
       - keys:/app/keys
@@ -67,7 +64,7 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
 
-  # Copia de seguridad diaria de MongoDB en ./backups (mongodump comprimido, conserva 14 días)
+  # Copia de seguridad diaria de MongoDB en ./backups (conserva 14 días)
   backup:
     image: mongo:7
     restart: unless-stopped
