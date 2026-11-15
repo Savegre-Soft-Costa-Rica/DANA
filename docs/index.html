@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DANA · CRM/ERP open source para pymes y startups</title>
+<meta name="description" content="DANA es un CRM/ERP gratuito y de código abierto (MIT) para pymes y startups: ventas, facturación electrónica de Costa Rica, contabilidad y agentes de IA. Construido con .NET 10 Blazor Server y MongoDB." />
+<meta property="og:title" content="DANA · CRM/ERP open source con IA" />
+<meta property="og:description" content="Ventas, facturación electrónica (CR), contabilidad y agentes de IA en un solo lugar. Gratis, abierto (MIT) y desplegable con Docker en 2 comandos." />
+<meta property="og:type" content="website" />
+<style>
+  :root{
+    --primary:#0073ea; --primary-hover:#0060b9; --accent:#a25ddc;
+    --bg:#f6f7fb; --surface:#ffffff; --surface-2:#f1f3f8;
+    --text:#1f2330; --text-2:#5f6373; --text-3:#8b8fa0;
+    --border:#e6e8ef; --radius:14px;
+    --shadow:0 10px 30px rgba(16,24,40,.08); --shadow-lg:0 24px 60px rgba(16,24,40,.16);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0e1016; --surface:#171a22; --surface-2:#1e222c;
+      --text:#eef0f5; --text-2:#aeb4c2; --text-3:#7e8494; --border:#282d3a;
+      --shadow:0 10px 30px rgba(0,0,0,.4); --shadow-lg:0 24px 60px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1016; --surface:#171a22; --surface-2:#1e222c;
+    --text:#eef0f5; --text-2:#aeb4c2; --text-3:#7e8494; --border:#282d3a;
+    --shadow:0 10px 30px rgba(0,0,0,.4); --shadow-lg:0 24px 60px rgba(0,0,0,.5);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.6;
+    -webkit-font-smoothing:antialiased}
+  a{color:var(--primary);text-decoration:none}
+  .wrap{width:min(1120px,92vw);margin:0 auto}
+  /* Nav */
+  nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(10px);
+    background:color-mix(in srgb,var(--bg) 82%,transparent);border-bottom:1px solid var(--border)}
+  .nav-in{display:flex;align-items:center;gap:16px;padding:14px 0}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:1.15rem;letter-spacing:-.02em}
+  .brand .logo{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;color:#fff;font-weight:900;
+    background:linear-gradient(135deg,var(--primary),var(--accent));box-shadow:var(--shadow)}
+  .nav-links{margin-left:auto;display:flex;gap:22px;align-items:center}
+  .nav-links a{color:var(--text-2);font-weight:600;font-size:.92rem}
+  .nav-links a:hover{color:var(--text)}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:999px;font-weight:700;
+    font-size:.92rem;cursor:pointer;border:1px solid transparent;transition:transform .12s,box-shadow .12s,background .12s}
+  .btn:hover{transform:translateY(-1px)}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:0 6px 18px color-mix(in srgb,var(--primary) 40%,transparent)}
+  .btn-primary:hover{background:var(--primary-hover)}
+  .btn-ghost{background:var(--surface);color:var(--text);border-color:var(--border);box-shadow:var(--shadow)}
+  /* Hero */
+  header.hero{padding:76px 0 64px;text-align:center;position:relative;overflow:hidden}
+  header.hero::before{content:"";position:absolute;inset:-40% 0 auto 0;height:520px;z-index:-1;
+    background:radial-gradient(60% 70% at 50% 0,color-mix(in srgb,var(--primary) 22%,transparent),transparent 70%)}
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;border:1px solid var(--border);
+    background:var(--surface);color:var(--text-2);font-size:.82rem;font-weight:600;box-shadow:var(--shadow)}
+  h1{font-size:clamp(2.1rem,5.5vw,3.6rem);line-height:1.08;letter-spacing:-.03em;margin:22px auto 0;max-width:16ch;font-weight:850}
+  h1 .grad{background:linear-gradient(120deg,var(--primary),var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{max-width:62ch;margin:18px auto 0;color:var(--text-2);font-size:clamp(1.02rem,2.2vw,1.18rem)}
+  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:30px}
+  .badges{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:34px}
+  .badge{font-size:.78rem;font-weight:700;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);
+    border-radius:8px;padding:4px 10px}
+  /* Sections */
+  section{padding:56px 0}
+  .eyebrow{color:var(--primary);font-weight:800;font-size:.8rem;letter-spacing:.08em;text-transform:uppercase}
+  h2{font-size:clamp(1.6rem,3.6vw,2.3rem);letter-spacing:-.02em;margin:8px 0 10px;font-weight:820}
+  .lead{color:var(--text-2);max-width:60ch;margin:0 0 26px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:22px;box-shadow:var(--shadow);
+    transition:transform .14s,box-shadow .14s}
+  .card:hover{transform:translateY(-3px);box-shadow:var(--shadow-lg)}
+  .card .ico{width:44px;height:44px;border-radius:11px;display:grid;place-items:center;font-size:1.3rem;margin-bottom:12px;
+    background:color-mix(in srgb,var(--primary) 12%,transparent)}
+  .card h3{margin:0 0 6px;font-size:1.08rem;letter-spacing:-.01em}
+  .card p{margin:0;color:var(--text-2);font-size:.94rem}
+  /* AI banner */
+  .ai{background:linear-gradient(135deg,color-mix(in srgb,var(--primary) 14%,var(--surface)),color-mix(in srgb,var(--accent) 14%,var(--surface)));
+    border:1px solid var(--border);border-radius:22px;padding:40px;box-shadow:var(--shadow)}
+  .ai .grid{margin-top:22px}
+  .ai .card{background:color-mix(in srgb,var(--surface) 86%,transparent)}
+  /* Code */
+  .code{background:#0d1117;color:#e6edf3;border-radius:var(--radius);padding:20px 22px;overflow:auto;
+    font-family:"SF Mono",ui-monospace,"Cascadia Code",Consolas,monospace;font-size:.88rem;line-height:1.75;box-shadow:var(--shadow-lg)}
+  .code .c{color:#7d8590}
+  .code .p{color:#79c0ff}
+  /* Why list */
+  .why{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+  .why .row{display:flex;gap:12px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);
+    border-radius:12px;padding:16px}
+  .why .k{font-size:1.3rem;line-height:1}
+  .why b{display:block;margin-bottom:2px}
+  .why span{color:var(--text-2);font-size:.92rem}
+  /* Footer */
+  footer{border-top:1px solid var(--border);padding:34px 0;color:var(--text-3);font-size:.9rem}
+  .foot-in{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+  @media (max-width:640px){ .nav-links a:not(.btn){display:none} .ai{padding:26px} }
+</style>
+</head>
+<body>
+<nav>
+  <div class="wrap nav-in">
+    <div class="brand"><span class="logo">D</span> DANA</div>
+    <div class="nav-links">
+      <a href="#funciones">Funciones</a>
+      <a href="#ia">Agentes IA</a>
+      <a href="#inicio">Inicio rápido</a>
+      <a class="btn btn-primary" href="https://github.com/Savegre-Soft-Costa-Rica/DANA" target="_blank" rel="noopener">GitHub ★</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="pill">⚡ Open source · Licencia MIT · Hecho en Costa Rica</span>
+    <h1>El <span class="grad">CRM/ERP open source</span> para pymes y startups</h1>
+    <p class="sub">Ventas, facturación electrónica de Costa Rica, contabilidad y <strong>agentes de IA</strong> que trabajan sobre tus datos reales. Gratis, auditable y sin licencias por usuario.</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="https://github.com/Savegre-Soft-Costa-Rica/DANA" target="_blank" rel="noopener">Ver en GitHub</a>
+      <a class="btn btn-ghost" href="#inicio">Desplegar en 2 comandos →</a>
+    </div>
+    <div class="badges">
+      <span class="badge">.NET 10</span>
+      <span class="badge">Blazor Server</span>
+      <span class="badge">MongoDB 7</span>
+      <span class="badge">Docker</span>
+      <span class="badge">Licencia MIT</span>
+      <span class="badge">Español</span>
+    </div>
+  </div>
+</header>
+
+<section id="funciones">
+  <div class="wrap">
+    <span class="eyebrow">Todo en un solo lugar</span>
+    <h2>Un sistema, toda tu operación</h2>
+    <p class="lead">Desde el primer prospecto hasta la factura, el cobro y el asiento contable. Sin saltar entre herramientas ni pagar por cada usuario que sumas.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">📇</div><h3>CRM comercial</h3><p>Prospectos, contactos, compañías y negociaciones con embudos personalizables y tableros Kanban con arrastrar y soltar (estilo Bitrix24 / monday.com).</p></div>
+      <div class="card"><div class="ico">🧾</div><h3>Facturación electrónica (CR)</h3><p>Emisión desde cotización y envío a Hacienda, suscripciones SaaS con MRR/ARR y planes de pago con enlaces de cobro.</p></div>
+      <div class="card"><div class="ico">📊</div><h3>Contabilidad</h3><p>Partida doble: plan de cuentas, asientos, libro mayor, balance de comprobación, estados financieros y cuentas por cobrar.</p></div>
+      <div class="card"><div class="ico">✍️</div><h3>Documentos y firma</h3><p>Contratos, NDA y propuestas con plantillas, exportación a PDF/Word, versiones restaurables y firma electrónica con enlace público.</p></div>
+      <div class="card"><div class="ico">⚙️</div><h3>Automatizaciones</h3><p>Recetas "cuando X → entonces Y", recordatorios, API pública para formularios de tu sitio y captación de prospectos.</p></div>
+      <div class="card"><div class="ico">📈</div><h3>Informes y vistas</h3><p>Panel configurable con gráficos, previsión de ventas, calendario y cronograma, e importación/exportación a Excel/CSV.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="ia">
+  <div class="wrap">
+    <div class="ai">
+      <span class="eyebrow">Lo que nos hace distintos</span>
+      <h2>Agentes de IA sobre tus datos reales</h2>
+      <p class="lead">Asistentes con un rol (Claude o OpenAI) que operan dentro del sistema — con permisos que tú defines y confirmación antes de actuar. Porque la IA debería trabajar para tu negocio, con tus reglas.</p>
+      <div class="grid">
+        <div class="card"><div class="ico">🤝</div><h3>Vende y da seguimiento</h3><p>Califican prospectos, redactan documentos, emiten facturas y gestionan cobranza, auditados como «usuario · agente».</p></div>
+        <div class="card"><div class="ico">🧠</div><h3>Proactivos y con memoria</h3><p>Rutinas que corren solas, memoria de largo plazo, respuestas en streaming y una oficina virtual colaborativa.</p></div>
+        <div class="card"><div class="ico">🔌</div><h3>Abiertos vía MCP</h3><p>Exponen sus capacidades mediante un servidor MCP y herramientas de función (buscar, crear, facturar, contabilizar…).</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="porque">
+  <div class="wrap">
+    <span class="eyebrow">Por qué open source</span>
+    <h2>Tus datos, bajo tu control</h2>
+    <p class="lead">El software que maneja tus clientes, tus facturas y tu contabilidad no debería ser una caja negra que alquilas por usuario — y menos en la era de la IA.</p>
+    <div class="why">
+      <div class="row"><span class="k">🔓</span><div><b>Transparencia</b><span>Ves exactamente qué hace el sistema (y la IA) con tus datos. Todo auditable.</span></div></div>
+      <div class="row"><span class="k">🏠</span><div><b>Sin lock-in</b><span>Lo despliegas y respaldas donde quieras. Tu información es tuya.</span></div></div>
+      <div class="row"><span class="k">💸</span><div><b>Costo real</b><span>Sin licencias por usuario. Crece de 3 a 30 personas sin castigo.</span></div></div>
+      <div class="row"><span class="k">🌱</span><div><b>Comunidad y futuro</b><span>Lo que una comunidad audita y mejora, perdura. Licencia MIT.</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="inicio">
+  <div class="wrap">
+    <span class="eyebrow">Inicio rápido</span>
+    <h2>En producción con dos comandos</h2>
+    <p class="lead">Con Docker levantas la aplicación y la base de datos. El primer usuario que se registra queda como administrador.</p>
+    <div class="code"><span class="c"># Opción A · Docker (producción)</span>
+cp .env.example .env <span class="c"># configura al menos MONGO_PASSWORD</span>
+docker compose -f docker-compose.prod.yml up -d --build
+<span class="c"># → http://localhost:8080</span>
+
+<span class="c"># Opción B · Desarrollo</span>
+docker compose up -d <span class="c"># MongoDB + mongo-express</span>
+dotnet run <span class="c"># → http://localhost:5025</span></div>
+    <div class="cta" style="justify-content:flex-start;margin-top:26px">
+      <a class="btn btn-primary" href="https://github.com/Savegre-Soft-Costa-Rica/DANA" target="_blank" rel="noopener">Explorar el código</a>
+      <a class="btn btn-ghost" href="https://github.com/Savegre-Soft-Costa-Rica/DANA/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Cómo contribuir</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-in">
+    <div class="brand"><span class="logo">D</span> DANA</div>
+    <div>Licencia MIT © 2026 · Hecho con .NET 10, Blazor &amp; MongoDB</div>
+    <div><a href="https://github.com/Savegre-Soft-Costa-Rica/DANA" target="_blank" rel="noopener">github.com/Savegre-Soft-Costa-Rica/DANA</a></div>
+  </div>
+</footer>
+</body>
+</html>
