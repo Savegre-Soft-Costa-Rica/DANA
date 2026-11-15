@@ -132,6 +132,16 @@ public class UserService
         return user;
     }
 
+    /// <summary>Vincula Google a una cuenta existente ya autenticada (vinculación explícita desde el perfil).
+    /// A diferencia de <see cref="SignInWithGoogleAsync"/>, no crea usuarios ni busca por correo: el emparejamiento
+    /// ya lo validó quien llama (el correo de Google debe coincidir con el de la cuenta).</summary>
+    public async Task LinkGoogleAsync(User user, string? picture)
+    {
+        user.HasGoogle = true;
+        if (!string.IsNullOrWhiteSpace(picture) && string.IsNullOrWhiteSpace(user.Picture)) user.Picture = picture;
+        await _users.UpdateAsync(user);
+    }
+
     public async Task<string?> ChangePasswordAsync(User user, string? currentPassword, string newPassword)
     {
         if (user.PasswordHash is not null)

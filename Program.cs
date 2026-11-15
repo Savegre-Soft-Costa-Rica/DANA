@@ -164,6 +164,33 @@ if (authOptions.Google.IsConfigured)
         options.Events.OnTicketReceived = async ctx =>
         {
             var email = ctx.Principal?.FindFirstValue(ClaimTypes.Email) ?? "";
+            var users = ctx.HttpContext.RequestServices.GetRequiredService<UserService>();
+
+            // --- Modo vinculación: un usuario ya autenticado añade Google a su cuenta (desde /cuenta/perfil).
+            // No crea ni cambia de cuenta: exige que el correo de Google coincida con el de la sesión actual.
+            if (ctx.Properties?.Items.TryGetValue("link_uid", out var linkUid) == true && !string.IsNullOrEmpty(linkUid))
+            {
+                var current = await users.GetAsync(linkUid);
+                if (current is null || !current.IsActive)
+                {
+                    ctx.Response.Redirect("/cuenta/perfil?vinc_error=" + Uri.EscapeDataString("Tu cuenta no está disponible."));
+                    ctx.HandleResponse();
+                    return;
+                }
+                if (!string.Equals(current.Email, UserService.Normalize(email), StringComparison.OrdinalIgnoreCase))
+                {
+                    ctx.Response.Redirect("/cuenta/perfil?vinc_error=" + Uri.EscapeDataString(
+                        $"La cuenta de Google ({email}) no coincide con tu correo ({current.Email}). Vincula la cuenta de Google con ese mismo correo."));
+                    ctx.HandleResponse();
+                    return;
+                }
+                await users.LinkGoogleAsync(current, ctx.Principal?.FindFirstValue("picture"));
+                // Mantiene la sesión como el mismo usuario (refresca claims con la foto si llegó).
+                ctx.Principal = UserService.CreatePrincipal(current);
+                return;
+            }
+
+            // --- Flujo normal: crear cuenta o iniciar sesión con Google. Restricción de dominio (si aplica).
             var domain = email.Contains('@') ? email[(email.IndexOf('@') + 1)..] : "";
             var allowed = authOptions.Google.AllowedDomains;
             if (allowed.Count > 0 && !allowed.Any(d => string.Equals(d, domain, StringComparison.OrdinalIgnoreCase)))
@@ -173,7 +200,6 @@ if (authOptions.Google.IsConfigured)
             }
 
             // Enlazar con el usuario local (se crea si no existe) y emitir nuestros propios claims (id, rol).
-            var users = ctx.HttpContext.RequestServices.GetRequiredService<UserService>();
             var user = await users.SignInWithGoogleAsync(email,
                 ctx.Principal?.FindFirstValue(ClaimTypes.Name),
                 ctx.Principal?.FindFirstValue("picture"));
@@ -244,6 +270,23 @@ app.MapGet("/cuenta/login-google", (string? returnUrl) =>
     var redirect = string.IsNullOrEmpty(returnUrl) || !returnUrl.StartsWith('/') ? "/" : returnUrl;
     return Results.Challenge(new AuthenticationProperties { RedirectUri = redirect }, [GoogleDefaults.AuthenticationScheme]);
 }).AllowAnonymous();
+
+// Vinculación explícita de Google a la cuenta ya autenticada (botón en /cuenta/perfil).
+// Requiere sesión; pasa el id del usuario por el estado del flujo (link_uid) y pre-selecciona su correo en Google.
+app.MapGet("/cuenta/vincular-google", (HttpContext ctx) =>
+{
+    if (!authOptions.Google.IsConfigured) return Results.Redirect("/cuenta/perfil");
+    var uid = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (string.IsNullOrEmpty(uid)) return Results.Redirect("/cuenta/login");
+    var props = new GoogleChallengeProperties
+    {
+        RedirectUri = "/cuenta/perfil?vinculado=1",
+        LoginHint = ctx.User.FindFirstValue(ClaimTypes.Email),
+        Prompt = "select_account",
+    };
+    props.Items["link_uid"] = uid;
+    return Results.Challenge(props, [GoogleDefaults.AuthenticationScheme]);
+}).RequireAuthorization();
 
 app.MapPost("/cuenta/logout", async (HttpContext ctx) =>
 {

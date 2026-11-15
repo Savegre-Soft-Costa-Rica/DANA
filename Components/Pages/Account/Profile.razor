@@ -11,6 +11,7 @@
 @inject CurrentUser Me
 @inject SecretProtector Secrets
 @inject EmailService Email
+@inject AuthOptions Auth
 
 <PageTitle>Dana · Mi cuenta</PageTitle>
 
@@ -164,6 +165,33 @@
                             <ValidationMessage For="() => Input.ConfirmPassword" />
                         </div>
                     </div>
+
+                    @if (Auth.Google.IsConfigured)
+                    {
+                        <hr class="my-3" />
+                        <div class="d-flex align-items-center justify-content-between gap-2">
+                            <div>
+                                <strong>Cuenta de Google</strong>
+                                <div class="small text-muted">
+                                    @(_user.HasGoogle
+                                        ? "Vinculada: puedes iniciar sesión con Google."
+                                        : "Vincula tu cuenta para iniciar sesión con un clic. Debe ser la cuenta de Google con el correo " + _user.Email + ".")
+                                </div>
+                            </div>
+                            @if (_user.HasGoogle)
+                            {
+                                <span class="badge text-bg-success flex-shrink-0">Vinculada</span>
+                            }
+                            else
+                            {
+                                @* Enlace GET: navega al flujo de vinculación sin enviar el formulario. *@
+                                <a class="btn btn-outline-dark btn-sm flex-shrink-0" href="/cuenta/vincular-google">
+                                    <svg width="16" height="16" viewBox="0 0 48 48" class="me-1" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.3l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.6 5.9c4.4-4.1 7-10.1 7-17.6z"/><path fill="#FBBC05" d="M10.5 28.6A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.6l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.3 0 11.7-2.1 15.5-5.7l-7.6-5.9c-2.1 1.4-4.8 2.3-7.9 2.3-6.3 0-11.6-4.1-13.5-9.9l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>
+                                    Vincular
+                                </a>
+                            }
+                        </div>
+                    }
                 </div>
 
                 <div class="ptab-panel" id="panel-correo">
@@ -220,6 +248,8 @@
 @code {
     [CascadingParameter] private HttpContext? HttpContext { get; set; }
     [SupplyParameterFromForm] private InputModel Input { get; set; } = default!;
+    [SupplyParameterFromQuery(Name = "vinculado")] private string? Vinculado { get; set; }
+    [SupplyParameterFromQuery(Name = "vinc_error")] private string? VincError { get; set; }
 
     private static readonly (string Key, string Label)[] Boards =
         [("leads", "Prospectos"), ("deals", "Negociaciones"), ("contacts", "Contactos"), ("companies", "Compañías")];
@@ -244,6 +274,10 @@
         if (_user is null) { Nav.NavigateTo("cuenta/login"); return; }
 
         _teams = (await Perms.GetTeamsAsync()).Where(t => t.Members.Contains(_user.Name)).ToList();
+
+        // Resultado del flujo de vinculación con Google (vuelve por redirección GET con estos parámetros).
+        if (Vinculado == "1" && _user.HasGoogle) _ok = "Cuenta de Google vinculada correctamente.";
+        if (!string.IsNullOrWhiteSpace(VincError)) _error = VincError;
 
         if (HttpContext is null || HttpContext.Request.Method == "GET")
         {
