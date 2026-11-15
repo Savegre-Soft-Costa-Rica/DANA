@@ -192,7 +192,8 @@ if (authOptions.Google.IsConfigured)
 
             // --- Flujo normal: crear cuenta o iniciar sesión con Google. Restricción de dominio (si aplica).
             var domain = email.Contains('@') ? email[(email.IndexOf('@') + 1)..] : "";
-            var allowed = authOptions.Google.AllowedDomains;
+            // Ignora entradas vacías: el compose define AllowedDomains__0 aunque GOOGLE_ALLOWED_DOMAIN esté vacío.
+            var allowed = authOptions.Google.AllowedDomains.Where(d => !string.IsNullOrWhiteSpace(d)).ToList();
             if (allowed.Count > 0 && !allowed.Any(d => string.Equals(d, domain, StringComparison.OrdinalIgnoreCase)))
             {
                 ctx.Fail($"La cuenta {email} no pertenece a un dominio autorizado.");
