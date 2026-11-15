@@ -8,6 +8,8 @@ public static class AccountTypes
     /// <summary>Tipo, etiqueta, color y si su saldo normal es deudor (aumenta con débitos).</summary>
     public static readonly (AccountType Type, string Label, string Color, bool Debit)[] All =
     [
+
+        
         (AccountType.Activo, "Activo", "#0073ea", true),
         (AccountType.Pasivo, "Pasivo", "#e2445c", false),
         (AccountType.Patrimonio, "Patrimonio", "#a25ddc", false),
