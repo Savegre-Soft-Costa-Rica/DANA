@@ -22,6 +22,10 @@ public class User : Entity
     public string? PasswordHash { get; set; }
     public bool HasGoogle { get; set; }
 
+    /// <summary>Correo de la cuenta de Google vinculada (puede diferir de <see cref="Email"/>).
+    /// Permite iniciar sesión con Google aunque el correo de la cuenta sea de otro proveedor (p. ej. Hotmail).</summary>
+    public string? GoogleEmail { get; set; }
+
     public string Role { get; set; } = Roles.User;
     public bool IsActive { get; set; } = true;
     public DateTime? LastLoginAt { get; set; }

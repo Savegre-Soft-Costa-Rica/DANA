@@ -32,6 +32,13 @@ public class UserService
         return await _users.Collection.Find(u => u.Email == e && u.DeletedAt == null).FirstOrDefaultAsync();
     }
 
+    /// <summary>Busca por el correo de la cuenta de Google vinculada (puede diferir del correo de la cuenta).</summary>
+    public async Task<User?> FindByGoogleEmailAsync(string email)
+    {
+        var e = Normalize(email);
+        return await _users.Collection.Find(u => u.GoogleEmail == e && u.DeletedAt == null).FirstOrDefaultAsync();
+    }
+
     /// <summary>Registro con correo y contraseña. El primer usuario registrado es Admin.</summary>
     public async Task<(User? User, string? Error)> RegisterAsync(string email, string name, string password)
     {
@@ -104,10 +111,11 @@ public class UserService
         return user;
     }
 
-    /// <summary>Busca o crea el usuario a partir de una cuenta Google. Devuelve null si el usuario está inactivo.</summary>
+    /// <summary>Busca o crea el usuario a partir de una cuenta Google. Devuelve null si el usuario está inactivo.
+    /// Busca primero por el Google vinculado (puede diferir del correo de la cuenta) y luego por el correo.</summary>
     public async Task<User?> SignInWithGoogleAsync(string email, string? name, string? picture)
     {
-        var user = await FindByEmailAsync(email);
+        var user = await FindByGoogleEmailAsync(email) ?? await FindByEmailAsync(email);
         if (user is null)
         {
             user = new User
@@ -116,6 +124,7 @@ public class UserService
                 Name = string.IsNullOrWhiteSpace(name) ? email : name!,
                 Picture = picture,
                 HasGoogle = true,
+                GoogleEmail = Normalize(email),
                 Role = await _users.CountAsync() == 0 ? Roles.Admin : Roles.User,
                 LastLoginAt = DateTime.UtcNow,
             };
@@ -125,6 +134,7 @@ public class UserService
 
         if (!user.IsActive) return null;
         user.HasGoogle = true;
+        if (string.IsNullOrWhiteSpace(user.GoogleEmail)) user.GoogleEmail = Normalize(email);
         if (!string.IsNullOrWhiteSpace(picture)) user.Picture = picture;
         if (string.IsNullOrWhiteSpace(user.Name) && !string.IsNullOrWhiteSpace(name)) user.Name = name!;
         user.LastLoginAt = DateTime.UtcNow;
@@ -132,12 +142,12 @@ public class UserService
         return user;
     }
 
-    /// <summary>Vincula Google a una cuenta existente ya autenticada (vinculación explícita desde el perfil).
-    /// A diferencia de <see cref="SignInWithGoogleAsync"/>, no crea usuarios ni busca por correo: el emparejamiento
-    /// ya lo validó quien llama (el correo de Google debe coincidir con el de la cuenta).</summary>
-    public async Task LinkGoogleAsync(User user, string? picture)
+    /// <summary>Vincula una cuenta de Google (de cualquier correo) a un usuario ya autenticado.
+    /// Guarda el correo de Google para que iniciar sesión con él lleve a esta cuenta.</summary>
+    public async Task LinkGoogleAsync(User user, string googleEmail, string? picture)
     {
         user.HasGoogle = true;
+        user.GoogleEmail = Normalize(googleEmail);
         if (!string.IsNullOrWhiteSpace(picture) && string.IsNullOrWhiteSpace(user.Picture)) user.Picture = picture;
         await _users.UpdateAsync(user);
     }

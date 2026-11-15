@@ -174,8 +174,8 @@
                                 <strong>Cuenta de Google</strong>
                                 <div class="small text-muted">
                                     @(_user.HasGoogle
-                                        ? "Vinculada: puedes iniciar sesión con Google."
-                                        : "Vincula tu cuenta para iniciar sesión con un clic. Debe ser la cuenta de Google con el correo " + _user.Email + ".")
+                                        ? $"Vinculada a {_user.GoogleEmail ?? _user.Email}: puedes iniciar sesión con Google."
+                                        : "Vincula cualquier cuenta de Google para iniciar sesión con un clic.")
                                 </div>
                             </div>
                             @if (_user.HasGoogle)

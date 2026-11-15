@@ -177,14 +177,17 @@ if (authOptions.Google.IsConfigured)
                     ctx.HandleResponse();
                     return;
                 }
-                if (!string.Equals(current.Email, UserService.Normalize(email), StringComparison.OrdinalIgnoreCase))
+                // Salvaguarda: no vincular una cuenta de Google que ya pertenece a otro usuario
+                // (ni como su correo de inicio de sesión ni como su Google ya vinculado).
+                var owner = await users.FindByGoogleEmailAsync(email) ?? await users.FindByEmailAsync(email);
+                if (owner is not null && owner.Id != current.Id)
                 {
                     ctx.Response.Redirect("/cuenta/perfil?vinc_error=" + Uri.EscapeDataString(
-                        $"La cuenta de Google ({email}) no coincide con tu correo ({current.Email}). Vincula la cuenta de Google con ese mismo correo."));
+                        $"La cuenta de Google {email} ya está asociada a otro usuario ({owner.Email})."));
                     ctx.HandleResponse();
                     return;
                 }
-                await users.LinkGoogleAsync(current, ctx.Principal?.FindFirstValue("picture"));
+                await users.LinkGoogleAsync(current, email, ctx.Principal?.FindFirstValue("picture"));
                 // Mantiene la sesión como el mismo usuario (refresca claims con la foto si llegó).
                 ctx.Principal = UserService.CreatePrincipal(current);
                 return;
