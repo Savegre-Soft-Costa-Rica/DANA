@@ -275,14 +275,14 @@
                 ? new("Servidor MCP (Claude)", "ok", Config.GetValue("Mcp:AllowWrites", true) ? "Activo en /mcp · lectura y escritura." : "Activo en /mcp · solo lectura.", "configuracion/mcp")
                 : new("Servidor MCP (Claude)", "off", "Desactivado · Mcp:Enabled", "configuracion/mcp"),
             Invoices.IsProviderConfigured
-                ? new("Senda · Facturación electrónica CR", "ok", "Conectado: " + (_settings?.Integrations.Senda.BaseUrl ?? Invoices.ProviderName), "configuracion/integraciones")
-                : new("Senda · Facturación electrónica CR", "off", "Sin conectar: solo se pueden crear borradores.", "configuracion/integraciones"),
+                ? new("Senda · Facturación electrónica CR", "ok", "Conectado: " + (_settings?.Integrations.Senda.BaseUrl ?? Invoices.ProviderName), "configuracion/integraciones/senda")
+                : new("Senda · Facturación electrónica CR", "off", "Sin conectar: solo se pueden crear borradores.", "configuracion/integraciones/senda"),
             Integrations.IsWapiConfigured
-                ? new("Wapi · WhatsApp", "ok", "Conectado: " + _settings?.Integrations.Wapi.BaseUrl, "configuracion/integraciones")
-                : new("Wapi · WhatsApp", "off", "Sin conectar · URL y clave de Wapi", "configuracion/integraciones"),
+                ? new("Wapi · WhatsApp", "ok", "Conectado: " + _settings?.Integrations.Wapi.BaseUrl, "configuracion/integraciones/wapi")
+                : new("Wapi · WhatsApp", "off", "Sin conectar · URL y clave de Wapi", "configuracion/integraciones/wapi"),
             Integrations.IsWanConfigured
-                ? new("Wan · Teléfono con IA", "ok", "Conectado: " + _settings?.Integrations.Wan.BaseUrl, "configuracion/integraciones")
-                : new("Wan · Teléfono con IA", "off", "Sin conectar · URL y token de Wan", "configuracion/integraciones"),
+                ? new("Wan · Teléfono con IA", "ok", "Conectado: " + _settings?.Integrations.Wan.BaseUrl, "configuracion/integraciones/wan")
+                : new("Wan · Teléfono con IA", "off", "Sin conectar · URL y token de Wan", "configuracion/integraciones/wan"),
             new("Moneda base", "ok", $"{_settings?.BaseCurrency} · {_settings?.CompanyName}"),
             new("Plataforma", "ok", $".NET {Environment.Version} · {System.Runtime.InteropServices.RuntimeInformation.OSDescription}"),
         ];
