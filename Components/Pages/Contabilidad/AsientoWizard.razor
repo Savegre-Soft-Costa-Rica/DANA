@@ -1,0 +1,210 @@
+@using Dana.Models
+@using Dana.Services.Accounting
+@inject AccountingService Accounting
+
+@* Asistente guiado para crear un asiento de diario en 3 pasos. Úselo desde el libro diario. *@
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Asistente de asiento</span>
+        <button class="btn-ghost btn-sm" @onclick="Cancel" title="Cerrar">✕</button>
+    </div>
+    <div class="card-body">
+
+        @* ---- Indicador de pasos ---- *@
+        <div class="wiz-steps mb-3">
+            @foreach (var (n, label) in Steps)
+            {
+                var state = n < _step ? "done" : n == _step ? "active" : "todo";
+                <div class="wiz-step @state">
+                    <span class="wiz-dot">@(n < _step ? "✓" : n.ToString())</span>
+                    <span class="wiz-label">@label</span>
+                </div>
+            }
+        </div>
+
+        @if (_err is not null) { <div class="alert alert-danger py-2 small">@_err</div> }
+
+        @* ---------- Paso 1: Datos ---------- *@
+        @if (_step == 1)
+        {
+            <p class="muted small mb-3">Datos generales del asiento. La <strong>glosa</strong> explica el movimiento (p. ej. «Venta de contado factura 001»).</p>
+            <div class="row g-2">
+                <div class="col-md-3">
+                    <label class="form-label">Fecha *</label>
+                    <input type="date" class="form-control" @bind="_e.Date" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Descripción / glosa *</label>
+                    <input class="form-control" @bind="_e.Description" placeholder="¿Qué movimiento registra?" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Referencia</label>
+                    <input class="form-control" @bind="_e.Reference" placeholder="Factura, cheque…" />
+                </div>
+            </div>
+        }
+
+        @* ---------- Paso 2: Movimientos ---------- *@
+        @if (_step == 2)
+        {
+            <p class="muted small mb-2">
+                Partida doble: cada línea es un <strong>débito</strong> o un <strong>crédito</strong>, y al final
+                la suma de débitos debe igualar la de créditos.
+            </p>
+            <table class="table table-sm align-middle">
+                <thead><tr><th style="width:40%">Cuenta</th><th>Detalle</th><th class="text-end" style="width:120px">Débito</th><th class="text-end" style="width:120px">Crédito</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var l in _e.Lines)
+                    {
+                        <tr>
+                            <td>
+                                <select class="form-select form-select-sm" @bind="l.AccountCode">
+                                    <option value="">— cuenta —</option>
+                                    @foreach (var a in Postable) { <option value="@a.Code">@a.Code · @a.Name</option> }
+                                </select>
+                            </td>
+                            <td><input class="form-control form-control-sm" @bind="l.Description" /></td>
+                            <td><input type="number" step="any" min="0" class="form-control form-control-sm text-end" @bind="l.Debit" @onfocus="() => l.Credit = 0" /></td>
+                            <td><input type="number" step="any" min="0" class="form-control form-control-sm text-end" @bind="l.Credit" @onfocus="() => l.Debit = 0" /></td>
+                            <td><button class="btn-danger btn-sm" @onclick="() => RemoveLine(l)" disabled="@(_e.Lines.Count <= 2)">✕</button></td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr class="fw-semibold">
+                        <td colspan="2" class="text-end">Totales</td>
+                        <td class="text-end">@_e.TotalDebit.ToString("N2")</td>
+                        <td class="text-end">@_e.TotalCredit.ToString("N2")</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+            <div class="d-flex justify-content-between align-items-center">
+                <button class="btn-secondary btn-sm" @onclick="() => _e.Lines.Add(new JournalLine())">+ Línea</button>
+                @if (_e.Difference == 0 && _e.TotalDebit > 0)
+                {
+                    <span class="badge-soft ok">✓ Cuadrado</span>
+                }
+                else
+                {
+                    <span class="text-danger small">Diferencia: @_e.Difference.ToString("N2")</span>
+                }
+            </div>
+        }
+
+        @* ---------- Paso 3: Revisión ---------- *@
+        @if (_step == 3)
+        {
+            <p class="muted small mb-3">Revise antes de registrar. Un asiento <strong>registrado</strong> ya cuenta en los saldos; si se equivoca, deberá anularlo.</p>
+            <dl class="row mb-3 small">
+                <dt class="col-sm-3">Fecha</dt><dd class="col-sm-9">@_e.Date.ToLocalTime().ToString("dd/MM/yyyy")</dd>
+                <dt class="col-sm-3">Descripción</dt><dd class="col-sm-9">@_e.Description</dd>
+                @if (!string.IsNullOrWhiteSpace(_e.Reference)) { <dt class="col-sm-3">Referencia</dt><dd class="col-sm-9">@_e.Reference</dd> }
+            </dl>
+            <table class="table table-sm mb-2">
+                <thead><tr><th>Cuenta</th><th>Detalle</th><th class="text-end">Débito</th><th class="text-end">Crédito</th></tr></thead>
+                <tbody>
+                    @foreach (var l in _e.Lines.Where(x => x.HasMovement))
+                    {
+                        var acc = Postable.FirstOrDefault(a => a.Code == l.AccountCode);
+                        <tr>
+                            <td class="small">@l.AccountCode · @(acc?.Name)</td>
+                            <td class="small muted">@l.Description</td>
+                            <td class="text-end">@(l.Debit != 0 ? l.Debit.ToString("N2") : "")</td>
+                            <td class="text-end">@(l.Credit != 0 ? l.Credit.ToString("N2") : "")</td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr class="fw-semibold">
+                        <td colspan="2" class="text-end">Totales</td>
+                        <td class="text-end">@_e.TotalDebit.ToString("N2")</td>
+                        <td class="text-end">@_e.TotalCredit.ToString("N2")</td>
+                    </tr>
+                </tfoot>
+            </table>
+            <span class="badge-soft ok">✓ Cuadrado · @_e.TotalDebit.ToString("N2") @_e.Currency</span>
+        }
+    </div>
+
+    <div class="card-footer d-flex justify-content-between">
+        <span>
+            @if (_step > 1) { <button class="btn-secondary" @onclick="Back" disabled="@_busy">← Atrás</button> }
+            else { <button class="btn-secondary" @onclick="Cancel" disabled="@_busy">Cancelar</button> }
+        </span>
+        <span class="d-flex gap-2">
+            @if (_step < 3)
+            {
+                <button class="btn-primary" @onclick="Next">Siguiente →</button>
+            }
+            else
+            {
+                <button class="btn-secondary" @onclick="() => FinishAsync(false)" disabled="@_busy">Guardar borrador</button>
+                <button class="btn-primary" @onclick="() => FinishAsync(true)" disabled="@_busy">Registrar asiento</button>
+            }
+        </span>
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<Account> Postable { get; set; } = new();
+    /// <summary>Se invoca al terminar (registrar o guardar borrador), con un mensaje para mostrar.</summary>
+    [Parameter] public EventCallback<string> OnFinished { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private static readonly (int N, string Label)[] Steps = [(1, "Datos"), (2, "Movimientos"), (3, "Revisar")];
+
+    private JournalEntry _e = new() { Lines = { new JournalLine(), new JournalLine() } };
+    private int _step = 1;
+    private string? _err;
+    private bool _busy;
+
+    private void RemoveLine(JournalLine l)
+    {
+        if (_e.Lines.Count > 2) _e.Lines.Remove(l);
+    }
+
+    private void Next()
+    {
+        _err = null;
+        if (_step == 1)
+        {
+            if (string.IsNullOrWhiteSpace(_e.Description)) { _err = "Escriba una descripción para el asiento."; return; }
+        }
+        else if (_step == 2)
+        {
+            var val = AccountingService.Validate(_e);
+            if (val is not null) { _err = val; return; }
+        }
+        _step++;
+    }
+
+    private void Back()
+    {
+        _err = null;
+        if (_step > 1) _step--;
+    }
+
+    private async Task FinishAsync(bool post)
+    {
+        _err = null;
+        var val = AccountingService.Validate(_e);
+        if (val is not null) { _err = val; _step = 2; return; }
+
+        _busy = true;
+        try
+        {
+            var (ok, error) = await Accounting.SaveDraftAsync(_e);
+            if (!ok) { _err = error; return; }
+            if (post)
+            {
+                var (pok, perror) = await Accounting.PostAsync(_e.Id!);
+                if (!pok) { _err = perror; return; }
+            }
+            await OnFinished.InvokeAsync(post ? "Asiento registrado." : "Borrador guardado.");
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task Cancel() => await OnCancel.InvokeAsync();
+}

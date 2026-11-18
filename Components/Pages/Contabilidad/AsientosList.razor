@@ -11,6 +11,7 @@
         <a class="btn-secondary" href="contabilidad/cuentas">Plan de cuentas</a>
         @if (_isAdmin)
         {
+            <button class="btn-secondary" @onclick="StartWizard" disabled="@(_postable.Count == 0)">✨ Asistente</button>
             <button class="btn-primary" @onclick="NewEntry" disabled="@(_postable.Count == 0)">+ Nuevo asiento</button>
         }
     </Actions>
@@ -20,6 +21,11 @@
 @if (_err is not null) { <div class="alert alert-danger py-2 small">@_err</div> }
 @if (_postable.Count == 0) { <div class="alert alert-warning py-2 small">Primero cree cuentas de detalle en el <a href="contabilidad/cuentas">plan de cuentas</a>.</div> }
 @if (!_isAdmin) { <div class="alert alert-info py-2 small">Solo lectura: crear, registrar, anular y eliminar asientos está reservado a administradores.</div> }
+
+@if (_wizard && _isAdmin)
+{
+    <AsientoWizard Postable="_postable" OnFinished="WizardDone" OnCancel="() => _wizard = false" />
+}
 
 @if (_edit is not null)
 {
@@ -138,6 +144,7 @@ else
     private List<JournalEntry>? _entries;
     private List<Account> _postable = new();
     private JournalEntry? _edit;
+    private bool _wizard;
     private string? _expanded;
     private string? _msg, _err;
     private bool _isAdmin;
@@ -157,7 +164,22 @@ else
     private void NewEntry()
     {
         _err = _msg = null;
+        _wizard = false;
         _edit = new JournalEntry { Lines = { new JournalLine(), new JournalLine() } };
+    }
+
+    private void StartWizard()
+    {
+        _err = _msg = null;
+        _edit = null;
+        _wizard = true;
+    }
+
+    private async Task WizardDone(string message)
+    {
+        _wizard = false;
+        _msg = message; _err = null;
+        await LoadAsync();
     }
 
     private void View(JournalEntry e)
