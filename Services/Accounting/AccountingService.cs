@@ -140,6 +140,11 @@ public class AccountingService
 
     public Task DeleteDraftAsync(string id) => _entries.DeleteAsync(id);
 
+    /// <summary>Borrado físico de un asiento, de cualquier estado (acción de administrador).
+    /// En un asiento registrado deja un hueco en el consecutivo y pierde el rastro: lo normal es anular.
+    /// El control de acceso (solo Admin) se aplica en la interfaz.</summary>
+    public Task DeleteEntryAsync(string id) => _entries.DeleteAsync(id);
+
     private async Task<int> NextNumberAsync()
     {
         var all = await _entries.GetAllAsync();

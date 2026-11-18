@@ -2,19 +2,24 @@
 @using Dana.Services.Accounting
 @inject AccountingService Accounting
 @inject DialogService Dialogs
+@inject CurrentUser Me
 
 <PageTitle>Dana · Libro diario</PageTitle>
 
 <PageHeader Title="Libro diario" Subtitle="Asientos de partida doble. El total de débitos debe igualar al de créditos.">
     <Actions>
         <a class="btn-secondary" href="contabilidad/cuentas">Plan de cuentas</a>
-        <button class="btn-primary" @onclick="NewEntry" disabled="@(_postable.Count == 0)">+ Nuevo asiento</button>
+        @if (_isAdmin)
+        {
+            <button class="btn-primary" @onclick="NewEntry" disabled="@(_postable.Count == 0)">+ Nuevo asiento</button>
+        }
     </Actions>
 </PageHeader>
 
 @if (_msg is not null) { <div class="alert alert-info py-2 small">@_msg</div> }
 @if (_err is not null) { <div class="alert alert-danger py-2 small">@_err</div> }
 @if (_postable.Count == 0) { <div class="alert alert-warning py-2 small">Primero cree cuentas de detalle en el <a href="contabilidad/cuentas">plan de cuentas</a>.</div> }
+@if (!_isAdmin) { <div class="alert alert-info py-2 small">Solo lectura: crear, registrar, anular y eliminar asientos está reservado a administradores.</div> }
 
 @if (_edit is not null)
 {
@@ -96,9 +101,12 @@ else
                         <td class="text-end text-nowrap">@e.TotalDebit.ToString("N2") @e.Currency</td>
                         <td><Badge Text="@st.Label" Color="@st.Color" /></td>
                         <td class="text-end text-nowrap">
-                            <button class="btn-secondary btn-sm" @onclick="() => View(e)">@(e.Status == "draft" ? "Editar" : "Ver")</button>
-                            @if (e.Status == "draft") { <button class="btn-danger btn-sm" @onclick="() => DeleteDraftAsync(e)">✕</button> }
-                            @if (e.Status == "posted") { <button class="btn-danger btn-sm" @onclick="() => VoidAsync(e)">Anular</button> }
+                            <button class="btn-secondary btn-sm" @onclick="() => View(e)">@(e.Status == "draft" && _isAdmin ? "Editar" : "Ver")</button>
+                            @if (_isAdmin)
+                            {
+                                @if (e.Status == "posted") { <button class="btn-danger btn-sm" @onclick="() => VoidAsync(e)">Anular</button> }
+                                <button class="btn-danger btn-sm" title="Eliminar definitivamente" @onclick="() => DeleteAsync(e)">🗑</button>
+                            }
                         </td>
                     </tr>
                     @if (_expanded == e.Id)
@@ -132,8 +140,13 @@ else
     private JournalEntry? _edit;
     private string? _expanded;
     private string? _msg, _err;
+    private bool _isAdmin;
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        _isAdmin = await Me.IsAdminAsync();
+        await LoadAsync();
+    }
 
     private async Task LoadAsync()
     {
@@ -150,7 +163,7 @@ else
     private void View(JournalEntry e)
     {
         _err = _msg = null;
-        if (e.Status == "draft") _edit = e;
+        if (e.Status == "draft" && _isAdmin) _edit = e;
         else _expanded = _expanded == e.Id ? null : e.Id;
     }
 
@@ -182,12 +195,19 @@ else
         await LoadAsync();
     }
 
-    private async Task DeleteDraftAsync(JournalEntry e)
+    private async Task DeleteAsync(JournalEntry e)
     {
-        if (!await Dialogs.ConfirmAsync("¿Eliminar este borrador?")) return;
-        await Accounting.DeleteDraftAsync(e.Id!);
+        if (!_isAdmin) return;
+        var warn = e.Status switch
+        {
+            "posted" => $"¿Eliminar DEFINITIVAMENTE el asiento N.º {e.Number}? Dejará un hueco en el consecutivo y se perderá el rastro contable. Para una corrección auditable use «Anular». ¿Continuar?",
+            "void" => $"¿Eliminar definitivamente este asiento anulado (N.º {e.Number})?",
+            _ => "¿Eliminar este borrador?",
+        };
+        if (!await Dialogs.ConfirmAsync(warn)) return;
+        await Accounting.DeleteEntryAsync(e.Id!);
         if (_edit?.Id == e.Id) _edit = null;
-        _msg = "Borrador eliminado."; _err = null;
+        _msg = "Asiento eliminado."; _err = null;
         await LoadAsync();
     }
 }
