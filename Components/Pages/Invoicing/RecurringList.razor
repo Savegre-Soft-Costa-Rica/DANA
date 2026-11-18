@@ -38,16 +38,16 @@
             <div class="row g-2 mb-3">
                 <div class="col-md-4"><label class="form-label">Nombre *</label><input class="form-control" @bind="_edit.Name" placeholder="p. ej. Licencia SaaS – Cliente X" /></div>
                 <div class="col-md-4"><label class="form-label">Compañía (titular)</label>
-                    <select class="form-select" @bind="_edit.CompanyId">
-                        <option value="">— ninguna —</option>
-                        @foreach (var c in _companies) { <option value="@c.Id">@c.Title</option> }
-                    </select>
+                    <SearchSelect TItem="Company" Items="_companies"
+                                  IdFor="c => c.Id!" LabelFor="c => c.Title" SubFor="c => c.Email"
+                                  @bind-Value="_edit.CompanyId"
+                                  Placeholder="Buscar compañía…" EmptyText="Sin compañías" />
                 </div>
                 <div class="col-md-4"><label class="form-label">Contacto (titular)</label>
-                    <select class="form-select" @bind="_edit.ContactId">
-                        <option value="">— ninguno —</option>
-                        @foreach (var c in _contacts) { <option value="@c.Id">@c.FullName</option> }
-                    </select>
+                    <SearchSelect TItem="Contact" Items="_contacts"
+                                  IdFor="c => c.Id!" LabelFor="c => c.FullName" SubFor="c => c.Email"
+                                  @bind-Value="_edit.ContactId"
+                                  Placeholder="Buscar contacto…" EmptyText="Sin contactos" />
                 </div>
                 <div class="col-md-4"><label class="form-label">Receptor (factura) *</label><input class="form-control" @bind="_edit.ReceiverName" /></div>
                 <div class="col-md-4"><label class="form-label">Identificación *</label><input class="form-control" @bind="_edit.ReceiverId" /></div>
