@@ -1,0 +1,65 @@
+.jd-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.jd-stat {
+    flex: 1;
+    min-width: 130px;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    box-shadow: var(--shadow-sm);
+}
+
+.jd-stat-val {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+}
+
+.jd-stat-lbl {
+    font-size: .72rem;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    margin-top: 2px;
+}
+
+.jd-stat.ok .jd-stat-val { color: var(--success); }
+.jd-stat.muted-stat .jd-stat-val { color: var(--text-2); }
+
+.jd-amt { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.jd-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    align-items: center;
+}
+
+.jd-del { color: var(--danger); }
+.jd-del:hover { background: var(--danger); color: #fff; }
+
+.jd-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+.jd-detail > td { background: var(--bg); }
+
+.jd-empty-filter {
+    padding: 24px;
+    text-align: center;
+    color: var(--text-3);
+}

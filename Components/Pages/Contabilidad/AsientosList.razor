@@ -89,48 +89,105 @@
 }
 
 @if (_entries is null) { <p class="muted">Cargando…</p> }
-else if (_entries.Count == 0 && _edit is null) { <div class="empty-state">Aún no hay asientos. Cree el primero con “+ Nuevo asiento”.</div> }
-else
+else if (_entries.Count == 0 && _edit is null && !_wizard) { <div class="empty-state">Aún no hay asientos. Cree el primero con “@(_isAdmin ? "+ Nuevo asiento" : "")” o el asistente.</div> }
+else if (_entries.Count > 0)
 {
+    @* ---- Resumen ---- *@
+    <div class="jd-summary">
+        <div class="jd-stat ok">
+            <div class="jd-stat-val">@CountOf("posted")</div>
+            <div class="jd-stat-lbl">Registrados</div>
+        </div>
+        <div class="jd-stat">
+            <div class="jd-stat-val jd-amt">@PostedTotal.ToString("N2") <small class="muted" style="font-size:.7rem">CRC</small></div>
+            <div class="jd-stat-lbl">Total registrado</div>
+        </div>
+        <div class="jd-stat muted-stat">
+            <div class="jd-stat-val">@CountOf("draft")</div>
+            <div class="jd-stat-lbl">Borradores</div>
+        </div>
+        <div class="jd-stat muted-stat">
+            <div class="jd-stat-val">@CountOf("void")</div>
+            <div class="jd-stat-lbl">Anulados</div>
+        </div>
+    </div>
+
+    @* ---- Filtros ---- *@
+    <div class="toolbar">
+        <div class="search">
+            <span aria-hidden="true">🔎</span>
+            <input placeholder="Buscar descripción, referencia o N.º…" @bind="_q" @bind:event="oninput" />
+        </div>
+        <select @bind="_statusFilter">
+            <option value="">Todos los estados</option>
+            @foreach (var s in JournalStatuses.All) { <option value="@s.Id">@s.Label</option> }
+        </select>
+        <label class="muted small">Desde <input type="date" class="form-control form-control-sm d-inline-block" style="width:auto" @bind="_from" /></label>
+        <label class="muted small">Hasta <input type="date" class="form-control form-control-sm d-inline-block" style="width:auto" @bind="_to" /></label>
+        @if (AnyFilter)
+        {
+            <button class="tool" @onclick="ClearFilters">✕ Limpiar</button>
+            <span class="muted small">@_filtered.Count de @_entries.Count</span>
+        }
+    </div>
+
     <div class="table-responsive">
         <table class="table table-hover align-middle">
-            <thead><tr><th style="width:70px">N.º</th><th>Fecha</th><th>Descripción</th><th>Referencia</th><th class="text-end">Monto</th><th>Estado</th><th></th></tr></thead>
+            <thead><tr><th style="width:60px">N.º</th><th style="width:110px">Fecha</th><th>Descripción</th><th>Referencia</th><th class="text-end" style="width:150px">Monto</th><th style="width:110px">Estado</th><th style="width:140px"></th></tr></thead>
             <tbody>
-                @foreach (var e in _entries.OrderByDescending(x => x.Date).ThenByDescending(x => x.Number))
+                @if (_filtered.Count == 0)
+                {
+                    <tr><td colspan="7"><div class="jd-empty-filter">No hay asientos que coincidan con el filtro.</div></td></tr>
+                }
+                @foreach (var e in _filtered)
                 {
                     var st = JournalStatuses.Get(e.Status);
+                    var isOpen = _expanded == e.Id;
                     <tr>
-                        <td class="small">@(e.Number > 0 ? e.Number.ToString() : "—")</td>
+                        <td class="small muted">@(e.Number > 0 ? e.Number.ToString() : "—")</td>
                         <td class="small text-nowrap">@e.Date.ToLocalTime().ToString("dd/MM/yyyy")</td>
                         <td>@e.Description</td>
                         <td class="small muted">@e.Reference</td>
-                        <td class="text-end text-nowrap">@e.TotalDebit.ToString("N2") @e.Currency</td>
+                        <td class="text-end jd-amt">@e.TotalDebit.ToString("N2") <small class="muted">@e.Currency</small></td>
                         <td><Badge Text="@st.Label" Color="@st.Color" /></td>
-                        <td class="text-end text-nowrap">
-                            <button class="btn-secondary btn-sm" @onclick="() => View(e)">@(e.Status == "draft" && _isAdmin ? "Editar" : "Ver")</button>
-                            @if (_isAdmin)
-                            {
-                                @if (e.Status == "posted") { <button class="btn-danger btn-sm" @onclick="() => VoidAsync(e)">Anular</button> }
-                                <button class="btn-danger btn-sm" title="Eliminar definitivamente" @onclick="() => DeleteAsync(e)">🗑</button>
-                            }
+                        <td>
+                            <div class="jd-actions">
+                                <button class="btn-secondary btn-sm" title="@(e.Status == "draft" && _isAdmin ? "Editar borrador" : isOpen ? "Ocultar detalle" : "Ver detalle")" @onclick="() => View(e)">
+                                    @(e.Status == "draft" && _isAdmin ? "Editar" : isOpen ? "Ocultar" : "Ver")
+                                </button>
+                                @if (_isAdmin)
+                                {
+                                    @if (e.Status == "posted") { <button class="btn-secondary btn-sm" title="Anular (reversa auditable)" @onclick="() => VoidAsync(e)">Anular</button> }
+                                    <button class="icon-btn jd-del" title="Eliminar definitivamente" @onclick="() => DeleteAsync(e)">
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                    </button>
+                                }
+                            </div>
                         </td>
                     </tr>
-                    @if (_expanded == e.Id)
+                    @if (isOpen)
                     {
-                        <tr><td></td><td colspan="6">
+                        <tr class="jd-detail"><td></td><td colspan="6">
                             <table class="table table-sm mb-0">
                                 <thead><tr><th>Cuenta</th><th>Detalle</th><th class="text-end">Débito</th><th class="text-end">Crédito</th></tr></thead>
                                 <tbody>
-                                    @foreach (var l in e.Lines)
+                                    @foreach (var l in e.Lines.Where(x => x.HasMovement))
                                     {
                                         <tr>
-                                            <td class="small">@l.AccountCode · @l.AccountName</td>
+                                            <td class="small"><span class="jd-dot" style="background:@AccColor(l.AccountCode)"></span>@l.AccountCode · @l.AccountName</td>
                                             <td class="small muted">@l.Description</td>
-                                            <td class="text-end">@(l.Debit != 0 ? l.Debit.ToString("N2") : "")</td>
-                                            <td class="text-end">@(l.Credit != 0 ? l.Credit.ToString("N2") : "")</td>
+                                            <td class="text-end jd-amt">@(l.Debit != 0 ? l.Debit.ToString("N2") : "")</td>
+                                            <td class="text-end jd-amt">@(l.Credit != 0 ? l.Credit.ToString("N2") : "")</td>
                                         </tr>
                                     }
                                 </tbody>
+                                <tfoot>
+                                    <tr class="fw-semibold">
+                                        <td colspan="2" class="text-end small">Totales</td>
+                                        <td class="text-end jd-amt">@e.TotalDebit.ToString("N2")</td>
+                                        <td class="text-end jd-amt">@e.TotalCredit.ToString("N2")</td>
+                                    </tr>
+                                </tfoot>
                             </table>
                         </td></tr>
                     }
@@ -148,6 +205,33 @@ else
     private string? _expanded;
     private string? _msg, _err;
     private bool _isAdmin;
+
+    // Filtros
+    private string _q = "";
+    private string _statusFilter = "";
+    private DateTime? _from, _to;
+
+    private List<JournalEntry> _filtered => (_entries ?? new())
+        .Where(e => _statusFilter == "" || e.Status == _statusFilter)
+        .Where(e => _from is null || e.Date.Date >= _from.Value.Date)
+        .Where(e => _to is null || e.Date.Date <= _to.Value.Date)
+        .Where(e => string.IsNullOrWhiteSpace(_q)
+            || (e.Description ?? "").Contains(_q, StringComparison.OrdinalIgnoreCase)
+            || (e.Reference ?? "").Contains(_q, StringComparison.OrdinalIgnoreCase)
+            || e.Number.ToString().Contains(_q))
+        .OrderByDescending(e => e.Date).ThenByDescending(e => e.Number)
+        .ToList();
+
+    private bool AnyFilter => !string.IsNullOrWhiteSpace(_q) || _statusFilter != "" || _from is not null || _to is not null;
+    private void ClearFilters() { _q = ""; _statusFilter = ""; _from = _to = null; }
+
+    private int CountOf(string status) => _entries?.Count(e => e.Status == status) ?? 0;
+    private decimal PostedTotal => _entries?.Where(e => e.Status == "posted").Sum(e => e.TotalDebit) ?? 0;
+    private string AccColor(string code)
+    {
+        var a = _postable.FirstOrDefault(x => x.Code == code);
+        return a is null ? "var(--border)" : AccountTypes.Color(a.Type);
+    }
 
     protected override async Task OnInitializedAsync()
     {
