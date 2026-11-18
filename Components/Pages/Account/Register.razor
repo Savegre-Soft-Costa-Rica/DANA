@@ -97,6 +97,13 @@
             return;
         }
 
+        // Auto-registro pendiente de aprobación: no se inicia sesión hasta que un admin lo active.
+        if (!user.IsActive)
+        {
+            Nav.NavigateTo("cuenta/login?pendiente=1");
+            return;
+        }
+
         await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, UserService.CreatePrincipal(user),
             new AuthenticationProperties { IsPersistent = true });
         Nav.NavigateTo(SafeReturnUrl);

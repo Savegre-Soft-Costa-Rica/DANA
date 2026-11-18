@@ -46,11 +46,15 @@ public class UserService
         if (await FindByEmailAsync(e) is not null)
             return (null, "Ya existe una cuenta con ese correo.");
 
+        // El primer usuario es Admin y queda activo (sin él nadie podría entrar);
+        // el resto de auto-registros quedan inactivos hasta que un administrador los active.
+        var isFirst = await _users.CountAsync() == 0;
         var user = new User
         {
             Email = e,
             Name = string.IsNullOrWhiteSpace(name) ? e : name.Trim(),
-            Role = await _users.CountAsync() == 0 ? Roles.Admin : Roles.User,
+            Role = isFirst ? Roles.Admin : Roles.User,
+            IsActive = isFirst,
         };
         user.PasswordHash = _hasher.HashPassword(user, password);
         try
@@ -118,6 +122,9 @@ public class UserService
         var user = await FindByGoogleEmailAsync(email) ?? await FindByEmailAsync(email);
         if (user is null)
         {
+            // Igual que el registro con contraseña: el primero es Admin activo; el resto queda
+            // inactivo hasta que un administrador lo active. Quien llama revisa IsActive.
+            var isFirst = await _users.CountAsync() == 0;
             user = new User
             {
                 Email = Normalize(email),
@@ -125,7 +132,8 @@ public class UserService
                 Picture = picture,
                 HasGoogle = true,
                 GoogleEmail = Normalize(email),
-                Role = await _users.CountAsync() == 0 ? Roles.Admin : Roles.User,
+                Role = isFirst ? Roles.Admin : Roles.User,
+                IsActive = isFirst,
                 LastLoginAt = DateTime.UtcNow,
             };
             await _users.InsertAsync(user);

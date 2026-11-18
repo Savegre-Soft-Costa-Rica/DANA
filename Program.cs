@@ -209,7 +209,12 @@ if (authOptions.Google.IsConfigured)
                 ctx.Principal?.FindFirstValue("picture"));
             if (user is null)
             {
-                ctx.Fail("La cuenta está desactivada.");
+                ctx.Fail("La cuenta está desactivada. Contacta a un administrador.");
+                return;
+            }
+            if (!user.IsActive)
+            {
+                ctx.Fail("Tu cuenta fue creada y está pendiente de activación por un administrador.");
                 return;
             }
             ctx.Principal = UserService.CreatePrincipal(user);
